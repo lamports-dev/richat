@@ -1,7 +1,4 @@
-use {
-    super::{Account, Entry, Slot, Transaction},
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
-};
+use super::{Account, BlockMeta, Entry, Slot, Transaction};
 
 #[derive(Debug)]
 pub enum ProtobufMessage<'a> {
@@ -9,9 +6,7 @@ pub enum ProtobufMessage<'a> {
     Slot(Slot<'a>),
     Transaction(Transaction),
     Entry(Entry<'a>),
-    BlockMeta {
-        blockinfo: &'a ReplicaBlockInfoV4<'a>,
-    },
+    BlockMeta(BlockMeta<'a>),
 }
 
 impl<'a> ProtobufMessage<'a> {

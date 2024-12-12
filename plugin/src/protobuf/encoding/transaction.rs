@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode_raw, bytes_encoded_len, field_encoded_len},
+    super::{bytes_encode, bytes_encoded_len, field_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     prost::encoding::{self, encode_key, encode_varint, message, WireType},
     solana_sdk::clock::Slot,
@@ -18,11 +18,13 @@ impl super::super::Message for Transaction {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.transaction_encoded_len() as u64, buf);
 
-        bytes_encode_raw(1, self.transaction.signature.as_ref(), buf);
+        bytes_encode(1, self.transaction.signature.as_ref(), buf);
         encoding::bool::encode(2, &self.transaction.is_vote, buf);
         message::encode(3, &self.transaction.transaction, buf);
         message::encode(4, &self.transaction.transaction_status_meta, buf);
         encoding::uint64::encode(5, &index, buf);
+
+        encoding::uint64::encode(2, &self.slot, buf)
     }
     fn encoded_len(&self) -> usize {
         field_encoded_len(1, self.transaction_encoded_len())
@@ -51,8 +53,8 @@ impl Transaction {
 mod proto {
     mod convert_to {
         use {
+            crate::protobuf::encoding::proto::convert_to,
             solana_sdk::{
-                clock::UnixTimestamp,
                 instruction::CompiledInstruction,
                 message::{
                     v0::{LoadedMessage, MessageAddressTableLookup},
@@ -64,8 +66,7 @@ mod proto {
                 transaction_context::TransactionReturnData,
             },
             solana_transaction_status::{
-                InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
-                TransactionTokenBalance,
+                InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
             },
         };
 
@@ -177,7 +178,10 @@ mod proto {
                 .as_deref()
                 .map(create_token_balances)
                 .unwrap_or_default();
-            let rewards = rewards.as_deref().map(create_rewards).unwrap_or_default();
+            let rewards = rewards
+                .as_deref()
+                .map(convert_to::create_rewards)
+                .unwrap_or_default();
             let loaded_writable_addresses = create_pubkeys(&loaded_addresses.writable);
             let loaded_readonly_addresses = create_pubkeys(&loaded_addresses.readonly);
 
@@ -263,61 +267,16 @@ mod proto {
             }
         }
 
-        pub fn create_rewards_obj(
-            rewards: &[Reward],
-            num_partitions: Option<u64>,
-        ) -> super::Rewards {
-            super::Rewards {
-                rewards: create_rewards(rewards),
-                num_partitions: num_partitions.map(create_num_partitions),
-            }
-        }
-
-        pub fn create_rewards(rewards: &[Reward]) -> Vec<super::Reward> {
-            rewards.iter().map(create_reward).collect()
-        }
-
-        pub fn create_reward(reward: &Reward) -> super::Reward {
-            super::Reward {
-                pubkey: reward.pubkey.clone(),
-                lamports: reward.lamports,
-                post_balance: reward.post_balance,
-                reward_type: create_reward_type(reward.reward_type) as i32,
-                commission: reward.commission.map(|c| c.to_string()).unwrap_or_default(), // TODO: try to remove allocation
-            }
-        }
-
-        pub const fn create_reward_type(reward_type: Option<RewardType>) -> super::RewardType {
-            match reward_type {
-                None => super::RewardType::Unspecified,
-                Some(RewardType::Fee) => super::RewardType::Fee,
-                Some(RewardType::Rent) => super::RewardType::Rent,
-                Some(RewardType::Staking) => super::RewardType::Staking,
-                Some(RewardType::Voting) => super::RewardType::Voting,
-            }
-        }
-
-        pub const fn create_num_partitions(num_partitions: u64) -> super::NumPartitions {
-            super::NumPartitions { num_partitions }
-        }
-
         pub fn create_return_data(return_data: &TransactionReturnData) -> super::ReturnData {
             super::ReturnData {
                 program_id: return_data.program_id.to_bytes().into(),
                 data: return_data.data.clone(),
             }
         }
-
-        pub const fn create_block_height(block_height: u64) -> super::BlockHeight {
-            super::BlockHeight { block_height }
-        }
-
-        pub const fn create_timestamp(timestamp: UnixTimestamp) -> super::UnixTimestamp {
-            super::UnixTimestamp { timestamp }
-        }
     }
 
     use {
+        crate::protobuf::encoding::proto,
         agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
         solana_sdk::{pubkey::Pubkey, signature::Signature},
         std::collections::HashSet,
@@ -423,7 +382,7 @@ mod proto {
         #[prost(message, repeated, tag = "8")]
         pub post_token_balances: Vec<TokenBalance>,
         #[prost(message, repeated, tag = "9")]
-        pub rewards: Vec<Reward>,
+        pub rewards: Vec<proto::Reward>,
         #[prost(bytes = "vec", repeated, tag = "12")]
         pub loaded_writable_addresses: Vec<Vec<u8>>,
         #[prost(bytes = "vec", repeated, tag = "13")]
@@ -504,83 +463,5 @@ mod proto {
         pub program_id: Vec<u8>,
         #[prost(bytes = "vec", tag = "2")]
         pub data: Vec<u8>,
-    }
-
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Reward {
-        #[prost(string, tag = "1")]
-        pub pubkey: String,
-        #[prost(int64, tag = "2")]
-        pub lamports: i64,
-        #[prost(uint64, tag = "3")]
-        pub post_balance: u64,
-        #[prost(enumeration = "RewardType", tag = "4")]
-        pub reward_type: i32,
-        #[prost(string, tag = "5")]
-        pub commission: String,
-    }
-
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct Rewards {
-        #[prost(message, repeated, tag = "1")]
-        pub rewards: Vec<Reward>,
-        #[prost(message, optional, tag = "2")]
-        pub num_partitions: Option<NumPartitions>,
-    }
-
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct UnixTimestamp {
-        #[prost(int64, tag = "1")]
-        pub timestamp: i64,
-    }
-
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct BlockHeight {
-        #[prost(uint64, tag = "1")]
-        pub block_height: u64,
-    }
-
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct NumPartitions {
-        #[prost(uint64, tag = "1")]
-        pub num_partitions: u64,
-    }
-
-    #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum RewardType {
-        Unspecified = 0,
-        Fee = 1,
-        Rent = 2,
-        Staking = 3,
-        Voting = 4,
-    }
-
-    impl RewardType {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                RewardType::Unspecified => "Unspecified",
-                RewardType::Fee => "Fee",
-                RewardType::Rent => "Rent",
-                RewardType::Staking => "Staking",
-                RewardType::Voting => "Voting",
-            }
-        }
-
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "Unspecified" => Some(Self::Unspecified),
-                "Fee" => Some(Self::Fee),
-                "Rent" => Some(Self::Rent),
-                "Staking" => Some(Self::Staking),
-                "Voting" => Some(Self::Voting),
-                _ => None,
-            }
-        }
     }
 }

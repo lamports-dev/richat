@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode_raw, bytes_encoded_len},
+    super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
     prost::encoding,
 };
@@ -17,7 +17,7 @@ impl<'a> super::super::Message for Entry<'a> {
         encoding::uint64::encode(1, &self.entry.slot, buf);
         encoding::uint64::encode(2, &index, buf);
         encoding::uint64::encode(3, &self.entry.num_hashes, buf);
-        bytes_encode_raw(4, self.entry.hash, buf);
+        bytes_encode(4, self.entry.hash, buf);
         encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf);
         encoding::uint64::encode(6, &starting_transaction_index, buf)
     }

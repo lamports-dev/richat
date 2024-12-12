@@ -3,7 +3,7 @@ use {
         channel::GeyserMessages,
         config::Config,
         metrics::PrometheusService,
-        protobuf::{encoding, Account, Entry, ProtobufMessage, Transaction},
+        protobuf::{encoding, Account, BlockMeta, Entry, ProtobufMessage, Transaction},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -199,9 +199,10 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner
-            .messages
-            .push(blockinfo.slot, ProtobufMessage::BlockMeta { blockinfo });
+        inner.messages.push(
+            blockinfo.slot,
+            ProtobufMessage::BlockMeta(BlockMeta::from(blockinfo)),
+        );
 
         Ok(())
     }

@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode_raw, bytes_encoded_len, field_encoded_len},
+    super::{bytes_encode, bytes_encoded_len, field_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     prost::encoding::{self, encode_key, encode_varint, WireType},
     solana_sdk::clock::Slot,
@@ -15,16 +15,16 @@ impl<'a> super::super::Message for Account<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.account_encoded_len() as u64, buf);
-
-        bytes_encode_raw(1, self.account.pubkey.as_ref(), buf);
+        bytes_encode(1, self.account.pubkey.as_ref(), buf);
         encoding::uint64::encode(2, &self.account.lamports, buf);
-        bytes_encode_raw(3, self.account.owner.as_ref(), buf);
+        bytes_encode(3, self.account.owner.as_ref(), buf);
         encoding::bool::encode(4, &self.account.executable, buf);
         encoding::uint64::encode(5, &self.account.rent_epoch, buf);
         encoding::uint64::encode(6, &self.account.write_version, buf);
         self.account
             .txn
-            .map(|txn| bytes_encode_raw(7, txn.signature().as_ref(), buf));
+            .map(|txn| bytes_encode(7, txn.signature().as_ref(), buf));
+
         encoding::uint64::encode(2, &self.slot, buf)
     }
     fn encoded_len(&self) -> usize {
