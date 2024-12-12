@@ -1,7 +1,9 @@
 use {
     crate::{
-        channel::GeyserMessages, config::Config, metrics::PrometheusService,
-        protobuf::ProtobufMessage,
+        channel::GeyserMessages,
+        config::Config,
+        metrics::PrometheusService,
+        protobuf::{Account, ProtobufMessage},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -119,7 +121,7 @@ impl GeyserPlugin for Plugin {
             let inner = self.inner.as_ref().expect("initialized");
             inner
                 .messages
-                .push(slot, ProtobufMessage::Account { slot, account });
+                .push(slot, ProtobufMessage::Account(Account::new(slot, account)));
         }
 
         Ok(())

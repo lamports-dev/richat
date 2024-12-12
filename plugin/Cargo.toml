@@ -29,6 +29,7 @@ hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 lazy_static = { workspace = true }
 log = { workspace = true }
+prost = { workspace = true }
 prometheus = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
