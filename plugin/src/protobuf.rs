@@ -30,7 +30,8 @@ pub enum ProtobufMessage<'a> {
 }
 
 impl<'a> ProtobufMessage<'a> {
-    pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
+    #[allow(clippy::ptr_arg)]
+    pub fn encode(&self, _buffer: &mut Vec<u8>) -> Vec<u8> {
         todo!()
     }
 }

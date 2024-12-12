@@ -1,0 +1,42 @@
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'master'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          # - ubuntu-20.04
+          - ubuntu-22.04
+          # - ubuntu-24.04
+    runs-on: ["${{ matrix.os }}"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: fanatid/rust-github-ci-prepare@master
+
+      - name: cargo deny check advisories
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check advisories
+
+      - name: run clippy
+        run: cargo clippy --workspace --all-targets
+
+      # TODO
+      # - name: check features in `richat`
+      #   run: cargo check -p richat --all-targets
+
+      - name: run test
+        run: cargo test --all-targets
