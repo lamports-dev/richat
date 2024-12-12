@@ -51,7 +51,7 @@ impl<'a> Slot<'a> {
     }
 }
 
-fn slot_status_as_i32(status: &SlotStatus) -> i32 {
+const fn slot_status_as_i32(status: &SlotStatus) -> i32 {
     match status {
         SlotStatus::Processed => 0,
         SlotStatus::Rooted => 1,
@@ -63,7 +63,7 @@ fn slot_status_as_i32(status: &SlotStatus) -> i32 {
     }
 }
 
-fn is_slot_status_dead(status: &SlotStatus) -> Option<&String> {
+const fn is_slot_status_dead(status: &SlotStatus) -> Option<&String> {
     if let SlotStatus::Dead(dead) = status {
         Some(dead)
     } else {

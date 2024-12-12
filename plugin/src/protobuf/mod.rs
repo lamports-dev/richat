@@ -2,7 +2,7 @@ pub mod encoding;
 pub mod message;
 
 pub use self::{
-    encoding::{Account, MessageTransactionInfo, Slot, Transaction, TransactionStatusMeta},
+    encoding::{Account, Slot, Transaction},
     message::ProtobufMessage,
 };
 

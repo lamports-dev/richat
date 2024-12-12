@@ -9,7 +9,7 @@ use {
 pub enum ProtobufMessage<'a> {
     Account(Account<'a>),
     Slot(Slot<'a>),
-    Transaction(Transaction<'a>),
+    Transaction(Transaction),
     Entry {
         entry: &'a ReplicaEntryInfoV2<'a>,
     },

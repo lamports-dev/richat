@@ -2519,6 +2519,7 @@ dependencies = [
  "affinity",
  "agave-geyser-plugin-interface",
  "anyhow",
+ "bincode",
  "cargo-lock",
  "clap",
  "git-version",
@@ -2535,6 +2536,7 @@ dependencies = [
  "serde_json",
  "solana-logger",
  "solana-sdk",
+ "solana-transaction-status",
  "tokio",
  "vergen",
 ]
