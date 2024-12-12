@@ -1,7 +1,10 @@
 pub mod encoding;
 pub mod message;
 
-pub use self::{encoding::Account, message::ProtobufMessage};
+pub use self::{
+    encoding::{Account, MessageTransactionInfo, Slot, Transaction, TransactionStatusMeta},
+    message::ProtobufMessage,
+};
 
 pub trait Message {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut);

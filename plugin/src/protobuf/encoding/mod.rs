@@ -4,8 +4,14 @@ use prost::{
 };
 
 pub mod account;
+pub mod slot;
+pub mod transaction;
 
-pub use account::Account;
+pub use self::{
+    account::Account,
+    slot::Slot,
+    transaction::{MessageTransactionInfo, Transaction, TransactionStatusMeta},
+};
 
 #[inline]
 pub fn field_encoded_len(tag: u32, len: usize) -> usize {

@@ -1,24 +1,15 @@
 use {
+    super::encoding::{Account, Slot, Transaction},
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2, SlotStatus,
+        ReplicaBlockInfoV4, ReplicaEntryInfoV2,
     },
-    solana_sdk::clock::Slot,
 };
-
-use super::encoding::Account;
 
 #[derive(Debug)]
 pub enum ProtobufMessage<'a> {
     Account(Account<'a>),
-    Slot {
-        slot: Slot,
-        parent: Option<u64>,
-        status: &'a SlotStatus,
-    },
-    Transaction {
-        slot: Slot,
-        transaction: &'a ReplicaTransactionInfoV2<'a>,
-    },
+    Slot(Slot<'a>),
+    Transaction(Transaction<'a>),
     Entry {
         entry: &'a ReplicaEntryInfoV2<'a>,
     },
