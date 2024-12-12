@@ -1,8 +1,6 @@
 use {
-    super::encoding::{Account, Slot, Transaction},
-    agave_geyser_plugin_interface::geyser_plugin_interface::{
-        ReplicaBlockInfoV4, ReplicaEntryInfoV2,
-    },
+    super::{Account, Entry, Slot, Transaction},
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
 };
 
 #[derive(Debug)]
@@ -10,9 +8,7 @@ pub enum ProtobufMessage<'a> {
     Account(Account<'a>),
     Slot(Slot<'a>),
     Transaction(Transaction),
-    Entry {
-        entry: &'a ReplicaEntryInfoV2<'a>,
-    },
+    Entry(Entry<'a>),
     BlockMeta {
         blockinfo: &'a ReplicaBlockInfoV4<'a>,
     },

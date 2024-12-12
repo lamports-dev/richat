@@ -4,10 +4,11 @@ use prost::{
 };
 
 pub mod account;
+pub mod entry;
 pub mod slot;
 pub mod transaction;
 
-pub use self::{account::Account, slot::Slot, transaction::Transaction};
+pub use self::{account::Account, entry::Entry, slot::Slot, transaction::Transaction};
 
 #[inline]
 pub fn field_encoded_len(tag: u32, len: usize) -> usize {

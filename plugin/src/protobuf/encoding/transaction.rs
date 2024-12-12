@@ -1,13 +1,14 @@
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2;
-use prost::encoding::{self, encode_key, encode_varint, message, WireType};
-use solana_sdk::clock::Slot;
-
-use super::{bytes_encode_raw, bytes_encoded_len, field_encoded_len};
+use {
+    super::{bytes_encode_raw, bytes_encoded_len, field_encoded_len},
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+    prost::encoding::{self, encode_key, encode_varint, message, WireType},
+    solana_sdk::clock::Slot,
+};
 
 #[derive(Debug)]
 pub struct Transaction {
     slot: Slot,
-    transaction: proto::MessageTransactionInfo,
+    transaction: proto::TransactionInfo,
 }
 
 impl super::super::Message for Transaction {
@@ -33,7 +34,7 @@ impl Transaction {
     pub fn new(slot: Slot, transaction: &ReplicaTransactionInfoV2<'_>) -> Self {
         Self {
             slot,
-            transaction: proto::MessageTransactionInfo::from(transaction),
+            transaction: proto::TransactionInfo::from(transaction),
         }
     }
     fn transaction_encoded_len(&self) -> usize {
@@ -316,12 +317,14 @@ mod proto {
         }
     }
 
-    use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2;
-    use solana_sdk::{pubkey::Pubkey, signature::Signature};
-    use std::collections::HashSet;
+    use {
+        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+        solana_sdk::{pubkey::Pubkey, signature::Signature},
+        std::collections::HashSet,
+    };
 
     #[derive(Debug)]
-    pub struct MessageTransactionInfo {
+    pub struct TransactionInfo {
         pub signature: Signature,
         pub is_vote: bool,
         pub transaction: Transaction,
@@ -330,7 +333,7 @@ mod proto {
         pub account_keys: HashSet<Pubkey>,
     }
 
-    impl From<&ReplicaTransactionInfoV2<'_>> for MessageTransactionInfo {
+    impl From<&ReplicaTransactionInfoV2<'_>> for TransactionInfo {
         fn from(value: &ReplicaTransactionInfoV2<'_>) -> Self {
             let account_keys = value
                 .transaction
