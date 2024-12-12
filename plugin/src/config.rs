@@ -8,7 +8,6 @@ use {
     },
     std::{collections::HashSet, fs::read_to_string, net::SocketAddr, path::Path},
 };
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
