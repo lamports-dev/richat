@@ -201,7 +201,7 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner.messages.push(
             blockinfo.slot,
-            ProtobufMessage::BlockMeta(BlockMeta::from(blockinfo)),
+            ProtobufMessage::BlockMeta(BlockMeta::new(blockinfo)),
         );
 
         Ok(())

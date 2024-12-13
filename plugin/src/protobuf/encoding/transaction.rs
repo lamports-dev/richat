@@ -2,26 +2,30 @@ use {
     super::{bytes_encode, bytes_encoded_len, field_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     prost::encoding::{self, encode_key, encode_varint, message, WireType},
-    solana_sdk::clock::Slot,
+    solana_sdk::{clock::Slot, signature::Signature},
 };
 
 #[derive(Debug)]
 pub struct Transaction {
     slot: Slot,
-    transaction: proto::TransactionInfo,
+    signature: Signature,
+    is_vote: bool,
+    transaction: proto::Transaction,
+    transaction_status_meta: proto::TransactionStatusMeta,
+    index: usize,
 }
 
 impl super::super::Message for Transaction {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
-        let index = self.transaction.index as u64;
+        let index = self.index as u64;
 
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.transaction_encoded_len() as u64, buf);
 
-        bytes_encode(1, self.transaction.signature.as_ref(), buf);
-        encoding::bool::encode(2, &self.transaction.is_vote, buf);
-        message::encode(3, &self.transaction.transaction, buf);
-        message::encode(4, &self.transaction.transaction_status_meta, buf);
+        bytes_encode(1, self.signature.as_ref(), buf);
+        encoding::bool::encode(2, &self.is_vote, buf);
+        message::encode(3, &self.transaction, buf);
+        message::encode(4, &self.transaction_status_meta, buf);
         encoding::uint64::encode(5, &index, buf);
 
         encoding::uint64::encode(2, &self.slot, buf)
@@ -36,22 +40,28 @@ impl Transaction {
     pub fn new(slot: Slot, transaction: &ReplicaTransactionInfoV2<'_>) -> Self {
         Self {
             slot,
-            transaction: proto::TransactionInfo::from(transaction),
+            signature: *transaction.signature,
+            is_vote: transaction.is_vote,
+            transaction: proto::convert_to::create_transaction(transaction.transaction),
+            transaction_status_meta: proto::convert_to::create_transaction_meta(
+                transaction.transaction_status_meta,
+            ),
+            index: transaction.index,
         }
     }
     fn transaction_encoded_len(&self) -> usize {
-        let index = self.transaction.index as u64;
+        let index = self.index as u64;
 
-        bytes_encoded_len(1u32, self.transaction.signature.as_ref())
-            + encoding::bool::encoded_len(2u32, &self.transaction.is_vote)
-            + message::encoded_len(3u32, &self.transaction.transaction)
-            + message::encoded_len(4u32, &self.transaction.transaction_status_meta)
+        bytes_encoded_len(1u32, self.signature.as_ref())
+            + encoding::bool::encoded_len(2u32, &self.is_vote)
+            + message::encoded_len(3u32, &self.transaction)
+            + message::encoded_len(4u32, &self.transaction_status_meta)
             + encoding::uint64::encoded_len(5u32, &index)
     }
 }
 
 mod proto {
-    mod convert_to {
+    pub mod convert_to {
         use {
             crate::protobuf::encoding::proto::convert_to,
             solana_sdk::{
@@ -275,45 +285,7 @@ mod proto {
         }
     }
 
-    use {
-        crate::protobuf::encoding::proto,
-        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
-        solana_sdk::{pubkey::Pubkey, signature::Signature},
-        std::collections::HashSet,
-    };
-
-    #[derive(Debug)]
-    pub struct TransactionInfo {
-        pub signature: Signature,
-        pub is_vote: bool,
-        pub transaction: Transaction,
-        pub transaction_status_meta: TransactionStatusMeta,
-        pub index: usize,
-        pub account_keys: HashSet<Pubkey>,
-    }
-
-    impl From<&ReplicaTransactionInfoV2<'_>> for TransactionInfo {
-        fn from(value: &ReplicaTransactionInfoV2<'_>) -> Self {
-            let account_keys = value
-                .transaction
-                .message()
-                .account_keys()
-                .iter()
-                .copied()
-                .collect(); // TODO: try to remove allocation
-
-            Self {
-                signature: *value.signature,
-                is_vote: value.is_vote,
-                transaction: convert_to::create_transaction(value.transaction),
-                transaction_status_meta: convert_to::create_transaction_meta(
-                    value.transaction_status_meta,
-                ),
-                index: value.index,
-                account_keys,
-            }
-        }
-    }
+    use crate::protobuf::encoding::proto;
 
     #[derive(PartialEq, ::prost::Message)]
     pub struct Transaction {
