@@ -96,7 +96,7 @@ mod proto {
     }
 
     pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
-        0
+        todo!()
     }
 
     pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
@@ -105,25 +105,20 @@ mod proto {
             .iter()
             .map(|signature| <solana_sdk::signature::Signature as AsRef<[u8]>>::as_ref(signature));
         for value in signatures {
-            bytes_encode(1, value, buf)
+            bytes_encode(3, value, buf)
         }
         encode_sanitazed_message(sanitazed.message(), buf)
     }
 
     pub fn sanitazed_transaction_encoded_len(sanitazed: &SanitizedTransaction) -> usize {
-        0
-    }
-
-    pub fn encode_transaction_status_meta(
-        transaction_status_meta: &TransactionStatusMeta,
-        buf: &mut impl BufMut,
-    ) {
-    }
-
-    pub fn transaction_status_meta_encoded_len(
-        transaction_status_meta: &TransactionStatusMeta,
-    ) -> usize {
-        0
+        let signatures = sanitazed.signatures();
+        encoding::key_len(3)
+            + signatures.len()
+            + signatures
+                .iter()
+                .map(|signature| signature.as_ref().len())
+                .sum::<usize>()
+            + sanitazed_message_encoded_len(sanitazed.message())
     }
 
     pub fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl BufMut) {
@@ -133,12 +128,53 @@ mod proto {
                 encode_pubkeys(&message.account_keys, buf);
                 encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
                 encode_compiled_instructions(&message.instructions, buf);
+                encode_versioned(false, buf);
+                encode_address_table_lookups(&[], buf);
             }
             SanitizedMessage::V0(LoadedMessage { message, .. }) => {
                 encode_message_header(&message.header, buf);
                 encode_pubkeys(&message.account_keys, buf);
                 encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
                 encode_compiled_instructions(&message.instructions, buf);
+                encode_versioned(true, buf);
+                encode_address_table_lookups(&message.address_table_lookups, buf)
+            }
+        }
+    }
+
+    pub fn sanitazed_message_encoded_len(sanitazed: &SanitizedMessage) -> usize {
+        match sanitazed {
+            SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
+                let num_required_signatures = message.header.num_required_signatures as u32;
+                let num_readonly_signed_accounts =
+                    message.header.num_readonly_signed_accounts as u32;
+                let num_readonly_unsigned_accounts =
+                    message.header.num_readonly_unsigned_accounts as u32;
+                message_header_encoded_len((
+                    num_required_signatures,
+                    num_readonly_signed_accounts,
+                    num_readonly_unsigned_accounts,
+                )) + pubkeys_encoded_len(&message.account_keys)
+                    + recent_blockhash_encoded_len(&message.recent_blockhash.to_bytes())
+                    + compiled_instructions_encoded_len(&message.instructions)
+                    + versioned_encoded_len(false)
+                    + address_table_lookups_encoded_len(&[])
+            }
+            SanitizedMessage::V0(LoadedMessage { message, .. }) => {
+                let num_required_signatures = message.header.num_required_signatures as u32;
+                let num_readonly_signed_accounts =
+                    message.header.num_readonly_signed_accounts as u32;
+                let num_readonly_unsigned_accounts =
+                    message.header.num_readonly_unsigned_accounts as u32;
+                message_header_encoded_len((
+                    num_required_signatures,
+                    num_readonly_signed_accounts,
+                    num_readonly_unsigned_accounts,
+                )) + pubkeys_encoded_len(&message.account_keys)
+                    + recent_blockhash_encoded_len(&message.recent_blockhash.to_bytes())
+                    + compiled_instructions_encoded_len(&message.instructions)
+                    + versioned_encoded_len(true)
+                    + address_table_lookups_encoded_len(&message.address_table_lookups)
             }
         }
     }
@@ -179,8 +215,23 @@ mod proto {
         }
     }
 
+    pub fn pubkeys_encoded_len(pubkeys: &[Pubkey]) -> usize {
+        encoding::key_len(2) * pubkeys.len()
+            + pubkeys
+                .iter()
+                .map(|pubkey| {
+                    let pubkey = pubkey.to_bytes();
+                    pubkey.len() + encoding::encoded_len_varint(pubkey.len() as u64)
+                })
+                .sum::<usize>()
+    }
+
     pub fn encode_recent_blockhash(pubkey: &[u8], buf: &mut impl BufMut) {
         bytes_encode(3, pubkey, buf)
+    }
+
+    pub fn recent_blockhash_encoded_len(pubkey: &[u8]) -> usize {
+        bytes_encoded_len(3, pubkey)
     }
 
     pub fn encode_compiled_instructions(
@@ -227,80 +278,79 @@ mod proto {
             + bytes_encoded_len(3, &compiled_instruction.data)
     }
 
+    pub fn encode_versioned(versioned: bool, buf: &mut impl BufMut) {
+        encoding::bool::encode(5, &versioned, buf)
+    }
+
+    pub fn versioned_encoded_len(versioned: bool) -> usize {
+        encoding::bool::encoded_len(5, &versioned)
+    }
+
+    pub fn encode_address_table_lookups(
+        address_table_lookups: &[solana_sdk::message::v0::MessageAddressTableLookup],
+        buf: &mut impl BufMut,
+    ) {
+        encoding::encode_key(6, WireType::LengthDelimited, buf);
+        encoding::encode_varint(
+            address_table_lookups_encoded_len(address_table_lookups) as u64,
+            buf,
+        );
+        for address_table_lookup in address_table_lookups {
+            encode_address_table_lookup(address_table_lookup, buf)
+        }
+    }
+
+    pub fn address_table_lookups_encoded_len(
+        address_table_lookup: &[solana_sdk::message::v0::MessageAddressTableLookup],
+    ) -> usize {
+        encoding::key_len(6) * address_table_lookup.len()
+            + address_table_lookup
+                .iter()
+                .map(address_table_lookup_encoded_len)
+                .map(|len| len + encoding::encoded_len_varint(len as u64))
+                .sum::<usize>()
+    }
+
+    pub fn encode_address_table_lookup(
+        address_table_lookup: &solana_sdk::message::v0::MessageAddressTableLookup,
+        buf: &mut impl BufMut,
+    ) {
+        bytes_encode(1, &address_table_lookup.account_key.to_bytes(), buf);
+        bytes_encode(2, &address_table_lookup.writable_indexes, buf);
+        bytes_encode(3, &address_table_lookup.readonly_indexes, buf)
+    }
+
+    pub fn address_table_lookup_encoded_len(
+        address_table_lookup: &solana_sdk::message::v0::MessageAddressTableLookup,
+    ) -> usize {
+        bytes_encoded_len(1, &address_table_lookup.account_key.to_bytes())
+            + bytes_encoded_len(2, &address_table_lookup.writable_indexes)
+            + bytes_encoded_len(3, &address_table_lookup.readonly_indexes)
+    }
+
+    pub fn encode_transaction_status_meta(
+        transaction_status_meta: &TransactionStatusMeta,
+        buf: &mut impl BufMut,
+    ) {
+        todo!()
+    }
+
+    pub fn transaction_status_meta_encoded_len(
+        transaction_status_meta: &TransactionStatusMeta,
+    ) -> usize {
+        todo!()
+    }
+
     pub mod convert_to {
         use {
             crate::protobuf::encoding::proto::convert_to,
             solana_sdk::{
-                instruction::CompiledInstruction,
-                message::{
-                    v0::{LoadedMessage, MessageAddressTableLookup},
-                    LegacyMessage, MessageHeader, SanitizedMessage,
-                },
-                pubkey::Pubkey,
-                signature::Signature,
-                transaction::{SanitizedTransaction, TransactionError},
-                transaction_context::TransactionReturnData,
+                transaction::TransactionError, transaction_context::TransactionReturnData,
             },
             solana_transaction_status::{
                 InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
             },
         };
-
-        pub fn create_message(message: &SanitizedMessage) -> super::Message {
-            match message {
-                SanitizedMessage::Legacy(LegacyMessage { message, .. }) => super::Message {
-                    header: Some(create_header(&message.header)),
-                    account_keys: create_pubkeys(&message.account_keys),
-                    recent_blockhash: message.recent_blockhash.to_bytes().into(),
-                    instructions: create_instructions(&message.instructions),
-                    versioned: false,
-                    address_table_lookups: Vec::new(),
-                },
-                SanitizedMessage::V0(LoadedMessage { message, .. }) => super::Message {
-                    header: Some(create_header(&message.header)),
-                    account_keys: create_pubkeys(&message.account_keys),
-                    recent_blockhash: message.recent_blockhash.to_bytes().into(),
-                    instructions: create_instructions(&message.instructions),
-                    versioned: true,
-                    address_table_lookups: create_lookups(&message.address_table_lookups),
-                },
-            }
-        }
-
-        pub fn create_pubkeys(pubkeys: &[Pubkey]) -> Vec<Vec<u8>> {
-            pubkeys
-                .iter()
-                .map(|key| <Pubkey as AsRef<[u8]>>::as_ref(key).into())
-                .collect() // TODO: try to remove allocation
-        }
-
-        pub fn create_instructions(ixs: &[CompiledInstruction]) -> Vec<super::CompiledInstruction> {
-            ixs.iter().map(create_instruction).collect() // TODO: try to remove allocation
-        }
-
-        pub fn create_instruction(ix: &CompiledInstruction) -> super::CompiledInstruction {
-            super::CompiledInstruction {
-                program_id_index: ix.program_id_index as u32,
-                accounts: ix.accounts.clone(), // TODO: try to remove allocation
-                data: ix.data.clone(),         // TODO: try to remove allocation
-            }
-        }
-
-        pub fn create_lookups(
-            lookups: &[MessageAddressTableLookup],
-        ) -> Vec<super::MessageAddressTableLookup> {
-            lookups.iter().map(create_lookup).collect() // TODO: try to remove allocation
-        }
-
-        pub fn create_lookup(
-            lookup: &MessageAddressTableLookup,
-        ) -> super::MessageAddressTableLookup {
-            super::MessageAddressTableLookup {
-                account_key: <Pubkey as AsRef<[u8]>>::as_ref(&lookup.account_key).into(),
-                writable_indexes: lookup.writable_indexes.clone(), // TODO: try to remove allocation
-                readonly_indexes: lookup.readonly_indexes.clone(), // TODO: try to remove allocation
-            }
-        }
 
         pub fn create_transaction_meta(
             meta: &TransactionStatusMeta,
@@ -436,9 +486,12 @@ mod proto {
     }
 
     use {
-        crate::protobuf::encoding::{
-            bytes_encode, bytes_encode_repeated, bytes_encoded_len, bytes_encoded_len_repeated,
-            proto, str_encode_repeated, str_encoded_len_repeated,
+        crate::{
+            protobuf::encoding::{
+                bytes_encode, bytes_encode_repeated, bytes_encoded_len, bytes_encoded_len_repeated,
+                proto, str_encode_repeated, str_encoded_len_repeated,
+            },
+            version::VERSION,
         },
         agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
         prost::{
