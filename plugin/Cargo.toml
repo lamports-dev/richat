@@ -31,6 +31,7 @@ lazy_static = { workspace = true }
 bincode = { workspace = true }
 log = { workspace = true }
 prost = { workspace = true }
+prost-types = { workspace = true }
 prometheus = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

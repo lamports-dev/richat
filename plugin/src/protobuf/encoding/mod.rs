@@ -146,7 +146,7 @@ mod proto {
 
 #[inline]
 pub fn field_encoded_len(tag: u32, len: usize) -> usize {
-    key_len(tag) + encoded_len_varint(len as u64) + len
+    key_len(tag) + len + encoded_len_varint(len as u64)
 }
 
 #[inline]
@@ -157,6 +157,38 @@ fn bytes_encode(tag: u32, value: &[u8], buf: &mut impl BufMut) {
 }
 
 #[inline]
+pub fn bytes_encode_repeated(tag: u32, values: &[&[u8]], buf: &mut impl BufMut) {
+    for value in values {
+        bytes_encode(tag, value, buf)
+    }
+}
+
+#[inline]
 pub fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
     field_encoded_len(tag, value.len())
+}
+
+#[inline]
+pub fn bytes_encoded_len_repeated(tag: u32, values: &[&[u8]]) -> usize {
+    key_len(tag) * values.len()
+        + values
+            .iter()
+            .map(|value| value.len() + encoded_len_varint(value.len() as u64))
+            .sum::<usize>()
+}
+
+#[inline]
+pub fn str_encode_repeated(tag: u32, values: &[&str], buf: &mut impl BufMut) {
+    for value in values {
+        bytes_encode(tag, value.as_ref(), buf)
+    }
+}
+
+#[inline]
+pub fn str_encoded_len_repeated(tag: u32, values: &[&str]) -> usize {
+    key_len(tag) * values.len()
+        + values
+            .iter()
+            .map(|value| value.len() + encoded_len_varint(value.len() as u64))
+            .sum::<usize>()
 }

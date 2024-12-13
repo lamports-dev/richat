@@ -6,16 +6,16 @@ use {
 };
 
 #[derive(Debug)]
-pub struct Transaction {
+pub struct Transaction<'a> {
     slot: Slot,
     signature: Signature,
     is_vote: bool,
     transaction: proto::Transaction,
-    transaction_status_meta: proto::TransactionStatusMeta,
+    transaction_status_meta: proto::TransactionStatusMeta<'a>,
     index: usize,
 }
 
-impl prost::Message for Transaction {
+impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let index = self.index as u64;
 
@@ -76,6 +76,53 @@ impl Transaction {
 }
 
 mod proto {
+    pub fn encode_transaction(
+        slot: Slot,
+        transaction: &ReplicaTransactionInfoV2<'_>,
+        buf: &mut impl BufMut,
+    ) {
+        let index = transaction.index as u64;
+
+        encoding::encode_key(1, WireType::LengthDelimited, buf);
+        encoding::encode_varint(transaction_encoded_len(transaction) as u64, buf);
+
+        bytes_encode(1, transaction.signature.as_ref(), buf);
+        encoding::bool::encode(2, &transaction.is_vote, buf);
+        encode_sanitazed_transaction(&transaction.transaction, buf);
+        encode_transaction_status_meta(&transaction.transaction_status_meta, buf);
+        encoding::uint64::encode(5, &index, buf);
+
+        encoding::uint64::encode(2, &slot, buf)
+    }
+
+    pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
+        0
+    }
+
+    pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
+        bytes_encode_repeated(
+            1,
+            sanitazed.signatures().iter().map(|sign| sign.as_ref()),
+            buf,
+        );
+    }
+
+    pub fn sanitazed_transaction_encoded_len(sanitazed: &SanitizedTransaction) -> usize {
+        0
+    }
+
+    pub fn encode_transaction_status_meta(
+        transaction_status_meta: &TransactionStatusMeta,
+        buf: &mut impl BufMut,
+    ) {
+    }
+
+    pub fn transaction_status_meta_encoded_len(
+        transaction_status_meta: &TransactionStatusMeta,
+    ) -> usize {
+        0
+    }
+
     pub mod convert_to {
         use {
             crate::protobuf::encoding::proto::convert_to,
@@ -292,163 +339,563 @@ mod proto {
             }
         }
 
-        pub fn create_return_data(return_data: &TransactionReturnData) -> super::ReturnData {
+        pub fn create_return_data(return_data: &TransactionReturnData) -> super::ReturnData<'_> {
+            let program_id = return_data.program_id.to_bytes();
+            let r = program_id.as_ref();
+            let data = return_data.data.as_ref();
             super::ReturnData {
-                program_id: return_data.program_id.to_bytes().into(),
-                data: return_data.data.clone(),
+                program_id: r,
+                data,
             }
         }
     }
 
-    use crate::protobuf::encoding::proto;
+    use {
+        crate::protobuf::encoding::{
+            bytes_encode, bytes_encode_repeated, bytes_encoded_len, bytes_encoded_len_repeated,
+            proto, str_encode_repeated, str_encoded_len_repeated,
+        },
+        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+        prost::{
+            bytes::BufMut,
+            encoding::{self, message, DecodeContext, WireType},
+        },
+        solana_sdk::{clock::Slot, transaction::SanitizedTransaction},
+        solana_transaction_status::TransactionStatusMeta,
+    };
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct Transaction {
-        #[prost(bytes = "vec", repeated, tag = "1")]
-        pub signatures: Vec<Vec<u8>>,
-        #[prost(message, optional, tag = "2")]
-        pub message: Option<Message>,
+    #[derive(PartialEq, Debug)]
+    pub struct Transaction<'a> {
+        pub signatures: &'a [&'a [u8]],
+        pub message: Option<Message<'a>>,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct Message {
-        #[prost(message, optional, tag = "1")]
+    impl<'a> prost::Message for Transaction<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            bytes_encode_repeated(1, self.signatures, buf);
+            if let Some(ref message) = self.message {
+                message::encode(2, message, buf)
+            }
+        }
+        fn encoded_len(&self) -> usize {
+            bytes_encoded_len_repeated(1, self.signatures)
+                + self
+                    .message
+                    .as_ref()
+                    .map_or(0, |message| message::encoded_len(2, message))
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct Message<'a> {
         pub header: Option<MessageHeader>,
-        #[prost(bytes = "vec", repeated, tag = "2")]
-        pub account_keys: Vec<Vec<u8>>,
-        #[prost(bytes = "vec", tag = "3")]
-        pub recent_blockhash: Vec<u8>,
-        #[prost(message, repeated, tag = "4")]
-        pub instructions: Vec<CompiledInstruction>,
-        #[prost(bool, tag = "5")]
+        pub account_keys: &'a [&'a [u8]],
+        pub recent_blockhash: &'a [u8],
+        pub instructions: &'a [CompiledInstruction<'a>],
         pub versioned: bool,
-        #[prost(message, repeated, tag = "6")]
-        pub address_table_lookups: Vec<MessageAddressTableLookup>,
+        pub address_table_lookups: &'a [MessageAddressTableLookup<'a>],
     }
 
-    #[derive(PartialEq, ::prost::Message)]
+    impl<'a> prost::Message for Message<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            if let Some(ref header) = self.header {
+                message::encode(1, header, buf)
+            }
+            bytes_encode_repeated(2, self.account_keys, buf);
+            bytes_encode(3, self.recent_blockhash, buf);
+            message::encode_repeated(4, self.instructions, buf);
+            encoding::bool::encode(5, &self.versioned, buf);
+            message::encode_repeated(6, self.address_table_lookups, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            self.header
+                .as_ref()
+                .map_or(0, |header| message::encoded_len(1, header))
+                + bytes_encoded_len_repeated(2, self.account_keys)
+                + bytes_encoded_len(3, self.recent_blockhash)
+                + message::encoded_len_repeated(4, self.instructions)
+                + encoding::bool::encoded_len(5, &self.versioned)
+                + message::encoded_len_repeated(6, self.address_table_lookups)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
     pub struct MessageHeader {
-        #[prost(uint32, tag = "1")]
         pub num_required_signatures: u32,
-        #[prost(uint32, tag = "2")]
         pub num_readonly_signed_accounts: u32,
-        #[prost(uint32, tag = "3")]
         pub num_readonly_unsigned_accounts: u32,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct MessageAddressTableLookup {
-        #[prost(bytes = "vec", tag = "1")]
-        pub account_key: Vec<u8>,
-        #[prost(bytes = "vec", tag = "2")]
-        pub writable_indexes: Vec<u8>,
-        #[prost(bytes = "vec", tag = "3")]
-        pub readonly_indexes: Vec<u8>,
+    impl prost::Message for MessageHeader {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::uint32::encode(1, &self.num_required_signatures, buf);
+            encoding::uint32::encode(2, &self.num_readonly_signed_accounts, buf);
+            encoding::uint32::encode(3, &self.num_readonly_unsigned_accounts, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::uint32::encoded_len(1, &self.num_required_signatures)
+                + encoding::uint32::encoded_len(2, &self.num_readonly_signed_accounts)
+                + encoding::uint32::encoded_len(3, &self.num_readonly_unsigned_accounts)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct TransactionStatusMeta {
-        #[prost(message, optional, tag = "1")]
-        pub err: Option<TransactionError>,
-        #[prost(uint64, tag = "2")]
+    #[derive(PartialEq, Debug)]
+    pub struct MessageAddressTableLookup<'a> {
+        pub account_key: &'a [u8],
+        pub writable_indexes: &'a [u8],
+        pub readonly_indexes: &'a [u8],
+    }
+
+    impl<'a> prost::Message for MessageAddressTableLookup<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            bytes_encode(1, self.account_key, buf);
+            bytes_encode(2, self.writable_indexes, buf);
+            bytes_encode(3, self.readonly_indexes, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            bytes_encoded_len(1, self.account_key)
+                + bytes_encoded_len(2, self.writable_indexes)
+                + bytes_encoded_len(3, self.readonly_indexes)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct TransactionStatusMeta<'a> {
+        pub err: Option<TransactionError<'a>>,
         pub fee: u64,
-        #[prost(uint64, repeated, tag = "3")]
-        pub pre_balances: Vec<u64>,
-        #[prost(uint64, repeated, tag = "4")]
-        pub post_balances: Vec<u64>,
-        #[prost(message, repeated, tag = "5")]
-        pub inner_instructions: Vec<InnerInstructions>,
-        #[prost(bool, tag = "10")]
+        pub pre_balances: &'a [u64],
+        pub post_balances: &'a [u64],
+        pub inner_instructions: &'a [InnerInstructions<'a>],
         pub inner_instructions_none: bool,
-        #[prost(string, repeated, tag = "6")]
-        pub log_messages: Vec<String>,
-        #[prost(bool, tag = "11")]
+        pub log_messages: &'a [&'a str],
         pub log_messages_none: bool,
-        #[prost(message, repeated, tag = "7")]
-        pub pre_token_balances: Vec<TokenBalance>,
-        #[prost(message, repeated, tag = "8")]
-        pub post_token_balances: Vec<TokenBalance>,
-        #[prost(message, repeated, tag = "9")]
-        pub rewards: Vec<proto::Reward>,
-        #[prost(bytes = "vec", repeated, tag = "12")]
-        pub loaded_writable_addresses: Vec<Vec<u8>>,
-        #[prost(bytes = "vec", repeated, tag = "13")]
-        pub loaded_readonly_addresses: Vec<Vec<u8>>,
-        #[prost(message, optional, tag = "14")]
-        pub return_data: Option<ReturnData>,
-        #[prost(bool, tag = "15")]
+        pub pre_token_balances: &'a [TokenBalance<'a>],
+        pub post_token_balances: &'a [TokenBalance<'a>],
+        pub rewards: &'a [proto::Reward],
+        pub loaded_writable_addresses: &'a [&'a [u8]],
+        pub loaded_readonly_addresses: &'a [&'a [u8]],
+        pub return_data: Option<ReturnData<'a>>,
         pub return_data_none: bool,
-        #[prost(uint64, optional, tag = "16")]
         pub compute_units_consumed: Option<u64>,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct TransactionError {
-        #[prost(bytes = "vec", tag = "1")]
-        pub err: Vec<u8>,
+    impl<'a> prost::Message for TransactionStatusMeta<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            if let Some(ref err) = self.err {
+                message::encode(1, err, buf)
+            }
+            encoding::uint64::encode(2, &self.fee, buf);
+            encoding::uint64::encode_repeated(3, self.pre_balances, buf);
+            encoding::uint64::encode_repeated(4, self.post_balances, buf);
+            message::encode_repeated(5, self.inner_instructions, buf);
+            str_encode_repeated(6, self.log_messages, buf);
+            message::encode_repeated(7, self.pre_token_balances, buf);
+            message::encode_repeated(8, self.post_token_balances, buf);
+            message::encode_repeated(9, self.rewards, buf);
+            encoding::bool::encode(10, &self.inner_instructions_none, buf);
+            encoding::bool::encode(11, &self.log_messages_none, buf);
+            bytes_encode_repeated(12, self.loaded_writable_addresses, buf);
+            bytes_encode_repeated(13, self.loaded_readonly_addresses, buf);
+            if let Some(ref return_data) = self.return_data {
+                message::encode(14, return_data, buf)
+            }
+            encoding::bool::encode(15, &self.return_data_none, buf);
+            if let Some(ref compute_units_consumed) = self.compute_units_consumed {
+                encoding::uint64::encode(16, compute_units_consumed, buf)
+            }
+        }
+        fn encoded_len(&self) -> usize {
+            self.err
+                .as_ref()
+                .map_or(0, |err| message::encoded_len(1, err))
+                + encoding::uint64::encoded_len(2, &self.fee)
+                + encoding::uint64::encoded_len_repeated(3, self.pre_balances)
+                + encoding::uint64::encoded_len_repeated(4, self.post_balances)
+                + message::encoded_len_repeated(5, self.inner_instructions)
+                + str_encoded_len_repeated(6, self.log_messages)
+                + message::encoded_len_repeated(7, self.pre_token_balances)
+                + message::encoded_len_repeated(8, self.post_token_balances)
+                + message::encoded_len_repeated(9, self.rewards)
+                + encoding::bool::encoded_len(10, &self.inner_instructions_none)
+                + encoding::bool::encoded_len(11, &self.log_messages_none)
+                + bytes_encoded_len_repeated(12, self.loaded_writable_addresses)
+                + bytes_encoded_len_repeated(13, self.loaded_readonly_addresses)
+                + self
+                    .return_data
+                    .as_ref()
+                    .map_or(0, |return_data| message::encoded_len(14, return_data))
+                + encoding::bool::encoded_len(15, &self.return_data_none)
+                + self
+                    .compute_units_consumed
+                    .as_ref()
+                    .map_or(0, |compute_units_consumed| {
+                        encoding::uint64::encoded_len(16, compute_units_consumed)
+                    })
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct InnerInstructions {
-        #[prost(uint32, tag = "1")]
+    #[derive(PartialEq, Debug)]
+    pub struct TransactionError<'a> {
+        pub err: &'a [u8],
+    }
+
+    impl<'a> prost::Message for TransactionError<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            bytes_encode(1, self.err, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            bytes_encoded_len(1, self.err)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct InnerInstructions<'a> {
         pub index: u32,
-        #[prost(message, repeated, tag = "2")]
-        pub instructions: Vec<InnerInstruction>,
+        pub instructions: &'a [InnerInstruction<'a>],
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct InnerInstruction {
-        #[prost(uint32, tag = "1")]
+    impl<'a> prost::Message for InnerInstructions<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::uint32::encode(1, &self.index, buf);
+            for instruction in self.instructions {
+                message::encode(2, instruction, buf)
+            }
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::uint32::encoded_len(1, &self.index)
+                + message::encoded_len_repeated(2, self.instructions)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct InnerInstruction<'a> {
         pub program_id_index: u32,
-        #[prost(bytes = "vec", tag = "2")]
-        pub accounts: Vec<u8>,
-        #[prost(bytes = "vec", tag = "3")]
-        pub data: Vec<u8>,
-        #[prost(uint32, optional, tag = "4")]
+        pub accounts: &'a [u8],
+        pub data: &'a [u8],
         pub stack_height: Option<u32>,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct CompiledInstruction {
-        #[prost(uint32, tag = "1")]
+    impl<'a> prost::Message for InnerInstruction<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::uint32::encode(1, &self.program_id_index, buf);
+            bytes_encode(2, self.accounts, buf);
+            bytes_encode(3, self.data, buf);
+            if let Some(ref stack_height) = self.stack_height {
+                encoding::uint32::encode(4, stack_height, buf)
+            }
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::uint32::encoded_len(1, &self.program_id_index)
+                + bytes_encoded_len(2, self.accounts)
+                + bytes_encoded_len(3, self.data)
+                + self.stack_height.as_ref().map_or(0, |stack_height| {
+                    encoding::uint32::encoded_len(4, stack_height)
+                })
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct CompiledInstruction<'a> {
         pub program_id_index: u32,
-        #[prost(bytes = "vec", tag = "2")]
-        pub accounts: Vec<u8>,
-        #[prost(bytes = "vec", tag = "3")]
-        pub data: Vec<u8>,
+        pub accounts: &'a [u8],
+        pub data: &'a [u8],
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct TokenBalance {
-        #[prost(uint32, tag = "1")]
+    impl<'a> prost::Message for CompiledInstruction<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::uint32::encode(1, &self.program_id_index, buf);
+            bytes_encode(2, self.accounts, buf);
+            bytes_encode(3, self.data, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::uint32::encoded_len(1, &self.program_id_index)
+                + bytes_encoded_len(2, self.accounts)
+                + bytes_encoded_len(3, self.data)
+        }
+        fn merge_field(
+            &mut self,
+            tag: u32,
+            wire_type: WireType,
+            buf: &mut impl hyper::body::Buf,
+            ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct TokenBalance<'a> {
         pub account_index: u32,
-        #[prost(string, tag = "2")]
-        pub mint: String,
-        #[prost(message, optional, tag = "3")]
-        pub ui_token_amount: Option<UiTokenAmount>,
-        #[prost(string, tag = "4")]
-        pub owner: String,
-        #[prost(string, tag = "5")]
-        pub program_id: String,
+        pub mint: &'a str,
+        pub ui_token_amount: Option<UiTokenAmount<'a>>,
+        pub owner: &'a str,
+        pub program_id: &'a str,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct UiTokenAmount {
-        #[prost(double, tag = "1")]
+    impl<'a> prost::Message for TokenBalance<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::uint32::encode(1, &self.account_index, buf);
+            bytes_encode(2, self.mint.as_ref(), buf);
+            if let Some(ref ui_token_amount) = self.ui_token_amount {
+                message::encode(3, ui_token_amount, buf)
+            }
+            bytes_encode(4, self.owner.as_ref(), buf);
+            bytes_encode(5, self.program_id.as_ref(), buf)
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::uint32::encoded_len(1, &self.account_index)
+                + bytes_encoded_len(2, self.mint.as_ref())
+                + self.ui_token_amount.as_ref().map_or(0, |ui_token_amount| {
+                    message::encoded_len(3, ui_token_amount)
+                })
+                + bytes_encoded_len(4, self.owner.as_ref())
+                + bytes_encoded_len(5, self.program_id.as_ref())
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+        fn merge_field(
+            &mut self,
+            _tag: u32,
+            _wire_type: WireType,
+            _buf: &mut impl hyper::body::Buf,
+            _ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct UiTokenAmount<'a> {
         pub ui_amount: f64,
-        #[prost(uint32, tag = "2")]
         pub decimals: u32,
-        #[prost(string, tag = "3")]
-        pub amount: String,
-        #[prost(string, tag = "4")]
-        pub ui_amount_string: String,
+        pub amount: &'a str,
+        pub ui_amount_string: &'a str,
     }
 
-    #[derive(PartialEq, ::prost::Message)]
-    pub struct ReturnData {
-        #[prost(bytes = "vec", tag = "1")]
-        pub program_id: Vec<u8>,
-        #[prost(bytes = "vec", tag = "2")]
-        pub data: Vec<u8>,
+    impl<'a> prost::Message for UiTokenAmount<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            encoding::double::encode(1, &self.ui_amount, buf);
+            encoding::uint32::encode(2, &self.decimals, buf);
+            bytes_encode(3, self.amount.as_ref(), buf);
+            bytes_encode(4, self.ui_amount_string.as_ref(), buf)
+        }
+        fn encoded_len(&self) -> usize {
+            encoding::double::encoded_len(1, &self.ui_amount)
+                + encoding::uint32::encoded_len(2, &self.decimals)
+                + bytes_encoded_len(3, self.amount.as_ref())
+                + bytes_encoded_len(4, self.ui_amount_string.as_ref())
+        }
+        fn merge_field(
+            &mut self,
+            _tag: u32,
+            _wire_type: WireType,
+            _buf: &mut impl hyper::body::Buf,
+            _ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct ReturnData<'a> {
+        pub program_id: &'a [u8],
+        pub data: &'a [u8],
+    }
+
+    impl<'a> prost::Message for ReturnData<'a> {
+        fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
+        where
+            Self: Sized,
+        {
+            bytes_encode(1, self.program_id, buf);
+            bytes_encode(2, self.data, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            bytes_encoded_len(1, self.program_id) + bytes_encoded_len(2, self.data)
+        }
+        fn merge_field(
+            &mut self,
+            _tag: u32,
+            _wire_type: WireType,
+            _buf: &mut impl hyper::body::Buf,
+            _ctx: DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
     }
 }
