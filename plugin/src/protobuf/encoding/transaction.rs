@@ -100,11 +100,14 @@ mod proto {
     }
 
     pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
-        bytes_encode_repeated(
-            1,
-            sanitazed.signatures().iter().map(|sign| sign.as_ref()),
-            buf,
-        );
+        let signatures = sanitazed
+            .signatures()
+            .iter()
+            .map(|signature| <solana_sdk::signature::Signature as AsRef<[u8]>>::as_ref(signature));
+        for value in signatures {
+            bytes_encode(1, value, buf)
+        }
+        encode_sanitazed_message(sanitazed.message(), buf)
     }
 
     pub fn sanitazed_transaction_encoded_len(sanitazed: &SanitizedTransaction) -> usize {
@@ -121,6 +124,107 @@ mod proto {
         transaction_status_meta: &TransactionStatusMeta,
     ) -> usize {
         0
+    }
+
+    pub fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl BufMut) {
+        match sanitazed {
+            SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
+                encode_message_header(&message.header, buf);
+                encode_pubkeys(&message.account_keys, buf);
+                encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
+                encode_compiled_instructions(&message.instructions, buf);
+            }
+            SanitizedMessage::V0(LoadedMessage { message, .. }) => {
+                encode_message_header(&message.header, buf);
+                encode_pubkeys(&message.account_keys, buf);
+                encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
+                encode_compiled_instructions(&message.instructions, buf);
+            }
+        }
+    }
+
+    pub fn encode_message_header(
+        header: &solana_sdk::message::MessageHeader,
+        buf: &mut impl BufMut,
+    ) {
+        let num_required_signatures = header.num_required_signatures as u32;
+        let num_readonly_signed_accounts = header.num_readonly_signed_accounts as u32;
+        let num_readonly_unsigned_accounts = header.num_readonly_unsigned_accounts as u32;
+        encoding::encode_key(1, WireType::LengthDelimited, buf);
+        encoding::encode_varint(
+            message_header_encoded_len((
+                num_required_signatures,
+                num_readonly_signed_accounts,
+                num_readonly_unsigned_accounts,
+            )) as u64,
+            buf,
+        );
+        encoding::uint32::encode(1, &num_required_signatures, buf);
+        encoding::uint32::encode(2, &num_readonly_signed_accounts, buf);
+        encoding::uint32::encode(3, &num_readonly_unsigned_accounts, buf)
+    }
+
+    pub fn message_header_encoded_len(header: (u32, u32, u32)) -> usize {
+        encoding::uint32::encoded_len(1, &header.0)
+            + encoding::uint32::encoded_len(2, &header.1)
+            + encoding::uint32::encoded_len(3, &header.2)
+    }
+
+    pub fn encode_pubkeys(pubkeys: &[Pubkey], buf: &mut impl BufMut) {
+        let iter = pubkeys
+            .iter()
+            .map(|key| <Pubkey as AsRef<[u8]>>::as_ref(key));
+        for value in iter {
+            bytes_encode(2, value, buf);
+        }
+    }
+
+    pub fn encode_recent_blockhash(pubkey: &[u8], buf: &mut impl BufMut) {
+        bytes_encode(3, pubkey, buf)
+    }
+
+    pub fn encode_compiled_instructions(
+        compiled_instructions: &[solana_sdk::instruction::CompiledInstruction],
+        buf: &mut impl BufMut,
+    ) {
+        encoding::encode_key(4, WireType::LengthDelimited, buf);
+        encoding::encode_varint(
+            compiled_instructions_encoded_len(compiled_instructions) as u64,
+            buf,
+        );
+        for compiled_instruction in compiled_instructions {
+            encode_compiled_instruction(compiled_instruction, buf)
+        }
+    }
+
+    pub fn compiled_instructions_encoded_len(
+        compiled_instructions: &[solana_sdk::instruction::CompiledInstruction],
+    ) -> usize {
+        encoding::key_len(4) * compiled_instructions.len()
+            + compiled_instructions
+                .iter()
+                .map(compiled_instruction_encoded_len)
+                .map(|len| len + encoding::encoded_len_varint(len as u64))
+                .sum::<usize>()
+    }
+
+    pub fn encode_compiled_instruction(
+        compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
+        buf: &mut impl BufMut,
+    ) {
+        let program_id_index = compiled_instruction.program_id_index as u32;
+        encoding::uint32::encode(1, &program_id_index, buf);
+        bytes_encode(2, &compiled_instruction.accounts, buf);
+        bytes_encode(3, &compiled_instruction.data, buf)
+    }
+
+    pub fn compiled_instruction_encoded_len(
+        compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
+    ) -> usize {
+        let program_id_index = compiled_instruction.program_id_index as u32;
+        encoding::uint32::encoded_len(1, &program_id_index)
+            + bytes_encoded_len(2, &compiled_instruction.accounts)
+            + bytes_encoded_len(3, &compiled_instruction.data)
     }
 
     pub mod convert_to {
@@ -142,17 +246,6 @@ mod proto {
             },
         };
 
-        pub fn create_transaction(tx: &SanitizedTransaction) -> super::Transaction {
-            super::Transaction {
-                signatures: tx
-                    .signatures()
-                    .iter()
-                    .map(|signature| <Signature as AsRef<[u8]>>::as_ref(signature).into())
-                    .collect(), // TODO: try to remove allocation
-                message: Some(create_message(tx.message())),
-            }
-        }
-
         pub fn create_message(message: &SanitizedMessage) -> super::Message {
             match message {
                 SanitizedMessage::Legacy(LegacyMessage { message, .. }) => super::Message {
@@ -171,14 +264,6 @@ mod proto {
                     versioned: true,
                     address_table_lookups: create_lookups(&message.address_table_lookups),
                 },
-            }
-        }
-
-        pub const fn create_header(header: &MessageHeader) -> super::MessageHeader {
-            super::MessageHeader {
-                num_required_signatures: header.num_required_signatures as u32,
-                num_readonly_signed_accounts: header.num_readonly_signed_accounts as u32,
-                num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts as u32,
             }
         }
 
@@ -360,7 +445,12 @@ mod proto {
             bytes::BufMut,
             encoding::{self, message, DecodeContext, WireType},
         },
-        solana_sdk::{clock::Slot, transaction::SanitizedTransaction},
+        solana_sdk::{
+            clock::Slot,
+            message::{v0::LoadedMessage, LegacyMessage, SanitizedMessage},
+            pubkey::Pubkey,
+            transaction::SanitizedTransaction,
+        },
         solana_transaction_status::TransactionStatusMeta,
     };
 
