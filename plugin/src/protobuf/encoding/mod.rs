@@ -144,6 +144,11 @@ mod proto {
     }
 }
 
+pub trait Message {
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut);
+    fn encoded_len(&self) -> usize;
+}
+
 #[inline]
 pub fn field_encoded_len(tag: u32, len: usize) -> usize {
     key_len(tag) + encoded_len_varint(len as u64) + len

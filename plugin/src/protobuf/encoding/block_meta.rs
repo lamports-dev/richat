@@ -10,7 +10,7 @@ pub struct BlockMeta<'a> {
     blockinfo: &'a ReplicaBlockInfoV4<'a>,
 }
 
-impl<'a> super::super::Message for BlockMeta<'a> {
+impl<'a> super::Message for BlockMeta<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let rewards = convert_to::create_rewards_obj(
             &self.blockinfo.rewards.rewards,

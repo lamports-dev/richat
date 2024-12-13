@@ -11,7 +11,7 @@ pub struct Account<'a> {
     account: &'a ReplicaAccountInfoV3<'a>,
 }
 
-impl<'a> super::super::Message for Account<'a> {
+impl<'a> super::Message for Account<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.account_encoded_len() as u64, buf);

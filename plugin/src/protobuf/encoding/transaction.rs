@@ -15,7 +15,7 @@ pub struct Transaction {
     index: usize,
 }
 
-impl super::super::Message for Transaction {
+impl super::Message for Transaction {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let index = self.index as u64;
 

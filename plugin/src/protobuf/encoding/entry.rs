@@ -9,7 +9,7 @@ pub struct Entry<'a> {
     entry: &'a ReplicaEntryInfoV2<'a>,
 }
 
-impl<'a> super::super::Message for Entry<'a> {
+impl<'a> super::Message for Entry<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;

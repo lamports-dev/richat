@@ -7,7 +7,7 @@ pub struct Slot<'a> {
     status: &'a SlotStatus,
 }
 
-impl<'a> super::super::Message for Slot<'a> {
+impl<'a> super::Message for Slot<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);

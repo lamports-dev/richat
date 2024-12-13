@@ -1,9 +1,7 @@
 use {
     crate::{
-        channel::GeyserMessages,
-        config::Config,
-        metrics::PrometheusService,
-        protobuf::{encoding, Account, BlockMeta, Entry, ProtobufMessage, Transaction},
+        channel::GeyserMessages, config::Config, metrics::PrometheusService,
+        protobuf::ProtobufMessage,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -121,7 +119,7 @@ impl GeyserPlugin for Plugin {
             let inner = self.inner.as_ref().expect("initialized");
             inner
                 .messages
-                .push(slot, ProtobufMessage::Account(Account::new(slot, account)));
+                .push(slot, ProtobufMessage::Account { slot, account });
         }
 
         Ok(())
@@ -140,7 +138,11 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner.messages.push(
             slot,
-            ProtobufMessage::Slot(encoding::Slot::new(slot, parent, status)),
+            ProtobufMessage::Slot {
+                slot,
+                parent,
+                status,
+            },
         );
 
         Ok(())
@@ -159,10 +161,9 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner.messages.push(
-            slot,
-            ProtobufMessage::Transaction(Transaction::new(slot, transaction)),
-        );
+        inner
+            .messages
+            .push(slot, ProtobufMessage::Transaction { slot, transaction });
 
         Ok(())
     }
@@ -179,7 +180,7 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner
             .messages
-            .push(entry.slot, ProtobufMessage::Entry(Entry::new(entry)));
+            .push(entry.slot, ProtobufMessage::Entry { entry });
 
         Ok(())
     }
@@ -199,10 +200,9 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner.messages.push(
-            blockinfo.slot,
-            ProtobufMessage::BlockMeta(BlockMeta::new(blockinfo)),
-        );
+        inner
+            .messages
+            .push(blockinfo.slot, ProtobufMessage::BlockMeta { blockinfo });
 
         Ok(())
     }
