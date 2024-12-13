@@ -119,7 +119,7 @@ impl GeyserPlugin for Plugin {
             let inner = self.inner.as_ref().expect("initialized");
             inner
                 .messages
-                .push(slot, ProtobufMessage::Account { slot, account });
+                .push(ProtobufMessage::Account { slot, account });
         }
 
         Ok(())
@@ -136,14 +136,11 @@ impl GeyserPlugin for Plugin {
         status: &SlotStatus,
     ) -> PluginResult<()> {
         let inner = self.inner.as_ref().expect("initialized");
-        inner.messages.push(
+        inner.messages.push(ProtobufMessage::Slot {
             slot,
-            ProtobufMessage::Slot {
-                slot,
-                parent,
-                status,
-            },
-        );
+            parent,
+            status,
+        });
 
         Ok(())
     }
@@ -163,7 +160,7 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner
             .messages
-            .push(slot, ProtobufMessage::Transaction { slot, transaction });
+            .push(ProtobufMessage::Transaction { slot, transaction });
 
         Ok(())
     }
@@ -178,9 +175,7 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner
-            .messages
-            .push(entry.slot, ProtobufMessage::Entry { entry });
+        inner.messages.push(ProtobufMessage::Entry { entry });
 
         Ok(())
     }
@@ -202,7 +197,7 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner
             .messages
-            .push(blockinfo.slot, ProtobufMessage::BlockMeta { blockinfo });
+            .push(ProtobufMessage::BlockMeta { blockinfo });
 
         Ok(())
     }

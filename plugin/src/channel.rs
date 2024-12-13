@@ -18,12 +18,13 @@ impl GeyserMessages {
         todo!()
     }
 
-    pub fn push(&self, slot: Slot, message: ProtobufMessage) {
-        let encoded = BUFFER.with(|cell| {
+    pub fn push(&self, message: ProtobufMessage) -> Vec<u8> {
+        BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
             let message = message.encode(&mut buffer);
             drop(buffer);
             message
-        });
+        })
+        // FIXME: do we need to return encoded message??
     }
 }

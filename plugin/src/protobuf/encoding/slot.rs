@@ -7,7 +7,7 @@ pub struct Slot<'a> {
     status: &'a SlotStatus,
 }
 
-impl<'a> super::Message for Slot<'a> {
+impl<'a> prost::Message for Slot<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);
@@ -34,6 +34,21 @@ impl<'a> super::Message for Slot<'a> {
             } else {
                 0
             }
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: encoding::WireType,
+        _buf: &mut impl hyper::body::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn clear(&mut self) {
+        unimplemented!()
     }
 }
 

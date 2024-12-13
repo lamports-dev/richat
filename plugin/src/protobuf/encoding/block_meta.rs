@@ -10,7 +10,7 @@ pub struct BlockMeta<'a> {
     blockinfo: &'a ReplicaBlockInfoV4<'a>,
 }
 
-impl<'a> super::Message for BlockMeta<'a> {
+impl<'a> prost::Message for BlockMeta<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let rewards = convert_to::create_rewards_obj(
             &self.blockinfo.rewards.rewards,
@@ -48,6 +48,21 @@ impl<'a> super::Message for BlockMeta<'a> {
             + bytes_encoded_len(7, self.blockinfo.parent_blockhash.as_ref())
             + encoding::uint64::encoded_len(8, &self.blockinfo.executed_transaction_count)
             + encoding::uint64::encoded_len(9, &self.blockinfo.entry_count)
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: encoding::WireType,
+        _buf: &mut impl hyper::body::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn clear(&mut self) {
+        unimplemented!()
     }
 }
 

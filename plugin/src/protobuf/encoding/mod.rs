@@ -7,11 +7,11 @@ pub use self::{
     account::Account, block_meta::BlockMeta, entry::Entry, slot::Slot, transaction::Transaction,
 };
 
-pub mod account;
-pub mod block_meta;
-pub mod entry;
-pub mod slot;
-pub mod transaction;
+mod account;
+mod block_meta;
+mod entry;
+mod slot;
+mod transaction;
 
 mod proto {
     pub mod convert_to {
@@ -142,11 +142,6 @@ mod proto {
             }
         }
     }
-}
-
-pub trait Message {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut);
-    fn encoded_len(&self) -> usize;
 }
 
 #[inline]

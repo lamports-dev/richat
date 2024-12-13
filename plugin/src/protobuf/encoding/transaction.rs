@@ -15,7 +15,7 @@ pub struct Transaction {
     index: usize,
 }
 
-impl super::Message for Transaction {
+impl prost::Message for Transaction {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let index = self.index as u64;
 
@@ -33,6 +33,21 @@ impl super::Message for Transaction {
     fn encoded_len(&self) -> usize {
         field_encoded_len(1, self.transaction_encoded_len())
             + encoding::uint64::encoded_len(2, &self.slot)
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl hyper::body::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn clear(&mut self) {
+        unimplemented!()
     }
 }
 

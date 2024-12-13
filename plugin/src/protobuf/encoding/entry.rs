@@ -9,7 +9,7 @@ pub struct Entry<'a> {
     entry: &'a ReplicaEntryInfoV2<'a>,
 }
 
-impl<'a> super::Message for Entry<'a> {
+impl<'a> prost::Message for Entry<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
@@ -32,6 +32,21 @@ impl<'a> super::Message for Entry<'a> {
             + bytes_encoded_len(4, self.entry.hash)
             + encoding::uint64::encoded_len(5, &self.entry.executed_transaction_count)
             + encoding::uint64::encoded_len(6, &starting_transaction_index)
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: encoding::WireType,
+        _buf: &mut impl hyper::body::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    fn clear(&mut self) {
+        unimplemented!()
     }
 }
 
