@@ -36,7 +36,7 @@ pub enum ProtobufMessage<'a> {
 impl<'a> ProtobufMessage<'a> {
     pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
         buffer.clear();
-        str_encode_repeated(1, &[""], buffer);
+        str_encode_repeated(1, &[], buffer);
         match self {
             Self::Account { slot, account } => {
                 let account = Account::new(*slot, account);
