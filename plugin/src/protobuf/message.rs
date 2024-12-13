@@ -64,11 +64,7 @@ impl<'a> ProtobufMessage<'a> {
             }
         }
         let now = std::time::SystemTime::now();
-        let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
-        let timestamp = Timestamp {
-            seconds: duration.as_secs() as i64,
-            nanos: duration.as_nanos() as i32,
-        };
+        let timestamp = Timestamp::from(now);
         message::encode(11, &timestamp, buffer);
         buffer.to_owned()
     }
