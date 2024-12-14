@@ -60,10 +60,10 @@ impl PrometheusService {
         });
 
         let shutdown = Arc::new(Notify::new());
-        if let Some(ConfigPrometheus { address }) = config {
+        if let Some(ConfigPrometheus { endpoint: addr }) = config {
             let shutdown = Arc::clone(&shutdown);
-            let listener = TcpListener::bind(&address).await?;
-            info!("start prometheus server: {address}");
+            let listener = TcpListener::bind(&addr).await?;
+            info!("start prometheus server: {addr}");
             tokio::spawn(async move {
                 loop {
                     let stream = tokio::select! {

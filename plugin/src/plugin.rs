@@ -1,7 +1,6 @@
 use {
     crate::{
-        channel::GeyserMessages, config::Config, metrics::PrometheusService,
-        protobuf::ProtobufMessage,
+        channel::Sender, config::Config, metrics::PrometheusService, protobuf::ProtobufMessage,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -20,7 +19,7 @@ use {
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
-    messages: GeyserMessages,
+    messages: Sender,
     prometheus: PrometheusService,
 }
 
@@ -47,7 +46,7 @@ impl PluginInner {
             .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
 
         // Create messages store
-        let messages = GeyserMessages::new();
+        let messages = Sender::new(config.channel);
 
         // Start prometheus server
         let prometheus = runtime.block_on(async move {

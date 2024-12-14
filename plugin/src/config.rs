@@ -18,6 +18,8 @@ pub struct Config {
     #[serde(default)]
     pub tokio: ConfigTokio,
     #[serde(default)]
+    pub channel: ConfigChannel,
+    #[serde(default)]
     pub prometheus: Option<ConfigPrometheus>,
 }
 
@@ -57,7 +59,7 @@ impl ConfigLog {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigTokio {
     /// Number of worker threads in Tokio runtime
     pub worker_threads: Option<usize>,
@@ -125,8 +127,26 @@ fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigChannel {
+    pub max_messages: usize,
+    pub max_slots: usize,
+    pub max_bytes: usize,
+}
+
+impl Default for ConfigChannel {
+    fn default() -> Self {
+        Self {
+            max_messages: 1_500_000, // assume 15k messages per slot, aligned to power of 2
+            max_slots: 100,
+            max_bytes: 5 * 1024 * 1024 * 1024, // 5GiB, assume 50MiB per slot
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigPrometheus {
-    /// Address of Prometheus service
-    pub address: SocketAddr,
+    /// Endpoint of Prometheus service
+    pub endpoint: SocketAddr,
 }

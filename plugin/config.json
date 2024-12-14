@@ -1,0 +1,18 @@
+{
+  "libpath": "../target/release/librichat_plugin.so",
+  "log": {
+    "level": "info"
+  },
+  "tokio": {
+    "worker_threads": 4,
+    "affinity": "0-3"
+  },
+  "channel": {
+    "max_messages": 1500000,
+    "max_slots": 100,
+    "max_bytes": 5368709120
+  },
+  "prometheus": {
+    "endpoint": "0.0.0.0:20002"
+  }
+}
