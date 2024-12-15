@@ -2,7 +2,6 @@
 
 use {
     crate::{config::ConfigChannel, protobuf::ProtobufMessage},
-    smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
         cell::UnsafeCell,
@@ -42,7 +41,7 @@ impl Sender {
                 slots_max: config.max_slots,
                 bytes_total: 0,
                 bytes_max: config.max_bytes,
-                wakers: SmallVec::new(),
+                wakers: Vec::with_capacity(16),
             }),
             mask: (max_messages - 1) as u64,
             buffer: buffer.into_boxed_slice(),
@@ -307,7 +306,7 @@ struct State {
     slots_max: usize,
     bytes_total: usize,
     bytes_max: usize,
-    wakers: SmallVec<[Waker; 16]>,
+    wakers: Vec<Waker>,
 }
 
 struct Item {

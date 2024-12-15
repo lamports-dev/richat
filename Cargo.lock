@@ -2509,7 +2509,6 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_json",
- "smallvec",
  "solana-logger",
  "solana-sdk",
  "thiserror 2.0.7",
