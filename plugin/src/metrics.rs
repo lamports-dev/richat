@@ -1,6 +1,7 @@
 use {
     crate::{config::ConfigPrometheus, version::VERSION as VERSION_INFO},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    anyhow::Context,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
     hyper::{
         body::{Bytes, Incoming as BodyIncoming},
@@ -50,12 +51,12 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug)]
-pub struct PrometheusService {
-    shutdown: Arc<Notify>,
-}
+pub struct PrometheusService;
 
 impl PrometheusService {
-    pub async fn new(config: Option<ConfigPrometheus>) -> std::io::Result<Self> {
+    pub async fn spawn(
+        ConfigPrometheus { endpoint }: ConfigPrometheus,
+    ) -> anyhow::Result<Arc<Notify>> {
         static REGISTER: Once = Once::new();
         REGISTER.call_once(|| {
             macro_rules! register {
@@ -84,50 +85,50 @@ impl PrometheusService {
                 .inc();
         });
 
+        let listener = TcpListener::bind(endpoint)
+            .await
+            .context(format!("failed to bind {endpoint}"))?;
+        info!("start server at: {endpoint}");
+
         let shutdown = Arc::new(Notify::new());
-        if let Some(ConfigPrometheus { endpoint: addr }) = config {
-            let shutdown = Arc::clone(&shutdown);
-            let listener = TcpListener::bind(&addr).await?;
-            info!("start prometheus server: {addr}");
-            tokio::spawn(async move {
-                loop {
-                    let stream = tokio::select! {
-                        () = shutdown.notified() => break,
-                        maybe_conn = listener.accept() => {
-                            match maybe_conn {
-                                Ok((stream, _addr)) => stream,
-                                Err(error) => {
-                                    error!("failed to accept new connection: {error}");
-                                    break;
-                                }
+        let shutdown2 = Arc::clone(&shutdown);
+        tokio::spawn(async move {
+            loop {
+                let stream = tokio::select! {
+                    () = shutdown2.notified() => {
+                        info!("shutdown");
+                        break
+                    },
+                    maybe_conn = listener.accept() => {
+                        match maybe_conn {
+                            Ok((stream, _addr)) => stream,
+                            Err(error) => {
+                                error!("failed to accept new connection: {error}");
+                                break;
                             }
                         }
-                    };
-                    tokio::spawn(async move {
-                        if let Err(error) = ServerBuilder::new(TokioExecutor::new())
-                            .serve_connection(
-                                TokioIo::new(stream),
-                                service_fn(move |req: Request<BodyIncoming>| async move {
-                                    match req.uri().path() {
-                                        "/metrics" => metrics_handler(),
-                                        _ => not_found_handler(),
-                                    }
-                                }),
-                            )
-                            .await
-                        {
-                            error!("failed to handle request: {error}");
-                        }
-                    });
-                }
-            });
-        }
+                    }
+                };
+                tokio::spawn(async move {
+                    if let Err(error) = ServerBuilder::new(TokioExecutor::new())
+                        .serve_connection(
+                            TokioIo::new(stream),
+                            service_fn(move |req: Request<BodyIncoming>| async move {
+                                match req.uri().path() {
+                                    "/metrics" => metrics_handler(),
+                                    _ => not_found_handler(),
+                                }
+                            }),
+                        )
+                        .await
+                    {
+                        error!("failed to handle request: {error}");
+                    }
+                });
+            }
+        });
 
-        Ok(PrometheusService { shutdown })
-    }
-
-    pub fn shutdown(self) {
-        self.shutdown.notify_one();
+        Ok(shutdown)
     }
 }
 

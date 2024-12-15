@@ -3,6 +3,7 @@
 use {
     crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    log::debug,
     solana_sdk::clock::Slot,
     std::{
         cell::UnsafeCell,
@@ -158,6 +159,13 @@ impl Sender {
         if let ProtobufMessage::Slot { status, .. } = message {
             metrics::geyser_slot_status_set(slot, status);
             if *status == SlotStatus::Processed {
+                debug!(
+                    "new processed {slot} / {} messages / {} slots / {} bytes",
+                    state.tail - state.head,
+                    state.slots.len(),
+                    state.bytes_total
+                );
+
                 metrics::channel_messages_set((state.tail - state.head) as usize);
                 metrics::channel_slots_set(state.slots.len());
                 metrics::channel_bytes_set(state.bytes_total);

@@ -6,8 +6,11 @@ use {
         de::{self, Deserializer},
         Deserialize,
     },
-    std::{collections::HashSet, fs::read_to_string, net::SocketAddr, path::Path, time::Duration},
-    tonic::codec::CompressionEncoding,
+    std::{collections::HashSet, fs, net::SocketAddr, path::Path, time::Duration},
+    tonic::{
+        codec::CompressionEncoding,
+        transport::{Identity, ServerTlsConfig},
+    },
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,7 +41,7 @@ impl Config {
     }
 
     pub fn load_from_file<P: AsRef<Path>>(file: P) -> PluginResult<Self> {
-        let config = read_to_string(file).map_err(GeyserPluginError::ConfigFileOpenError)?;
+        let config = fs::read_to_string(file).map_err(GeyserPluginError::ConfigFileOpenError)?;
         Self::load_from_str(&config)
     }
 }
@@ -112,8 +115,8 @@ impl Default for ConfigChannel {
 pub struct ConfigGrpc {
     pub endpoint: SocketAddr,
     /// TLS config
-    #[serde(default)]
-    pub tls_config: Option<ConfigGrpcTls>,
+    #[serde(default, deserialize_with = "ConfigGrpc::deserialize_tls_config")]
+    pub tls_config: Option<ServerTlsConfig>,
     #[serde(default)]
     pub compression: ConfigGrpcCompression,
     /// Limits the maximum size of a decoded message, default is 4MiB
@@ -122,6 +125,10 @@ pub struct ConfigGrpc {
         deserialize_with = "deserialize_usize_str"
     )]
     pub max_decoding_message_size: usize,
+    #[serde(with = "humantime_serde")]
+    pub server_tcp_keepalive: Option<Duration>,
+    #[serde(default = "ConfigGrpc::server_tcp_nodelay_default")]
+    pub server_tcp_nodelay: bool,
     #[serde(default)]
     pub server_http2_adaptive_window: Option<bool>,
     #[serde(with = "humantime_serde")]
@@ -138,13 +145,35 @@ impl ConfigGrpc {
     const fn max_decoding_message_size_default() -> usize {
         4 * 1024 * 1024
     }
+
+    const fn server_tcp_nodelay_default() -> bool {
+        true
+    }
+
+    fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<Option<ServerTlsConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<ConfigTls>::deserialize(deserializer)?
+            .map(|config| {
+                let cert = fs::read(config.cert).map_err(|error| {
+                    de::Error::custom(format!("failed to read cert {}: {error:?}", config.cert))
+                })?;
+                let key = fs::read(config.key).map_err(|error| {
+                    de::Error::custom(format!("failed to read key {}: {error:?}", config.key))
+                })?;
+
+                Ok(ServerTlsConfig::new().identity(Identity::from_pem(cert, key)))
+            })
+            .transpose()
+    }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConfigGrpcTls {
-    pub cert: String,
-    pub key: String,
+struct ConfigTls<'a> {
+    pub cert: &'a str,
+    pub key: &'a str,
 }
 
 #[derive(Debug, Clone, Deserialize)]

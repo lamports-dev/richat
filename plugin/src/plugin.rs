@@ -1,6 +1,7 @@
 use {
     crate::{
-        channel::Sender, config::Config, metrics::PrometheusService, protobuf::ProtobufMessage,
+        channel::Sender, config::Config, grpc::GrpcServer, metrics::PrometheusService,
+        protobuf::ProtobufMessage,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -10,17 +11,24 @@ use {
     log::error,
     solana_sdk::clock::Slot,
     std::{
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
         time::Duration,
     },
-    tokio::runtime::{Builder, Runtime},
+    tokio::{
+        runtime::{Builder, Runtime},
+        sync::Notify,
+    },
 };
 
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
-    prometheus: PrometheusService,
+    shutdown_grpc: Option<Arc<Notify>>,
+    shutdown_prometheus: Option<Arc<Notify>>,
 }
 
 impl PluginInner {
@@ -48,18 +56,31 @@ impl PluginInner {
         // Create messages store
         let messages = Sender::new(config.channel);
 
-        // Start prometheus server
-        let prometheus = runtime.block_on(async move {
-            let prometheus = PrometheusService::new(config.prometheus)
-                .await
-                .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
-            Ok::<_, GeyserPluginError>(prometheus)
-        })?;
+        // Spawn servers
+        let messages2 = messages.clone();
+        let (shutdown_grpc, shutdown_prometheus) = runtime
+            .block_on(async move {
+                // Start gRPC
+                let mut shutdown_grpc = None;
+                if let Some(config) = config.grpc {
+                    shutdown_grpc = Some(GrpcServer::spawn(config, messages2).await?);
+                }
+
+                // Start prometheus server
+                let mut shutdown_prometheus = None;
+                if let Some(config) = config.prometheus {
+                    shutdown_prometheus = Some(PrometheusService::spawn(config).await?);
+                }
+
+                Ok::<_, anyhow::Error>((shutdown_grpc, shutdown_prometheus))
+            })
+            .map_err(|error| GeyserPluginError::Custom(format!("{error:?}").into()))?;
 
         Ok(Self {
             runtime,
             messages,
-            prometheus,
+            shutdown_grpc,
+            shutdown_prometheus,
         })
     }
 }
@@ -93,8 +114,13 @@ impl GeyserPlugin for Plugin {
 
     fn on_unload(&mut self) {
         if let Some(inner) = self.inner.take() {
-            inner.prometheus.shutdown();
-            inner.runtime.shutdown_timeout(Duration::from_secs(30));
+            if let Some(shutdown) = inner.shutdown_grpc {
+                shutdown.notify_one();
+            }
+            if let Some(shutdown) = inner.shutdown_prometheus {
+                shutdown.notify_one();
+            }
+            inner.runtime.shutdown_timeout(Duration::from_secs(10));
         }
     }
 

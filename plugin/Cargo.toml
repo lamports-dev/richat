@@ -37,7 +37,7 @@ solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["server", "tls"] }
 yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]

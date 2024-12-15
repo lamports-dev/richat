@@ -23,6 +23,8 @@
       "send": ["gzip", "zstd"]
     },
     "max_decoding_message_size": "4_194_304",
+    "server_tcp_keepalive": "20s",
+    "server_tcp_nodelay": true,
     "server_http2_adaptive_window": null,
     "server_http2_keepalive_interval": null,
     "server_http2_keepalive_timeout": null,
