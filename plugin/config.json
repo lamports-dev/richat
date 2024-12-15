@@ -8,9 +8,26 @@
     "affinity": "0-3"
   },
   "channel": {
-    "max_messages": 1500000,
+    "max_messages": "2_097_152",
     "max_slots": 100,
-    "max_bytes": 5368709120
+    "max_bytes": "10_737_418_240"
+  },
+  "grpc": {
+    "endpoint": "0.0.0.0:10102",
+    "tls_config": {
+      "cert": "/path/to/cert.cert",
+      "key": "/path/to/key.key"
+    },
+    "compression": {
+      "accept": ["gzip", "zstd"],
+      "send": ["gzip", "zstd"]
+    },
+    "max_decoding_message_size": "4_194_304",
+    "server_http2_adaptive_window": null,
+    "server_http2_keepalive_interval": null,
+    "server_http2_keepalive_timeout": null,
+    "server_initial_connection_window_size": null,
+    "server_initial_stream_window_size": null
   },
   "prometheus": {
     "endpoint": "0.0.0.0:10123"

@@ -27,6 +27,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
+humantime-serde = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 prometheus = { workspace = true }
@@ -36,11 +37,14 @@ solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tonic = { workspace = true }
+yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
 git-version = { workspace = true }
+tonic-build = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [lints]
