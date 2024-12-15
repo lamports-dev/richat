@@ -157,19 +157,17 @@ impl Sender {
         let shared = Arc::clone(&self.shared);
 
         let state = shared.state_lock();
-        let next =
-            match replay_from_slot {
-                Some(slot) => state.slots.get(&slot).copied().ok_or_else(|| {
-                    SubscribeError::SlotNotAvailable {
-                        first_available: state
-                            .slots
-                            .first_key_value()
-                            .map(|(key, _value)| *key)
-                            .unwrap_or(Slot::MAX),
-                    }
-                })?,
-                None => state.tail,
-            };
+        let next = match replay_from_slot {
+            Some(slot) => state.slots.get(&slot).copied().ok_or_else(|| {
+                match state.slots.first_key_value() {
+                    Some((key, _value)) => SubscribeError::SlotNotAvailable {
+                        first_available: *key,
+                    },
+                    None => SubscribeError::NotInitialized,
+                }
+            })?,
+            None => state.tail,
+        };
         drop(state);
 
         Ok(Receiver { shared, next })
@@ -178,6 +176,8 @@ impl Sender {
 
 #[derive(Debug, Error)]
 pub enum SubscribeError {
+    #[error("channel is not initialized yet")]
+    NotInitialized,
     #[error("only available from slot {first_available}")]
     SlotNotAvailable { first_available: Slot },
 }
