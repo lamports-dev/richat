@@ -147,6 +147,13 @@ impl ConfigGrpc {
     where
         D: Deserializer<'de>,
     {
+        #[derive(Debug, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ConfigTls<'a> {
+            cert: &'a str,
+            key: &'a str,
+        }
+
         Option::<ConfigTls>::deserialize(deserializer)?
             .map(|config| {
                 let cert = fs::read(config.cert).map_err(|error| {
@@ -160,13 +167,6 @@ impl ConfigGrpc {
             })
             .transpose()
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfigTls<'a> {
-    pub cert: &'a str,
-    pub key: &'a str,
 }
 
 #[derive(Debug, Clone, Deserialize)]
