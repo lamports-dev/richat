@@ -1,7 +1,8 @@
 use {
     crate::{
-        channel::{Receiver, Sender},
+        channel::{Receiver, Sender, SubscribeError},
         config::ConfigGrpc,
+        metrics,
         version::GrpcVersionInfo,
     },
     anyhow::Context as _,
@@ -11,7 +12,10 @@ use {
     std::{
         marker::PhantomData,
         pin::Pin,
-        sync::Arc,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
         task::{Context, Poll},
     },
     tokio::sync::Notify,
@@ -33,6 +37,7 @@ pub mod gen {
 #[derive(Debug)]
 pub struct GrpcServer {
     messages: Sender,
+    subscribe_id: AtomicU64,
 }
 
 impl GrpcServer {
@@ -71,8 +76,11 @@ impl GrpcServer {
             server_builder = server_builder.initial_stream_window_size(sz);
         }
 
-        let mut service = gen::geyser_server::GeyserServer::new(Self { messages })
-            .max_decoding_message_size(config.max_decoding_message_size);
+        let mut service = gen::geyser_server::GeyserServer::new(Self {
+            messages,
+            subscribe_id: AtomicU64::new(0),
+        })
+        .max_decoding_message_size(config.max_decoding_message_size);
         for encoding in config.compression.accept {
             service = service.accept_compressed(encoding);
         }
@@ -105,25 +113,30 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn subscribe(
         &self,
-        request: Request<Streaming<SubscribeRequest>>,
+        mut request: Request<Streaming<SubscribeRequest>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
-        tokio::spawn(async move {
-            let mut stream = request.into_inner();
-            loop {
-                match stream.message().await {
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(_error) => {
-                        //
-                    }
-                }
-            }
-        });
+        let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
+        info!("#{id}: new connection");
 
-        Ok(Response::new(ReceiverStream {
-            // TODO: recv sub req first
-            rx: self.messages.subscribe(None).unwrap(),
-        }))
+        let replay_from_slot = match request.get_mut().message().await {
+            Ok(Some(request)) => request.from_slot,
+            Ok(None) => {
+                info!("#{id}: connection closed before receiving request");
+                return Err(Status::aborted("stream closed before request received"));
+            }
+            Err(error) => {
+                error!("#{id}: error receiving request {error:?}");
+                return Err(Status::aborted("recv error"));
+            }
+        };
+
+        match self.messages.subscribe(replay_from_slot) {
+            Ok(rx) => Ok(Response::new(ReceiverStream::new(rx, id))),
+            Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),
+            Err(SubscribeError::SlotNotAvailable { first_available }) => Err(
+                Status::invalid_argument(format!("first available slot: {first_available}")),
+            ),
+        }
     }
 
     async fn get_version(
@@ -139,6 +152,21 @@ impl gen::geyser_server::Geyser for GrpcServer {
 #[derive(Debug)]
 pub struct ReceiverStream {
     rx: Receiver,
+    id: u64,
+}
+
+impl ReceiverStream {
+    fn new(rx: Receiver, id: u64) -> Self {
+        metrics::grpc_connection_new();
+        Self { rx, id }
+    }
+}
+
+impl Drop for ReceiverStream {
+    fn drop(&mut self) {
+        info!("#{}: send stream closed", self.id);
+        metrics::grpc_connection_drop();
+    }
 }
 
 impl Stream for ReceiverStream {

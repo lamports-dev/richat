@@ -48,6 +48,11 @@ lazy_static::lazy_static! {
     static ref CHANNEL_BYTES_TOTAL: IntGauge = IntGauge::new(
         "channel_bytes_total", "Total size of all messages in channel"
     ).unwrap();
+
+    // gRPC
+    static ref GRPC_CONNECTIONS_TOTAL: IntGauge = IntGauge::new(
+        "grpc_connections_total", "Total number of connections"
+    ).unwrap();
 }
 
 #[derive(Debug)]
@@ -71,6 +76,7 @@ impl PrometheusService {
             register!(CHANNEL_MESSAGES_TOTAL);
             register!(CHANNEL_SLOTS_TOTAL);
             register!(CHANNEL_BYTES_TOTAL);
+            register!(GRPC_CONNECTIONS_TOTAL);
 
             VERSION
                 .with_label_values(&[
@@ -176,4 +182,12 @@ pub fn channel_slots_set(count: usize) {
 
 pub fn channel_bytes_set(count: usize) {
     CHANNEL_BYTES_TOTAL.set(count as i64)
+}
+
+pub fn grpc_connection_new() {
+    GRPC_CONNECTIONS_TOTAL.inc();
+}
+
+pub fn grpc_connection_drop() {
+    GRPC_CONNECTIONS_TOTAL.dec();
 }
