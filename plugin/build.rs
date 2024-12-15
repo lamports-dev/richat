@@ -54,6 +54,17 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         .package("geyser")
         .method(
             Method::builder()
+                .name("subscribe")
+                .route_name("Subscribe")
+                .input_type("yellowstone_grpc_proto::geyser::SubscribeRequest")
+                .output_type("Arc<Vec<u8>>")
+                .codec_path("crate::grpc::SubscribeCodec")
+                .client_streaming()
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            Method::builder()
                 .name("get_version")
                 .route_name("GetVersion")
                 .input_type("yellowstone_grpc_proto::geyser::GetVersionRequest")

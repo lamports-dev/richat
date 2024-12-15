@@ -1,14 +1,26 @@
 use {
-    crate::{channel::Sender, config::ConfigGrpc, version::GrpcVersionInfo},
-    anyhow::Context,
+    crate::{
+        channel::{Receiver, Sender},
+        config::ConfigGrpc,
+        version::GrpcVersionInfo,
+    },
+    anyhow::Context as _,
+    futures::stream::Stream,
     log::{error, info},
-    std::sync::Arc,
+    prost::{bytes::BufMut, Message},
+    std::{
+        marker::PhantomData,
+        pin::Pin,
+        sync::Arc,
+        task::{Context, Poll},
+    },
     tokio::sync::Notify,
     tonic::{
+        codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
         transport::server::{Server, TcpIncoming},
-        Request, Response, Status,
+        Code, Request, Response, Status, Streaming,
     },
-    yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse},
+    yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse, SubscribeRequest},
 };
 
 pub mod gen {
@@ -89,6 +101,31 @@ impl GrpcServer {
 
 #[tonic::async_trait]
 impl gen::geyser_server::Geyser for GrpcServer {
+    type SubscribeStream = ReceiverStream;
+
+    async fn subscribe(
+        &self,
+        request: Request<Streaming<SubscribeRequest>>,
+    ) -> Result<Response<Self::SubscribeStream>, Status> {
+        tokio::spawn(async move {
+            let mut stream = request.into_inner();
+            loop {
+                match stream.message().await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => break,
+                    Err(_error) => {
+                        //
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream {
+            // TODO: recv sub req first
+            rx: self.messages.subscribe(None).unwrap(),
+        }))
+    }
+
     async fn get_version(
         &self,
         _request: Request<GetVersionRequest>,
@@ -97,4 +134,103 @@ impl gen::geyser_server::Geyser for GrpcServer {
             version: serde_json::to_string(&GrpcVersionInfo::default()).unwrap(),
         }))
     }
+}
+
+#[derive(Debug)]
+pub struct ReceiverStream {
+    rx: Receiver,
+}
+
+impl Stream for ReceiverStream {
+    type Item = Result<Arc<Vec<u8>>, Status>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.rx.recv_ref(cx.waker()) {
+            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
+            Ok(None) => Poll::Pending,
+            Err(_error) => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
+        }
+    }
+}
+
+trait SubscribeMessage {
+    fn encode(self, buf: &mut EncodeBuf<'_>);
+}
+
+impl SubscribeMessage for Arc<Vec<u8>> {
+    fn encode(self, buf: &mut EncodeBuf<'_>) {
+        let required = self.len();
+        let remaining = buf.remaining_mut();
+        if required > remaining {
+            panic!("SubscribeMessage only errors if not enough space");
+        }
+        buf.put_slice(self.as_ref());
+    }
+}
+
+struct SubscribeCodec<T, U> {
+    _pd: PhantomData<(T, U)>,
+}
+
+impl<T, U> Default for SubscribeCodec<T, U> {
+    fn default() -> Self {
+        Self { _pd: PhantomData }
+    }
+}
+
+impl<T, U> Codec for SubscribeCodec<T, U>
+where
+    T: SubscribeMessage + Send + 'static,
+    U: Message + Default + Send + 'static,
+{
+    type Encode = T;
+    type Decode = U;
+
+    type Encoder = SubscribeEncoder<T>;
+    type Decoder = ProstDecoder<U>;
+
+    fn encoder(&mut self) -> Self::Encoder {
+        SubscribeEncoder(PhantomData)
+    }
+
+    fn decoder(&mut self) -> Self::Decoder {
+        ProstDecoder(PhantomData)
+    }
+}
+
+/// A [`Encoder`] that knows how to encode `T`.
+#[derive(Debug, Clone, Default)]
+pub struct SubscribeEncoder<T>(PhantomData<T>);
+
+impl<T: SubscribeMessage> Encoder for SubscribeEncoder<T> {
+    type Item = T;
+    type Error = Status;
+
+    fn encode(&mut self, item: Self::Item, buf: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
+        item.encode(buf);
+        Ok(())
+    }
+}
+
+/// A [`Decoder`] that knows how to decode `U`.
+#[derive(Debug, Clone, Default)]
+pub struct ProstDecoder<U>(PhantomData<U>);
+
+impl<U: Message + Default> Decoder for ProstDecoder<U> {
+    type Item = U;
+    type Error = Status;
+
+    fn decode(&mut self, buf: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
+        let item = Message::decode(buf)
+            .map(Option::Some)
+            .map_err(from_decode_error)?;
+
+        Ok(item)
+    }
+}
+
+fn from_decode_error(error: prost::DecodeError) -> Status {
+    // Map Protobuf parse errors to an INTERNAL status code, as per
+    // https://github.com/grpc/grpc/blob/master/doc/statuscodes.md
+    Status::new(Code::Internal, error.to_string())
 }

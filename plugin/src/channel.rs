@@ -213,7 +213,7 @@ impl Receiver {
         Recv::new(self).await
     }
 
-    fn recv_ref(&mut self, waker: &Waker) -> Result<Option<Arc<Vec<u8>>>, RecvError> {
+    pub fn recv_ref(&mut self, waker: &Waker) -> Result<Option<Arc<Vec<u8>>>, RecvError> {
         // read item with next value
         let idx = self.shared.get_idx(self.next);
         let mut item = self.shared.buffer_idx_read(idx);
