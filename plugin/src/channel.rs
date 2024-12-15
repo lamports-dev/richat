@@ -29,7 +29,7 @@ impl Sender {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(RwLock::new(Item {
-                pos: (i as u64).wrapping_sub(max_messages as u64),
+                pos: i as u64,
                 slot: 0,
                 data: None,
             }));
@@ -37,8 +37,8 @@ impl Sender {
 
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
-                head: 0,
-                tail: 0,
+                head: max_messages as u64,
+                tail: max_messages as u64,
                 slots: BTreeMap::new(),
                 slots_max: config.max_slots,
                 bytes_total: 0,
