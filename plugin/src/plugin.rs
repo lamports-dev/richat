@@ -114,12 +114,15 @@ impl GeyserPlugin for Plugin {
 
     fn on_unload(&mut self) {
         if let Some(inner) = self.inner.take() {
+            inner.messages.close();
+
             if let Some(shutdown) = inner.shutdown_grpc {
                 shutdown.notify_one();
             }
             if let Some(shutdown) = inner.shutdown_prometheus {
                 shutdown.notify_one();
             }
+
             inner.runtime.shutdown_timeout(Duration::from_secs(10));
         }
     }

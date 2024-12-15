@@ -32,6 +32,7 @@ impl Sender {
                 pos: i as u64,
                 slot: 0,
                 data: None,
+                closed: false,
             }));
         }
 
@@ -192,6 +193,17 @@ impl Sender {
 
         Ok(Receiver { shared, next })
     }
+
+    pub fn close(&self) {
+        for idx in 0..self.shared.buffer.len() {
+            self.shared.buffer_idx_write(idx).closed = true;
+        }
+
+        let mut state = self.shared.state_lock();
+        for waker in state.wakers.drain(..) {
+            waker.wake();
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -217,6 +229,9 @@ impl Receiver {
         // read item with next value
         let idx = self.shared.get_idx(self.next);
         let mut item = self.shared.buffer_idx_read(idx);
+        if item.closed {
+            return Err(RecvError::Closed);
+        }
 
         if item.pos != self.next {
             // release lock before attempting to acquire state
@@ -227,6 +242,9 @@ impl Receiver {
 
             // make sure that position did not changed
             item = self.shared.buffer_idx_read(idx);
+            if item.closed {
+                return Err(RecvError::Closed);
+            }
             if item.pos != self.next {
                 return if item.pos < self.next {
                     state.wakers.push(waker.clone());
@@ -246,6 +264,8 @@ impl Receiver {
 pub enum RecvError {
     #[error("channel lagged")]
     Lagged,
+    #[error("channel closed")]
+    Closed,
 }
 
 struct Recv<'a> {
@@ -333,4 +353,5 @@ struct Item {
     pos: u64,
     slot: Slot,
     data: Option<Arc<Vec<u8>>>,
+    closed: bool,
 }

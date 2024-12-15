@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{Receiver, Sender, SubscribeError},
+        channel::{Receiver, RecvError, Sender, SubscribeError},
         config::ConfigGrpc,
         metrics,
         version::GrpcVersionInfo,
@@ -176,7 +176,8 @@ impl Stream for ReceiverStream {
         match self.rx.recv_ref(cx.waker()) {
             Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
             Ok(None) => Poll::Pending,
-            Err(_error) => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
+            Err(RecvError::Lagged) => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
+            Err(RecvError::Closed) => Poll::Ready(Some(Err(Status::out_of_range("closed")))),
         }
     }
 }
