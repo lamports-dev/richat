@@ -10,6 +10,7 @@ use {
     log::{error, info},
     prost::{bytes::BufMut, Message},
     std::{
+        future::Future,
         marker::PhantomData,
         pin::Pin,
         sync::{
@@ -18,7 +19,7 @@ use {
         },
         task::{Context, Poll},
     },
-    tokio::sync::Notify,
+    tokio::task::JoinHandle,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
         transport::server::{Server, TcpIncoming},
@@ -41,7 +42,11 @@ pub struct GrpcServer {
 }
 
 impl GrpcServer {
-    pub async fn spawn(config: ConfigGrpc, messages: Sender) -> anyhow::Result<Arc<Notify>> {
+    pub async fn spawn(
+        config: ConfigGrpc,
+        messages: Sender,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> anyhow::Result<JoinHandle<()>> {
         // Bind service address
         let incoming = TcpIncoming::new(
             config.endpoint,
@@ -89,21 +94,17 @@ impl GrpcServer {
         }
 
         // Spawn server
-        let shutdown = Arc::new(Notify::new());
-        let shutdown2 = Arc::clone(&shutdown);
-        tokio::spawn(async move {
+        Ok(tokio::spawn(async move {
             if let Err(error) = server_builder
                 .add_service(service)
-                .serve_with_incoming_shutdown(incoming, shutdown2.notified())
+                .serve_with_incoming_shutdown(incoming, shutdown)
                 .await
             {
                 error!("server error: {error:?}")
             } else {
                 info!("shutdown")
             }
-        });
-
-        Ok(shutdown)
+        }))
     }
 }
 

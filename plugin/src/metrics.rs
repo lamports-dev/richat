@@ -15,11 +15,8 @@ use {
     log::{error, info},
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder},
     solana_sdk::clock::Slot,
-    std::{
-        convert::Infallible,
-        sync::{Arc, Once},
-    },
-    tokio::{net::TcpListener, sync::Notify},
+    std::{convert::Infallible, future::Future, sync::Once},
+    tokio::{net::TcpListener, task::JoinHandle},
 };
 
 lazy_static::lazy_static! {
@@ -61,7 +58,8 @@ pub struct PrometheusService;
 impl PrometheusService {
     pub async fn spawn(
         ConfigPrometheus { endpoint }: ConfigPrometheus,
-    ) -> anyhow::Result<Arc<Notify>> {
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> anyhow::Result<JoinHandle<()>> {
         static REGISTER: Once = Once::new();
         REGISTER.call_once(|| {
             macro_rules! register {
@@ -96,12 +94,11 @@ impl PrometheusService {
             .context(format!("failed to bind {endpoint}"))?;
         info!("start server at: {endpoint}");
 
-        let shutdown = Arc::new(Notify::new());
-        let shutdown2 = Arc::clone(&shutdown);
-        tokio::spawn(async move {
+        Ok(tokio::spawn(async move {
+            tokio::pin!(shutdown);
             loop {
                 let stream = tokio::select! {
-                    () = shutdown2.notified() => {
+                    () = &mut shutdown => {
                         info!("shutdown");
                         break
                     },
@@ -132,9 +129,7 @@ impl PrometheusService {
                     }
                 });
             }
-        });
-
-        Ok(shutdown)
+        }))
     }
 }
 

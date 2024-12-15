@@ -11,15 +11,13 @@ use {
     log::error,
     solana_sdk::clock::Slot,
     std::{
-        sync::{
-            atomic::{AtomicU64, Ordering},
-            Arc,
-        },
+        sync::atomic::{AtomicU64, Ordering},
         time::Duration,
     },
     tokio::{
         runtime::{Builder, Runtime},
-        sync::Notify,
+        sync::broadcast,
+        task::JoinHandle,
     },
 };
 
@@ -27,8 +25,9 @@ use {
 pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
-    shutdown_grpc: Option<Arc<Notify>>,
-    shutdown_prometheus: Option<Arc<Notify>>,
+    shutdown: broadcast::Sender<()>,
+    jh_grpc: Option<JoinHandle<()>>,
+    jh_prometheus: Option<JoinHandle<()>>,
 }
 
 impl PluginInner {
@@ -58,29 +57,44 @@ impl PluginInner {
 
         // Spawn servers
         let messages2 = messages.clone();
-        let (shutdown_grpc, shutdown_prometheus) = runtime
+        let (tx, _rx) = broadcast::channel(1);
+        let tx2 = tx.clone();
+        let (jh_grpc, jh_prometheus) = runtime
             .block_on(async move {
                 // Start gRPC
-                let mut shutdown_grpc = None;
+                let mut jh_grpc = None;
                 if let Some(config) = config.grpc {
-                    shutdown_grpc = Some(GrpcServer::spawn(config, messages2).await?);
+                    let mut rx = tx2.subscribe();
+                    jh_grpc = Some(
+                        GrpcServer::spawn(config, messages2, async move {
+                            let _ = rx.recv().await;
+                        })
+                        .await?,
+                    );
                 }
 
                 // Start prometheus server
-                let mut shutdown_prometheus = None;
+                let mut jh_prometheus = None;
                 if let Some(config) = config.prometheus {
-                    shutdown_prometheus = Some(PrometheusService::spawn(config).await?);
+                    let mut rx = tx2.subscribe();
+                    jh_prometheus = Some(
+                        PrometheusService::spawn(config, async move {
+                            let _ = rx.recv().await;
+                        })
+                        .await?,
+                    );
                 }
 
-                Ok::<_, anyhow::Error>((shutdown_grpc, shutdown_prometheus))
+                Ok::<_, anyhow::Error>((jh_grpc, jh_prometheus))
             })
             .map_err(|error| GeyserPluginError::Custom(format!("{error:?}").into()))?;
 
         Ok(Self {
             runtime,
             messages,
-            shutdown_grpc,
-            shutdown_prometheus,
+            shutdown: tx,
+            jh_grpc,
+            jh_prometheus,
         })
     }
 }
@@ -116,12 +130,19 @@ impl GeyserPlugin for Plugin {
         if let Some(inner) = self.inner.take() {
             inner.messages.close();
 
-            if let Some(shutdown) = inner.shutdown_grpc {
-                shutdown.notify_one();
-            }
-            if let Some(shutdown) = inner.shutdown_prometheus {
-                shutdown.notify_one();
-            }
+            let _ = inner.shutdown.send(());
+            inner.runtime.block_on(async {
+                if let Some(jh) = inner.jh_grpc {
+                    if let Err(error) = jh.await {
+                        error!("failed to join gRPC task: {error:?}");
+                    }
+                }
+                if let Some(jh) = inner.jh_prometheus {
+                    if let Err(error) = jh.await {
+                        error!("failed to join prometheus task: {error:?}");
+                    }
+                }
+            });
 
             inner.runtime.shutdown_timeout(Duration::from_secs(10));
         }
