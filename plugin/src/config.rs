@@ -6,30 +6,27 @@ use {
         de::{self, Deserializer},
         Deserialize,
     },
-    std::{collections::HashSet, fs, net::SocketAddr, path::Path, time::Duration},
+    std::{
+        collections::HashSet,
+        fs,
+        net::{IpAddr, Ipv4Addr, SocketAddr},
+        path::Path,
+        time::Duration,
+    },
     tonic::{
         codec::CompressionEncoding,
         transport::{Identity, ServerTlsConfig},
     },
 };
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub libpath: String,
-    #[serde(default)]
     pub log: ConfigLog,
-
-    #[serde(default)]
     pub tokio: ConfigTokio,
-
-    #[serde(default)]
     pub channel: ConfigChannel,
-
-    #[serde(default)]
     pub grpc: Option<ConfigGrpc>,
-
-    #[serde(default)]
     pub prometheus: Option<ConfigPrometheus>,
 }
 
@@ -47,29 +44,22 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigLog {
     /// Log level
-    #[serde(default = "ConfigLog::default_level")]
     pub level: String,
 }
 
 impl Default for ConfigLog {
     fn default() -> Self {
         Self {
-            level: Self::default_level(),
+            level: "info".to_owned(),
         }
     }
 }
 
-impl ConfigLog {
-    fn default_level() -> String {
-        "info".to_owned()
-    }
-}
-
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigTokio {
     /// Number of worker threads in Tokio runtime
     pub worker_threads: Option<usize>,
@@ -91,7 +81,7 @@ impl ConfigTokio {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigChannel {
     #[serde(deserialize_with = "deserialize_usize_str")]
     pub max_messages: usize,
@@ -112,44 +102,47 @@ impl Default for ConfigChannel {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigGrpc {
     pub endpoint: SocketAddr,
     /// TLS config
-    #[serde(default, deserialize_with = "ConfigGrpc::deserialize_tls_config")]
+    #[serde(deserialize_with = "ConfigGrpc::deserialize_tls_config")]
     pub tls_config: Option<ServerTlsConfig>,
-    #[serde(default)]
     pub compression: ConfigGrpcCompression,
     /// Limits the maximum size of a decoded message, default is 4MiB
-    #[serde(
-        default = "ConfigGrpc::max_decoding_message_size_default",
-        deserialize_with = "deserialize_usize_str"
-    )]
+    #[serde(deserialize_with = "deserialize_usize_str")]
     pub max_decoding_message_size: usize,
     #[serde(with = "humantime_serde")]
     pub server_tcp_keepalive: Option<Duration>,
-    #[serde(default = "ConfigGrpc::server_tcp_nodelay_default")]
     pub server_tcp_nodelay: bool,
-    #[serde(default)]
     pub server_http2_adaptive_window: Option<bool>,
     #[serde(with = "humantime_serde")]
     pub server_http2_keepalive_interval: Option<Duration>,
     #[serde(with = "humantime_serde")]
     pub server_http2_keepalive_timeout: Option<Duration>,
-    #[serde(default)]
     pub server_initial_connection_window_size: Option<u32>,
-    #[serde(default)]
     pub server_initial_stream_window_size: Option<u32>,
 }
 
+impl Default for ConfigGrpc {
+    fn default() -> Self {
+        Self {
+            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10102),
+            tls_config: Default::default(),
+            compression: Default::default(),
+            max_decoding_message_size: 4 * 1024 * 1024, // 4MiB
+            server_tcp_keepalive: Some(Duration::from_secs(15)),
+            server_tcp_nodelay: true,
+            server_http2_adaptive_window: Default::default(),
+            server_http2_keepalive_interval: Default::default(),
+            server_http2_keepalive_timeout: Default::default(),
+            server_initial_connection_window_size: Default::default(),
+            server_initial_stream_window_size: Default::default(),
+        }
+    }
+}
+
 impl ConfigGrpc {
-    const fn max_decoding_message_size_default() -> usize {
-        4 * 1024 * 1024
-    }
-
-    const fn server_tcp_nodelay_default() -> bool {
-        true
-    }
-
     fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<Option<ServerTlsConfig>, D::Error>
     where
         D: Deserializer<'de>,
@@ -177,17 +170,11 @@ struct ConfigTls<'a> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigGrpcCompression {
-    #[serde(
-        deserialize_with = "ConfigGrpcCompression::deserialize_compression",
-        default = "ConfigGrpcCompression::default_compression"
-    )]
+    #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
     pub accept: Vec<CompressionEncoding>,
-    #[serde(
-        deserialize_with = "ConfigGrpcCompression::deserialize_compression",
-        default = "ConfigGrpcCompression::default_compression"
-    )]
+    #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
     pub send: Vec<CompressionEncoding>,
 }
 
@@ -225,10 +212,18 @@ impl ConfigGrpcCompression {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigPrometheus {
     /// Endpoint of Prometheus service
     pub endpoint: SocketAddr,
+}
+
+impl Default for ConfigPrometheus {
+    fn default() -> Self {
+        Self {
+            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10123),
+        }
+    }
 }
 
 fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
