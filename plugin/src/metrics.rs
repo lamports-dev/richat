@@ -12,7 +12,7 @@ use {
         server::conn::auto::Builder as ServerBuilder,
     },
     log::{error, info},
-    prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder},
+    prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder},
     solana_sdk::clock::Slot,
     std::{
         convert::Infallible,
@@ -29,9 +29,23 @@ lazy_static::lazy_static! {
         &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
     ).unwrap();
 
+    // Geyser
     static ref GEYSER_SLOT_STATUS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("geyser_slot_status", "Latest slot received from Geyser"),
         &["status"]
+    ).unwrap();
+
+    // Channel
+    static ref CHANNEL_MESSAGES_TOTAL: IntGauge = IntGauge::new(
+        "channel_messages_total", "Total number of messages in channel"
+    ).unwrap();
+
+    static ref CHANNEL_SLOTS_TOTAL: IntGauge = IntGauge::new(
+        "channel_slots_total", "Total number of slots in channel"
+    ).unwrap();
+
+    static ref CHANNEL_BYTES_TOTAL: IntGauge = IntGauge::new(
+        "channel_bytes_total", "Total size of all messages in channel"
     ).unwrap();
 }
 
@@ -53,6 +67,9 @@ impl PrometheusService {
             }
             register!(VERSION);
             register!(GEYSER_SLOT_STATUS);
+            register!(CHANNEL_MESSAGES_TOTAL);
+            register!(CHANNEL_SLOTS_TOTAL);
+            register!(CHANNEL_BYTES_TOTAL);
 
             VERSION
                 .with_label_values(&[
@@ -146,4 +163,16 @@ pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {
             .with_label_values(&[status])
             .set(slot as i64);
     }
+}
+
+pub fn channel_messages_set(count: usize) {
+    CHANNEL_MESSAGES_TOTAL.set(count as i64)
+}
+
+pub fn channel_slots_set(count: usize) {
+    CHANNEL_SLOTS_TOTAL.set(count as i64)
+}
+
+pub fn channel_bytes_set(count: usize) {
+    CHANNEL_BYTES_TOTAL.set(count as i64)
 }

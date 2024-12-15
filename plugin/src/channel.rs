@@ -2,6 +2,7 @@
 
 use {
     crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     solana_sdk::clock::Slot,
     std::{
         cell::UnsafeCell,
@@ -51,18 +52,13 @@ impl Sender {
     }
 
     pub fn push(&self, message: ProtobufMessage) {
-        let slot = message.get_slot();
-        if let ProtobufMessage::Slot { status, .. } = &message {
-            metrics::geyser_slot_status_set(slot, status);
-        }
-
         thread_local! {
             // 16MiB should be enough for any message
             // except blockinfo with rewards list (what doesn't make sense after partition reward, starts from epoch 706)
             static BUFFER: UnsafeCell<Vec<u8>> = UnsafeCell::new(Vec::with_capacity(16 * 1024 * 1024));
         }
 
-        let message = BUFFER.with(|buffer| message.encode(unsafe { &mut *buffer.get() }));
+        let data = BUFFER.with(|buffer| message.encode(unsafe { &mut *buffer.get() }));
 
         // acquire state lock
         let mut state = self.shared.state_lock();
@@ -71,6 +67,7 @@ impl Sender {
         let pos = state.tail;
 
         // update slots info and drop extra messages by extra slots
+        let slot = message.get_slot();
         state.slots.entry(slot).or_insert(pos);
         while state.slots.len() > state.slots_max {
             let (slot, pos) = state
@@ -118,7 +115,7 @@ impl Sender {
         }
 
         // drop extra messages by max bytes
-        state.bytes_total += message.len();
+        state.bytes_total += data.len();
         while state.bytes_total > state.bytes_max {
             assert!(
                 state.head < state.tail,
@@ -149,12 +146,22 @@ impl Sender {
         }
         item.pos = pos;
         item.slot = slot;
-        item.data = Some(Arc::new(message));
+        item.data = Some(Arc::new(data));
         drop(item);
 
         // notify receivers
         for waker in state.wakers.drain(..) {
             waker.wake();
+        }
+
+        // update metrics
+        if let ProtobufMessage::Slot { status, .. } = message {
+            metrics::geyser_slot_status_set(slot, status);
+            if *status == SlotStatus::Processed {
+                metrics::channel_messages_set((state.tail - state.head) as usize);
+                metrics::channel_slots_set(state.slots.len());
+                metrics::channel_bytes_set(state.bytes_total);
+            }
         }
     }
 
