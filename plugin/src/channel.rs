@@ -1,7 +1,7 @@
 // Based on https://github.com/tokio-rs/tokio/blob/master/tokio/src/sync/broadcast.rs
 
 use {
-    crate::{config::ConfigChannel, protobuf::ProtobufMessage},
+    crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
     solana_sdk::clock::Slot,
     std::{
         cell::UnsafeCell,
@@ -50,7 +50,12 @@ impl Sender {
         Self { shared }
     }
 
-    pub fn push(&self, slot: Slot, message: ProtobufMessage) {
+    pub fn push(&self, message: ProtobufMessage) {
+        let slot = message.get_slot();
+        if let ProtobufMessage::Slot { status, .. } = &message {
+            metrics::geyser_slot_status_set(slot, status);
+        }
+
         thread_local! {
             // 16MiB should be enough for any message
             // except blockinfo with rewards list (what doesn't make sense after partition reward, starts from epoch 706)

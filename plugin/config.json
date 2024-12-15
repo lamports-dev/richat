@@ -13,6 +13,6 @@
     "max_bytes": 5368709120
   },
   "prometheus": {
-    "endpoint": "0.0.0.0:20002"
+    "endpoint": "0.0.0.0:10123"
   }
 }

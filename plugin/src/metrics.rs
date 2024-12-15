@@ -1,5 +1,6 @@
 use {
     crate::{config::ConfigPrometheus, version::VERSION as VERSION_INFO},
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
     hyper::{
         body::{Bytes, Incoming as BodyIncoming},
@@ -11,7 +12,8 @@ use {
         server::conn::auto::Builder as ServerBuilder,
     },
     log::{error, info},
-    prometheus::{IntCounterVec, Opts, Registry, TextEncoder},
+    prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder},
+    solana_sdk::clock::Slot,
     std::{
         convert::Infallible,
         sync::{Arc, Once},
@@ -25,6 +27,11 @@ lazy_static::lazy_static! {
     static ref VERSION: IntCounterVec = IntCounterVec::new(
         Opts::new("version", "Plugin version info"),
         &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
+    ).unwrap();
+
+    static ref GEYSER_SLOT_STATUS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("geyser_slot_status", "Latest slot received from Geyser"),
+        &["status"]
     ).unwrap();
 }
 
@@ -45,6 +52,7 @@ impl PrometheusService {
                 };
             }
             register!(VERSION);
+            register!(GEYSER_SLOT_STATUS);
 
             VERSION
                 .with_label_values(&[
@@ -122,4 +130,20 @@ fn not_found_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(BodyEmpty::new().boxed())
+}
+
+pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {
+    if let Some(status) = match status {
+        SlotStatus::Processed => Some("processed"),
+        SlotStatus::Rooted => Some("finalized"),
+        SlotStatus::Confirmed => Some("confirmed"),
+        SlotStatus::FirstShredReceived => Some("first_shred_received"),
+        SlotStatus::Completed => Some("completed"),
+        SlotStatus::CreatedBank => Some("created_bank"),
+        SlotStatus::Dead(_) => None,
+    } {
+        GEYSER_SLOT_STATUS
+            .with_label_values(&[status])
+            .set(slot as i64);
+    }
 }
