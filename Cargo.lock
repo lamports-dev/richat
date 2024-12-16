@@ -2927,7 +2927,6 @@ dependencies = [
  "http 1.2.0",
  "http-body-util",
  "hyper 1.5.1",
- "hyper-util",
  "lazy_static",
  "log",
  "prometheus",
@@ -2951,13 +2950,19 @@ name = "richat-shared"
 version = "2.0.0"
 dependencies = [
  "affinity",
+ "http 1.2.0",
+ "http-body-util",
  "humantime-serde",
+ "hyper 1.5.1",
+ "hyper-util",
  "rcgen",
  "rustls 0.23.20",
  "rustls-pemfile 2.2.0",
  "serde",
  "thiserror 2.0.7",
+ "tokio",
  "tonic",
+ "tracing",
 ]
 
 [[package]]

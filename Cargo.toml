@@ -45,6 +45,7 @@ thiserror = "2.0.7"
 tokio = "1.42.0"
 tonic = "0.12.3"
 tonic-build = "0.12.3"
+tracing = "0.1.41"
 vergen = "9.0.2"
 yellowstone-grpc-proto = "4.1.0"
 

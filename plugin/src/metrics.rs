@@ -1,23 +1,14 @@
 use {
     crate::version::VERSION as VERSION_INFO,
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    anyhow::Context,
-    http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
-    hyper::{
-        body::{Bytes, Incoming as BodyIncoming},
-        service::service_fn,
-        Request, Response, StatusCode,
-    },
-    hyper_util::{
-        rt::tokio::{TokioExecutor, TokioIo},
-        server::conn::auto::Builder as ServerBuilder,
-    },
-    log::{error, info},
+    http_body_util::{combinators::BoxBody, BodyExt, Full as BodyFull},
+    hyper::{body::Bytes, Response, StatusCode},
+    log::error,
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder},
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
     std::{convert::Infallible, future::Future, sync::Once},
-    tokio::{net::TcpListener, task::JoinHandle},
+    tokio::task::JoinHandle,
 };
 
 lazy_static::lazy_static! {
@@ -53,85 +44,42 @@ lazy_static::lazy_static! {
     ).unwrap();
 }
 
-#[derive(Debug)]
-pub struct PrometheusService;
+pub async fn spawn_server(
+    config: ConfigPrometheus,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<JoinHandle<()>> {
+    static REGISTER: Once = Once::new();
+    REGISTER.call_once(|| {
+        macro_rules! register {
+            ($collector:ident) => {
+                REGISTRY
+                    .register(Box::new($collector.clone()))
+                    .expect("collector can't be registered");
+            };
+        }
+        register!(VERSION);
+        register!(GEYSER_SLOT_STATUS);
+        register!(CHANNEL_MESSAGES_TOTAL);
+        register!(CHANNEL_SLOTS_TOTAL);
+        register!(CHANNEL_BYTES_TOTAL);
+        register!(GRPC_CONNECTIONS_TOTAL);
 
-impl PrometheusService {
-    pub async fn spawn(
-        ConfigPrometheus { endpoint }: ConfigPrometheus,
-        shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<JoinHandle<()>> {
-        static REGISTER: Once = Once::new();
-        REGISTER.call_once(|| {
-            macro_rules! register {
-                ($collector:ident) => {
-                    REGISTRY
-                        .register(Box::new($collector.clone()))
-                        .expect("collector can't be registered");
-                };
-            }
-            register!(VERSION);
-            register!(GEYSER_SLOT_STATUS);
-            register!(CHANNEL_MESSAGES_TOTAL);
-            register!(CHANNEL_SLOTS_TOTAL);
-            register!(CHANNEL_BYTES_TOTAL);
-            register!(GRPC_CONNECTIONS_TOTAL);
+        VERSION
+            .with_label_values(&[
+                VERSION_INFO.buildts,
+                VERSION_INFO.git,
+                VERSION_INFO.package,
+                VERSION_INFO.proto,
+                VERSION_INFO.rustc,
+                VERSION_INFO.solana,
+                VERSION_INFO.version,
+            ])
+            .inc();
+    });
 
-            VERSION
-                .with_label_values(&[
-                    VERSION_INFO.buildts,
-                    VERSION_INFO.git,
-                    VERSION_INFO.package,
-                    VERSION_INFO.proto,
-                    VERSION_INFO.rustc,
-                    VERSION_INFO.solana,
-                    VERSION_INFO.version,
-                ])
-                .inc();
-        });
-
-        let listener = TcpListener::bind(endpoint)
-            .await
-            .context(format!("failed to bind {endpoint}"))?;
-        info!("start server at: {endpoint}");
-
-        Ok(tokio::spawn(async move {
-            tokio::pin!(shutdown);
-            loop {
-                let stream = tokio::select! {
-                    maybe_conn = listener.accept() => {
-                        match maybe_conn {
-                            Ok((stream, _addr)) => stream,
-                            Err(error) => {
-                                error!("failed to accept new connection: {error}");
-                                break;
-                            }
-                        }
-                    }
-                    () = &mut shutdown => {
-                        info!("shutdown");
-                        break
-                    },
-                };
-                tokio::spawn(async move {
-                    if let Err(error) = ServerBuilder::new(TokioExecutor::new())
-                        .serve_connection(
-                            TokioIo::new(stream),
-                            service_fn(move |req: Request<BodyIncoming>| async move {
-                                match req.uri().path() {
-                                    "/metrics" => metrics_handler(),
-                                    _ => not_found_handler(),
-                                }
-                            }),
-                        )
-                        .await
-                    {
-                        error!("failed to handle request: {error}");
-                    }
-                });
-            }
-        }))
-    }
+    richat_shared::metrics::spawn_server(config, metrics_handler, shutdown)
+        .await
+        .map_err(Into::into)
 }
 
 fn metrics_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
@@ -144,12 +92,6 @@ fn metrics_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
     Response::builder()
         .status(StatusCode::OK)
         .body(BodyFull::new(Bytes::from(metrics)).boxed())
-}
-
-fn not_found_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
-    Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(BodyEmpty::new().boxed())
 }
 
 pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {

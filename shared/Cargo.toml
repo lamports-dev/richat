@@ -13,12 +13,18 @@ publish = { workspace = true }
 [dependencies]
 affinity = { workspace = true }
 humantime-serde = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 rcgen = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-tonic = { workspace = true }
+tokio = { workspace = true, features = [] }
+tonic = { workspace = true, features = ["tls", "gzip", "zstd"] }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 use {
     crate::{
-        channel::Sender, config::Config, grpc::GrpcServer, metrics::PrometheusService,
-        protobuf::ProtobufMessage, quic::QuicServer,
+        channel::Sender, config::Config, grpc::GrpcServer, metrics, protobuf::ProtobufMessage,
+        quic::QuicServer,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -87,7 +87,7 @@ impl PluginInner {
                 if let Some(config) = config.prometheus {
                     tasks.push((
                         "prometheus",
-                        PrometheusService::spawn(config, gen_shutdown()).await?,
+                        metrics::spawn_server(config, gen_shutdown()).await?,
                     ));
                 }
 
