@@ -1,5 +1,5 @@
 use {
-    super::encoding::{self, str_encode_repeated, Account, BlockMeta, Entry, Transaction},
+    super::encoding::{self, bytes_encode, Account, BlockMeta, Entry, Transaction},
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -35,7 +35,7 @@ pub enum ProtobufMessage<'a> {
 impl<'a> ProtobufMessage<'a> {
     pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
         buffer.clear();
-        str_encode_repeated(1, &[], buffer);
+        bytes_encode(1, &[], buffer);
         match self {
             Self::Account { slot, account } => {
                 let account = Account::new(*slot, account);

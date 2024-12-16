@@ -1,5 +1,8 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, field_encoded_len, iter_encoded_len},
+    super::{
+        bytes_encode, bytes_encoded_len, encode_rewards, field_encoded_len, iter_encoded_len,
+        rewards_encoded_len,
+    },
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     prost::{
         bytes::BufMut,
@@ -19,8 +22,7 @@ use {
         transaction_context::TransactionReturnData,
     },
     solana_transaction_status::{
-        InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
-        TransactionTokenBalance,
+        InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
     },
     std::cell::RefCell,
 };
@@ -346,7 +348,7 @@ pub fn encode_transaction_status_meta(
         encode_transaction_token_balances(8, post_token_balances, buf)
     }
     if let Some(ref rewards) = transaction_status_meta.rewards {
-        encode_rewards(rewards, buf)
+        encode_rewards(9, rewards, buf)
     }
     encoding::bool::encode(
         10,
@@ -403,7 +405,7 @@ pub fn transaction_status_meta_encoded_len(
         + transaction_status_meta
             .rewards
             .as_ref()
-            .map_or(0, |rewards| rewards_encoded_len(rewards))
+            .map_or(0, |rewards| rewards_encoded_len(9, rewards))
         + encoding::bool::encoded_len(10, &transaction_status_meta.inner_instructions.is_none())
         + encoding::bool::encoded_len(11, &transaction_status_meta.log_messages.is_none())
         + loaded_writable_addresses_encoded_len(&transaction_status_meta.loaded_addresses)
@@ -444,6 +446,7 @@ pub fn transaction_error_encoded_len(error: &TransactionError) -> usize {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
         bincode::serialize_into(&mut *borrow_mut, &error)
+            .expect("failed to serialize transaction error into buffer")
     });
     let len = BUFFER.with(|cell| {
         let borrow = cell.borrow();
@@ -606,80 +609,6 @@ pub fn ui_token_amount_encoded_len(ui_token_amount: &UiTokenAmount) -> usize {
         + encoding::uint32::encoded_len(2, &decimals)
         + encoding::string::encoded_len(3, &ui_token_amount.amount)
         + encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
-}
-
-pub fn encode_rewards(rewards: &[Reward], buf: &mut impl BufMut) {
-    encode_key(9, WireType::LengthDelimited, buf);
-    encode_varint(rewards_encoded_len(rewards) as u64, buf);
-    for reward in rewards {
-        encode_reward(reward, buf)
-    }
-}
-
-pub fn rewards_encoded_len(rewards: &[Reward]) -> usize {
-    iter_encoded_len(9, rewards.iter().map(reward_encoded_len), rewards.len())
-}
-
-pub const fn reward_type_as_i32(reward_type: &RewardType) -> i32 {
-    use solana_transaction_status::RewardType::*;
-    match reward_type {
-        Fee => 0,
-        Rent => 1,
-        Staking => 2,
-        Voting => 3,
-    }
-}
-
-pub fn encode_reward(reward: &Reward, buf: &mut impl BufMut) {
-    const NUM_STRINGS: [&str; 256] = [
-        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-        "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
-        "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46",
-        "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "61",
-        "62", "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "73", "74", "75", "76",
-        "77", "78", "79", "80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91",
-        "92", "93", "94", "95", "96", "97", "98", "99", "100", "101", "102", "103", "104", "105",
-        "106", "107", "108", "109", "110", "111", "112", "113", "114", "115", "116", "117", "118",
-        "119", "120", "121", "122", "123", "124", "125", "126", "127", "128", "129", "130", "131",
-        "132", "133", "134", "135", "136", "137", "138", "139", "140", "141", "142", "143", "144",
-        "145", "146", "147", "148", "149", "150", "151", "152", "153", "154", "155", "156", "157",
-        "158", "159", "160", "161", "162", "163", "164", "165", "166", "167", "168", "169", "170",
-        "171", "172", "173", "174", "175", "176", "177", "178", "179", "180", "181", "182", "183",
-        "184", "185", "186", "187", "188", "189", "190", "191", "192", "193", "194", "195", "196",
-        "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "207", "208", "209",
-        "210", "211", "212", "213", "214", "215", "216", "217", "218", "219", "220", "221", "222",
-        "223", "224", "225", "226", "227", "228", "229", "230", "231", "232", "233", "234", "235",
-        "236", "237", "238", "239", "240", "241", "242", "243", "244", "245", "246", "247", "248",
-        "249", "250", "251", "252", "253", "254", "255",
-    ];
-
-    const fn u8_to_static_str(num: u8) -> &'static str {
-        NUM_STRINGS[num as usize]
-    }
-
-    encoding::string::encode(1, &reward.pubkey, buf);
-    encoding::int64::encode(2, &reward.lamports, buf);
-    encoding::uint64::encode(3, &reward.post_balance, buf);
-    if let Some(ref reward_type) = reward.reward_type {
-        let reward_type = reward_type_as_i32(reward_type);
-        encoding::int32::encode(4, &reward_type, buf)
-    }
-    if let Some(commission) = reward.commission {
-        bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
-    }
-}
-
-pub fn reward_encoded_len(reward: &Reward) -> usize {
-    encoding::string::encoded_len(1, &reward.pubkey)
-        + encoding::int64::encoded_len(2, &reward.lamports)
-        + encoding::uint64::encoded_len(3, &reward.post_balance)
-        + reward.reward_type.map_or(0, |reward_type| {
-            let reward_type = reward_type_as_i32(&reward_type);
-            encoding::int32::encoded_len(4, &reward_type)
-        })
-        + reward
-            .commission
-            .map_or(0, |commission| bytes_encoded_len(5, &[commission]))
 }
 
 pub fn encode_loaded_writable_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
