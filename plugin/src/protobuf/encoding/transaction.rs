@@ -7,11 +7,15 @@ use {
     },
     solana_sdk::{
         clock::Slot,
-        message::{v0::LoadedMessage, LegacyMessage, SanitizedMessage},
+        message::{
+            v0::{LoadedAddresses, LoadedMessage},
+            LegacyMessage, SanitizedMessage,
+        },
         pubkey::Pubkey,
         signature::Signature,
         transaction::SanitizedTransaction,
     },
+    std::cell::RefCell,
 };
 
 #[derive(Debug)]
@@ -107,10 +111,10 @@ pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> us
     let index = transaction.index as u64;
 
     bytes_encoded_len(1, transaction.signature.as_ref())
-            + encoding::bool::encoded_len(2, &transaction.is_vote)
-            + sanitazed_transaction_encoded_len(transaction.transaction)
-            + 0 // TransactionStatusMeta
-            + encoding::uint64::encoded_len(5, &index)
+        + encoding::bool::encoded_len(2, &transaction.is_vote)
+        + sanitazed_transaction_encoded_len(transaction.transaction)
+        + transaction_status_meta_encoded_len(transaction.transaction_status_meta)
+        + encoding::uint64::encoded_len(5, &index)
 }
 
 pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
@@ -128,7 +132,7 @@ pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut 
 
 pub fn sanitazed_transaction_encoded_len(sanitazed: &SanitizedTransaction) -> usize {
     let signatures = sanitazed.signatures();
-    encoding::key_len(3) * signatures.len()
+    encoding::key_len(1) * signatures.len()
         + signatures
             .iter()
             .map(|signature| signature.as_ref().len())
@@ -285,10 +289,9 @@ pub fn compiled_instruction_encoded_len(
     compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
 ) -> usize {
     let program_id_index = compiled_instruction.program_id_index as u32;
-    let len = encoding::uint32::encoded_len(1, &program_id_index)
+    encoding::uint32::encoded_len(1, &program_id_index)
         + bytes_encoded_len(2, &compiled_instruction.accounts)
-        + bytes_encoded_len(3, &compiled_instruction.data);
-    encoding::key_len(4) + encoding::encoded_len_varint(len as u64) + len
+        + bytes_encoded_len(3, &compiled_instruction.data)
 }
 
 pub fn encode_versioned(versioned: bool, buf: &mut impl BufMut) {
@@ -345,17 +348,6 @@ pub fn encode_transaction_status_meta(
     transaction_status_meta: &solana_transaction_status::TransactionStatusMeta,
     buf: &mut impl BufMut,
 ) {
-    let loaded_writable_addresses = transaction_status_meta
-        .loaded_addresses
-        .writable
-        .iter()
-        .map(|key| key.as_ref());
-    let loaded_readonly_addresses = transaction_status_meta
-        .loaded_addresses
-        .readonly
-        .iter()
-        .map(|key| key.as_ref());
-
     encoding::encode_key(4, WireType::LengthDelimited, buf);
     encoding::encode_varint(
         transaction_status_meta_encoded_len(transaction_status_meta) as u64,
@@ -371,7 +363,7 @@ pub fn encode_transaction_status_meta(
         encode_inner_instructions_vec(&inner_instructions, buf)
     }
     if let Some(ref log_messages) = transaction_status_meta.log_messages {
-        encoding::string::encode_repeated(6, log_messages, buf);
+        encoding::string::encode_repeated(6, log_messages, buf)
     }
     if let Some(ref pre_token_balances) = transaction_status_meta.pre_token_balances {
         encode_transaction_token_balances(7, pre_token_balances, buf)
@@ -388,12 +380,8 @@ pub fn encode_transaction_status_meta(
         buf,
     );
     encoding::bool::encode(11, &transaction_status_meta.log_messages.is_none(), buf);
-    for value in loaded_writable_addresses {
-        bytes_encode(12, value, buf)
-    }
-    for value in loaded_readonly_addresses {
-        bytes_encode(13, value, buf)
-    }
+    encode_loaded_writable_addresses(&transaction_status_meta.loaded_addresses, buf);
+    encode_loaded_readonly_addresses(&transaction_status_meta.loaded_addresses, buf);
     if let Some(ref return_data) = transaction_status_meta.return_data {
         encode_transaction_return_data(return_data, buf)
     }
@@ -406,8 +394,66 @@ pub fn encode_transaction_status_meta(
 pub fn transaction_status_meta_encoded_len(
     transaction_status_meta: &solana_transaction_status::TransactionStatusMeta,
 ) -> usize {
-    let len = 0;
+    let len = transaction_status_meta
+        .status
+        .as_ref()
+        .err()
+        .map_or(0, |error| transaction_error_encoded_len(error))
+        + encoding::uint64::encoded_len(2, &transaction_status_meta.fee)
+        + encoding::uint64::encoded_len_repeated(3, &transaction_status_meta.pre_balances)
+        + encoding::uint64::encoded_len_repeated(4, &transaction_status_meta.post_balances)
+        + transaction_status_meta
+            .inner_instructions
+            .as_ref()
+            .map_or(0, |inner_instructions| {
+                inner_instructions_vec_encoded_len(inner_instructions)
+            })
+        + transaction_status_meta
+            .log_messages
+            .as_ref()
+            .map_or(0, |log_messages| {
+                encoding::string::encoded_len_repeated(6, log_messages)
+            })
+        + transaction_status_meta
+            .pre_token_balances
+            .as_ref()
+            .map_or(0, |pre_token_balances| {
+                transaction_token_balances_encoded_len(7, pre_token_balances)
+            })
+        + transaction_status_meta
+            .post_token_balances
+            .as_ref()
+            .map_or(0, |post_token_balances| {
+                transaction_token_balances_encoded_len(8, post_token_balances)
+            })
+        + transaction_status_meta
+            .rewards
+            .as_ref()
+            .map_or(0, |rewards| rewards_encoded_len(rewards))
+        + encoding::bool::encoded_len(10, &transaction_status_meta.inner_instructions.is_none())
+        + encoding::bool::encoded_len(11, &transaction_status_meta.log_messages.is_none())
+        + loaded_writable_addresses_encoded_len(&transaction_status_meta.loaded_addresses)
+        + loaded_readonly_addresses_encoded_len(&transaction_status_meta.loaded_addresses)
+        + transaction_status_meta
+            .return_data
+            .as_ref()
+            .map_or(0, |return_data| {
+                transaction_return_data_encoded_len(return_data)
+            })
+        + encoding::bool::encoded_len(15, &transaction_status_meta.return_data.is_none())
+        + transaction_status_meta
+            .compute_units_consumed
+            .as_ref()
+            .map_or(0, |compute_units_consumed| {
+                encoding::uint64::encoded_len(16, compute_units_consumed)
+            });
     encoding::key_len(4) + encoding::encoded_len_varint(len as u64) + len
+}
+
+const KIB: usize = 1024;
+
+thread_local! {
+    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(KIB));
 }
 
 pub fn encode_transaction_error(
@@ -416,10 +462,23 @@ pub fn encode_transaction_error(
 ) {
     encoding::encode_key(1, WireType::LengthDelimited, buf);
     encoding::encode_varint(transaction_error_encoded_len(error) as u64, buf);
+    BUFFER.with(|cell| {
+        let borrow = cell.borrow();
+        encoding::bytes::encode(1, &*borrow, buf)
+    })
 }
 
 pub fn transaction_error_encoded_len(error: &solana_sdk::transaction::TransactionError) -> usize {
-    0
+    BUFFER.with(|cell| {
+        let mut borrow_mut = cell.borrow_mut();
+        borrow_mut.clear();
+        bincode::serialize_into(&mut *borrow_mut, &error)
+    });
+    let len = BUFFER.with(|cell| {
+        let borrow = cell.borrow();
+        encoding::bytes::encoded_len(1, &*borrow)
+    });
+    encoding::key_len(1) + encoding::encoded_len_varint(len as u64) + len
 }
 
 pub fn encode_inner_instructions_vec(
@@ -431,24 +490,89 @@ pub fn encode_inner_instructions_vec(
         inner_instructions_vec_encoded_len(inner_instructions) as u64,
         buf,
     );
+    for value in inner_instructions {
+        encode_inner_instructions(value, buf)
+    }
 }
 
 pub fn inner_instructions_vec_encoded_len(
     inner_instructions: &[solana_transaction_status::InnerInstructions],
 ) -> usize {
-    0
+    encoding::key_len(5) * inner_instructions.len()
+        + inner_instructions
+            .iter()
+            .map(inner_instructions_encoded_len)
+            .map(|len| len + encoding::encoded_len_varint(len as u64))
+            .sum::<usize>()
 }
 
 pub fn encode_inner_instructions(
     inner_instructions: &solana_transaction_status::InnerInstructions,
     buf: &mut impl BufMut,
 ) {
+    let index = inner_instructions.index as u32;
+
+    encoding::uint32::encode(1, &index, buf);
+    encode_inner_instruction_vec(&inner_instructions.instructions, buf)
 }
 
 pub fn inner_instructions_encoded_len(
     inner_instructions: &solana_transaction_status::InnerInstructions,
 ) -> usize {
-    0
+    let index = inner_instructions.index as u32;
+
+    encoding::uint32::encoded_len(1, &index)
+        + inner_instruction_vec_encoded_len(&inner_instructions.instructions)
+}
+
+pub fn encode_inner_instruction_vec(
+    inner_instructions: &[solana_transaction_status::InnerInstruction],
+    buf: &mut impl BufMut,
+) {
+    encoding::encode_key(2, WireType::LengthDelimited, buf);
+    encoding::encode_varint(
+        inner_instruction_vec_encoded_len(inner_instructions) as u64,
+        buf,
+    );
+    for inner_instruction in inner_instructions {
+        encode_inner_instruction(inner_instruction, buf)
+    }
+}
+
+pub fn inner_instruction_vec_encoded_len(
+    inner_instructions: &[solana_transaction_status::InnerInstruction],
+) -> usize {
+    encoding::key_len(2) * inner_instructions.len()
+        + inner_instructions
+            .iter()
+            .map(inner_instruction_encoded_len)
+            .map(|len| len + encoding::encoded_len_varint(len as u64))
+            .sum::<usize>()
+}
+
+pub fn encode_inner_instruction(
+    inner_instruction: &solana_transaction_status::InnerInstruction,
+    buf: &mut impl BufMut,
+) {
+    encoding::encode_key(1, WireType::LengthDelimited, buf);
+    encoding::encode_varint(
+        compiled_instruction_encoded_len(&inner_instruction.instruction) as u64,
+        buf,
+    );
+    encode_compiled_instruction(&inner_instruction.instruction, buf);
+
+    if let Some(ref stack_height) = inner_instruction.stack_height {
+        encoding::uint32::encode(2, stack_height, buf)
+    }
+}
+
+pub fn inner_instruction_encoded_len(
+    inner_instruction: &solana_transaction_status::InnerInstruction,
+) -> usize {
+    compiled_instruction_encoded_len(&inner_instruction.instruction)
+        + inner_instruction.stack_height.map_or(0, |stack_height| {
+            encoding::uint32::encoded_len(2, &stack_height)
+        })
 }
 
 pub fn encode_transaction_token_balances(
@@ -608,6 +732,44 @@ pub fn reward_encoded_len(reward: &solana_transaction_status::Reward) -> usize {
         + reward
             .commission
             .map_or(0, |commission| bytes_encoded_len(5, &[commission]))
+}
+
+pub fn encode_loaded_writable_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
+    let writable_addresses = loaded_addresses.writable.iter().map(|key| key.as_ref());
+    for value in writable_addresses {
+        bytes_encode(12, value, buf)
+    }
+}
+
+pub fn loaded_writable_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> usize {
+    encoding::key_len(12) * loaded_addresses.writable.len()
+        + loaded_addresses
+            .writable
+            .iter()
+            .map(|key| {
+                let bytes = key.to_bytes();
+                bytes.len() + encoding::encoded_len_varint(bytes.len() as u64)
+            })
+            .sum::<usize>()
+}
+
+pub fn encode_loaded_readonly_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
+    let readonly_addresses = loaded_addresses.readonly.iter().map(|key| key.as_ref());
+    for value in readonly_addresses {
+        bytes_encode(13, value, buf)
+    }
+}
+
+pub fn loaded_readonly_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> usize {
+    encoding::key_len(13) * loaded_addresses.readonly.len()
+        + loaded_addresses
+            .readonly
+            .iter()
+            .map(|key| {
+                let bytes = key.to_bytes();
+                bytes.len() + encoding::encoded_len_varint(bytes.len() as u64)
+            })
+            .sum::<usize>()
 }
 
 pub fn encode_transaction_return_data(

@@ -1,6 +1,6 @@
 use {
     super::bytes_encoded_len,
-    crate::protobuf::encoding::{bytes_encode, proto::convert_to},
+    crate::protobuf::encoding::bytes_encode,
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::encoding::{self, message},
 };
