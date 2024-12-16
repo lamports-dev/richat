@@ -1,19 +1,26 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, field_encoded_len},
+    super::{bytes_encode, bytes_encoded_len, field_encoded_len, iter_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     prost::{
         bytes::BufMut,
-        encoding::{self, encode_key, encode_varint, message, WireType},
+        encoding::{self, encode_key, encode_varint, WireType},
     },
+    solana_account_decoder_client_types::token::UiTokenAmount,
     solana_sdk::{
         clock::Slot,
+        instruction::CompiledInstruction,
         message::{
-            v0::{LoadedAddresses, LoadedMessage},
+            v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
             LegacyMessage, SanitizedMessage,
         },
         pubkey::Pubkey,
         signature::Signature,
-        transaction::SanitizedTransaction,
+        transaction::{SanitizedTransaction, TransactionError},
+        transaction_context::TransactionReturnData,
+    },
+    solana_transaction_status::{
+        InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
+        TransactionTokenBalance,
     },
     std::cell::RefCell,
 };
@@ -26,15 +33,18 @@ pub struct Transaction<'a> {
 
 impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
-        encoding::encode_key(1, WireType::LengthDelimited, buf);
-        encoding::encode_varint(transaction_encoded_len(self.transaction) as u64, buf);
+        encode_key(1, WireType::LengthDelimited, buf);
+        encode_varint(
+            replica_transaction_info_encoded_len(self.transaction) as u64,
+            buf,
+        );
 
-        encode_transaction(self.transaction, buf);
+        encode_replica_transaction_info(self.transaction, buf);
 
         encoding::uint64::encode(2, &self.slot, buf)
     }
     fn encoded_len(&self) -> usize {
-        field_encoded_len(1, transaction_encoded_len(self.transaction))
+        field_encoded_len(1, replica_transaction_info_encoded_len(self.transaction))
             + encoding::uint64::encoded_len(2, &self.slot)
     }
     fn merge_field(
@@ -60,7 +70,10 @@ impl<'a> Transaction<'a> {
     }
 }
 
-pub fn encode_transaction(transaction: &ReplicaTransactionInfoV2<'_>, buf: &mut impl BufMut) {
+pub fn encode_replica_transaction_info(
+    transaction: &ReplicaTransactionInfoV2<'_>,
+    buf: &mut impl BufMut,
+) {
     let index = transaction.index as u64;
 
     bytes_encode(1, transaction.signature.as_ref(), buf);
@@ -70,7 +83,7 @@ pub fn encode_transaction(transaction: &ReplicaTransactionInfoV2<'_>, buf: &mut 
     encoding::uint64::encode(5, &index, buf)
 }
 
-pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
+pub fn replica_transaction_info_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
     let index = transaction.index as u64;
 
     bytes_encoded_len(1, transaction.signature.as_ref())
@@ -81,31 +94,36 @@ pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> us
 }
 
 pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
-    encoding::encode_key(3, WireType::LengthDelimited, buf);
-    encoding::encode_varint(sanitazed_transaction_encoded_len(sanitazed) as u64, buf);
-    let signatures = sanitazed
-        .signatures()
-        .iter()
-        .map(|signature| signature.as_ref());
-    for value in signatures {
-        bytes_encode(1, value, buf)
-    }
+    encode_key(3, WireType::LengthDelimited, buf);
+    encode_varint(sanitazed_transaction_encoded_len(sanitazed) as u64, buf);
+    encode_signatures(sanitazed.signatures(), buf);
     encode_sanitazed_message(sanitazed.message(), buf)
 }
 
 pub fn sanitazed_transaction_encoded_len(sanitazed: &SanitizedTransaction) -> usize {
-    let signatures = sanitazed.signatures();
-    encoding::key_len(1) * signatures.len()
-        + signatures
-            .iter()
-            .map(|signature| signature.as_ref().len())
-            .sum::<usize>()
-        + sanitazed_message_encoded_len(sanitazed.message())
+    let len = signatures_encoded_len(sanitazed.signatures())
+        + sanitazed_message_encoded_len(sanitazed.message());
+    field_encoded_len(3, len)
+}
+
+pub fn encode_signatures(signatures: &[Signature], buf: &mut impl BufMut) {
+    let signatures = signatures.iter().map(|signature| signature.as_ref());
+    for value in signatures {
+        bytes_encode(1, value, buf)
+    }
+}
+
+pub fn signatures_encoded_len(signatures: &[Signature]) -> usize {
+    iter_encoded_len(
+        1,
+        signatures.iter().map(|signature| signature.as_ref().len()),
+        signatures.len(),
+    )
 }
 
 pub fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl BufMut) {
-    encoding::encode_key(2, WireType::LengthDelimited, buf);
-    encoding::encode_varint(sanitazed_message_encoded_len(sanitazed) as u64, buf);
+    encode_key(2, WireType::LengthDelimited, buf);
+    encode_varint(sanitazed_message_encoded_len(sanitazed) as u64, buf);
     match sanitazed {
         SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
             encode_message_header(&message.header, buf);
@@ -159,15 +177,15 @@ pub fn sanitazed_message_encoded_len(sanitazed: &SanitizedMessage) -> usize {
                 + address_table_lookups_encoded_len(&message.address_table_lookups)
         }
     };
-    encoding::key_len(2) + encoding::encoded_len_varint(len as u64) + len
+    field_encoded_len(2, len)
 }
 
 pub fn encode_message_header(header: &solana_sdk::message::MessageHeader, buf: &mut impl BufMut) {
     let num_required_signatures = header.num_required_signatures as u32;
     let num_readonly_signed_accounts = header.num_readonly_signed_accounts as u32;
     let num_readonly_unsigned_accounts = header.num_readonly_unsigned_accounts as u32;
-    encoding::encode_key(1, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(1, WireType::LengthDelimited, buf);
+    encode_varint(
         message_header_encoded_len((
             num_required_signatures,
             num_readonly_signed_accounts,
@@ -184,7 +202,7 @@ pub fn message_header_encoded_len(header: (u32, u32, u32)) -> usize {
     let len = encoding::uint32::encoded_len(1, &header.0)
         + encoding::uint32::encoded_len(2, &header.1)
         + encoding::uint32::encoded_len(3, &header.2);
-    encoding::key_len(1) + encoding::encoded_len_varint(len as u64) + len
+    field_encoded_len(1, len)
 }
 
 pub fn encode_pubkeys(pubkeys: &[Pubkey], buf: &mut impl BufMut) {
@@ -195,14 +213,11 @@ pub fn encode_pubkeys(pubkeys: &[Pubkey], buf: &mut impl BufMut) {
 }
 
 pub fn pubkeys_encoded_len(pubkeys: &[Pubkey]) -> usize {
-    encoding::key_len(2) * pubkeys.len()
-        + pubkeys
-            .iter()
-            .map(|pubkey| {
-                let pubkey = pubkey.to_bytes();
-                pubkey.len() + encoding::encoded_len_varint(pubkey.len() as u64)
-            })
-            .sum::<usize>()
+    iter_encoded_len(
+        2,
+        pubkeys.iter().map(|pubkey| pubkey.to_bytes().len()),
+        pubkeys.len(),
+    )
 }
 
 pub fn encode_recent_blockhash(pubkey: &[u8], buf: &mut impl BufMut) {
@@ -214,11 +229,11 @@ pub fn recent_blockhash_encoded_len(pubkey: &[u8]) -> usize {
 }
 
 pub fn encode_compiled_instructions(
-    compiled_instructions: &[solana_sdk::instruction::CompiledInstruction],
+    compiled_instructions: &[CompiledInstruction],
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(4, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(4, WireType::LengthDelimited, buf);
+    encode_varint(
         compiled_instructions_encoded_len(compiled_instructions) as u64,
         buf,
     );
@@ -227,19 +242,18 @@ pub fn encode_compiled_instructions(
     }
 }
 
-pub fn compiled_instructions_encoded_len(
-    compiled_instructions: &[solana_sdk::instruction::CompiledInstruction],
-) -> usize {
-    encoding::key_len(4) * compiled_instructions.len()
-        + compiled_instructions
+pub fn compiled_instructions_encoded_len(compiled_instructions: &[CompiledInstruction]) -> usize {
+    iter_encoded_len(
+        4,
+        compiled_instructions
             .iter()
-            .map(compiled_instruction_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+            .map(compiled_instruction_encoded_len),
+        compiled_instructions.len(),
+    )
 }
 
 pub fn encode_compiled_instruction(
-    compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
+    compiled_instruction: &CompiledInstruction,
     buf: &mut impl BufMut,
 ) {
     let program_id_index = compiled_instruction.program_id_index as u32;
@@ -248,9 +262,7 @@ pub fn encode_compiled_instruction(
     bytes_encode(3, &compiled_instruction.data, buf)
 }
 
-pub fn compiled_instruction_encoded_len(
-    compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
-) -> usize {
+pub fn compiled_instruction_encoded_len(compiled_instruction: &CompiledInstruction) -> usize {
     let program_id_index = compiled_instruction.program_id_index as u32;
     encoding::uint32::encoded_len(1, &program_id_index)
         + bytes_encoded_len(2, &compiled_instruction.accounts)
@@ -266,11 +278,11 @@ pub fn versioned_encoded_len(versioned: bool) -> usize {
 }
 
 pub fn encode_address_table_lookups(
-    address_table_lookups: &[solana_sdk::message::v0::MessageAddressTableLookup],
+    address_table_lookups: &[MessageAddressTableLookup],
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(6, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(6, WireType::LengthDelimited, buf);
+    encode_varint(
         address_table_lookups_encoded_len(address_table_lookups) as u64,
         buf,
     );
@@ -280,18 +292,19 @@ pub fn encode_address_table_lookups(
 }
 
 pub fn address_table_lookups_encoded_len(
-    address_table_lookup: &[solana_sdk::message::v0::MessageAddressTableLookup],
+    address_table_lookups: &[MessageAddressTableLookup],
 ) -> usize {
-    encoding::key_len(6) * address_table_lookup.len()
-        + address_table_lookup
+    iter_encoded_len(
+        6,
+        address_table_lookups
             .iter()
-            .map(address_table_lookup_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+            .map(address_table_lookup_encoded_len),
+        address_table_lookups.len(),
+    )
 }
 
 pub fn encode_address_table_lookup(
-    address_table_lookup: &solana_sdk::message::v0::MessageAddressTableLookup,
+    address_table_lookup: &MessageAddressTableLookup,
     buf: &mut impl BufMut,
 ) {
     bytes_encode(1, &address_table_lookup.account_key.to_bytes(), buf);
@@ -299,20 +312,18 @@ pub fn encode_address_table_lookup(
     bytes_encode(3, &address_table_lookup.readonly_indexes, buf)
 }
 
-pub fn address_table_lookup_encoded_len(
-    address_table_lookup: &solana_sdk::message::v0::MessageAddressTableLookup,
-) -> usize {
+pub fn address_table_lookup_encoded_len(address_table_lookup: &MessageAddressTableLookup) -> usize {
     bytes_encoded_len(1, &address_table_lookup.account_key.to_bytes())
         + bytes_encoded_len(2, &address_table_lookup.writable_indexes)
         + bytes_encoded_len(3, &address_table_lookup.readonly_indexes)
 }
 
 pub fn encode_transaction_status_meta(
-    transaction_status_meta: &solana_transaction_status::TransactionStatusMeta,
+    transaction_status_meta: &TransactionStatusMeta,
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(4, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(4, WireType::LengthDelimited, buf);
+    encode_varint(
         transaction_status_meta_encoded_len(transaction_status_meta) as u64,
         buf,
     );
@@ -355,7 +366,7 @@ pub fn encode_transaction_status_meta(
 }
 
 pub fn transaction_status_meta_encoded_len(
-    transaction_status_meta: &solana_transaction_status::TransactionStatusMeta,
+    transaction_status_meta: &TransactionStatusMeta,
 ) -> usize {
     let len = transaction_status_meta
         .status
@@ -410,7 +421,7 @@ pub fn transaction_status_meta_encoded_len(
             .map_or(0, |compute_units_consumed| {
                 encoding::uint64::encoded_len(16, compute_units_consumed)
             });
-    encoding::key_len(4) + encoding::encoded_len_varint(len as u64) + len
+    field_encoded_len(4, len)
 }
 
 const KIB: usize = 1024;
@@ -419,19 +430,16 @@ thread_local! {
     static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(KIB));
 }
 
-pub fn encode_transaction_error(
-    error: &solana_sdk::transaction::TransactionError,
-    buf: &mut impl BufMut,
-) {
-    encoding::encode_key(1, WireType::LengthDelimited, buf);
-    encoding::encode_varint(transaction_error_encoded_len(error) as u64, buf);
+pub fn encode_transaction_error(error: &TransactionError, buf: &mut impl BufMut) {
+    encode_key(1, WireType::LengthDelimited, buf);
+    encode_varint(transaction_error_encoded_len(error) as u64, buf);
     BUFFER.with(|cell| {
         let borrow = cell.borrow();
         encoding::bytes::encode(1, &*borrow, buf)
     })
 }
 
-pub fn transaction_error_encoded_len(error: &solana_sdk::transaction::TransactionError) -> usize {
+pub fn transaction_error_encoded_len(error: &TransactionError) -> usize {
     BUFFER.with(|cell| {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
@@ -441,15 +449,15 @@ pub fn transaction_error_encoded_len(error: &solana_sdk::transaction::Transactio
         let borrow = cell.borrow();
         encoding::bytes::encoded_len(1, &*borrow)
     });
-    encoding::key_len(1) + encoding::encoded_len_varint(len as u64) + len
+    field_encoded_len(1, len)
 }
 
 pub fn encode_inner_instructions_vec(
-    inner_instructions: &[solana_transaction_status::InnerInstructions],
+    inner_instructions: &[InnerInstructions],
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(5, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(5, WireType::LengthDelimited, buf);
+    encode_varint(
         inner_instructions_vec_encoded_len(inner_instructions) as u64,
         buf,
     );
@@ -458,30 +466,24 @@ pub fn encode_inner_instructions_vec(
     }
 }
 
-pub fn inner_instructions_vec_encoded_len(
-    inner_instructions: &[solana_transaction_status::InnerInstructions],
-) -> usize {
-    encoding::key_len(5) * inner_instructions.len()
-        + inner_instructions
+pub fn inner_instructions_vec_encoded_len(inner_instructions: &[InnerInstructions]) -> usize {
+    iter_encoded_len(
+        5,
+        inner_instructions
             .iter()
-            .map(inner_instructions_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+            .map(inner_instructions_encoded_len),
+        inner_instructions.len(),
+    )
 }
 
-pub fn encode_inner_instructions(
-    inner_instructions: &solana_transaction_status::InnerInstructions,
-    buf: &mut impl BufMut,
-) {
+pub fn encode_inner_instructions(inner_instructions: &InnerInstructions, buf: &mut impl BufMut) {
     let index = inner_instructions.index as u32;
 
     encoding::uint32::encode(1, &index, buf);
     encode_inner_instruction_vec(&inner_instructions.instructions, buf)
 }
 
-pub fn inner_instructions_encoded_len(
-    inner_instructions: &solana_transaction_status::InnerInstructions,
-) -> usize {
+pub fn inner_instructions_encoded_len(inner_instructions: &InnerInstructions) -> usize {
     let index = inner_instructions.index as u32;
 
     encoding::uint32::encoded_len(1, &index)
@@ -489,11 +491,11 @@ pub fn inner_instructions_encoded_len(
 }
 
 pub fn encode_inner_instruction_vec(
-    inner_instructions: &[solana_transaction_status::InnerInstruction],
+    inner_instructions: &[InnerInstruction],
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(2, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(2, WireType::LengthDelimited, buf);
+    encode_varint(
         inner_instruction_vec_encoded_len(inner_instructions) as u64,
         buf,
     );
@@ -502,23 +504,17 @@ pub fn encode_inner_instruction_vec(
     }
 }
 
-pub fn inner_instruction_vec_encoded_len(
-    inner_instructions: &[solana_transaction_status::InnerInstruction],
-) -> usize {
-    encoding::key_len(2) * inner_instructions.len()
-        + inner_instructions
-            .iter()
-            .map(inner_instruction_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+pub fn inner_instruction_vec_encoded_len(inner_instructions: &[InnerInstruction]) -> usize {
+    iter_encoded_len(
+        2,
+        inner_instructions.iter().map(inner_instruction_encoded_len),
+        inner_instructions.len(),
+    )
 }
 
-pub fn encode_inner_instruction(
-    inner_instruction: &solana_transaction_status::InnerInstruction,
-    buf: &mut impl BufMut,
-) {
-    encoding::encode_key(1, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+pub fn encode_inner_instruction(inner_instruction: &InnerInstruction, buf: &mut impl BufMut) {
+    encode_key(1, WireType::LengthDelimited, buf);
+    encode_varint(
         compiled_instruction_encoded_len(&inner_instruction.instruction) as u64,
         buf,
     );
@@ -529,9 +525,7 @@ pub fn encode_inner_instruction(
     }
 }
 
-pub fn inner_instruction_encoded_len(
-    inner_instruction: &solana_transaction_status::InnerInstruction,
-) -> usize {
+pub fn inner_instruction_encoded_len(inner_instruction: &InnerInstruction) -> usize {
     compiled_instruction_encoded_len(&inner_instruction.instruction)
         + inner_instruction.stack_height.map_or(0, |stack_height| {
             encoding::uint32::encoded_len(2, &stack_height)
@@ -540,11 +534,11 @@ pub fn inner_instruction_encoded_len(
 
 pub fn encode_transaction_token_balances(
     tag: u32,
-    transaction_token_balances: &[solana_transaction_status::TransactionTokenBalance],
+    transaction_token_balances: &[TransactionTokenBalance],
     buf: &mut impl BufMut,
 ) {
-    encoding::encode_key(tag, WireType::LengthDelimited, buf);
-    encoding::encode_varint(
+    encode_key(tag, WireType::LengthDelimited, buf);
+    encode_varint(
         transaction_token_balances_encoded_len(tag, transaction_token_balances) as u64,
         buf,
     );
@@ -555,18 +549,19 @@ pub fn encode_transaction_token_balances(
 
 pub fn transaction_token_balances_encoded_len(
     tag: u32,
-    transaction_token_balances: &[solana_transaction_status::TransactionTokenBalance],
+    transaction_token_balances: &[TransactionTokenBalance],
 ) -> usize {
-    encoding::key_len(tag) * transaction_token_balances.len()
-        + transaction_token_balances
+    iter_encoded_len(
+        tag,
+        transaction_token_balances
             .iter()
-            .map(transaction_token_balance_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+            .map(transaction_token_balance_encoded_len),
+        transaction_token_balances.len(),
+    )
 }
 
 pub fn encode_transaction_token_balance(
-    transaction_token_balance: &solana_transaction_status::TransactionTokenBalance,
+    transaction_token_balance: &TransactionTokenBalance,
     buf: &mut impl BufMut,
 ) {
     let account_index = transaction_token_balance.account_index as u32;
@@ -579,7 +574,7 @@ pub fn encode_transaction_token_balance(
 }
 
 pub fn transaction_token_balance_encoded_len(
-    transaction_token_balance: &solana_transaction_status::TransactionTokenBalance,
+    transaction_token_balance: &TransactionTokenBalance,
 ) -> usize {
     let account_index = transaction_token_balance.account_index as u32;
 
@@ -590,14 +585,11 @@ pub fn transaction_token_balance_encoded_len(
         + encoding::string::encoded_len(5, &transaction_token_balance.program_id)
 }
 
-pub fn encode_ui_token_amount(
-    ui_token_amount: &solana_account_decoder_client_types::token::UiTokenAmount,
-    buf: &mut impl BufMut,
-) {
+pub fn encode_ui_token_amount(ui_token_amount: &UiTokenAmount, buf: &mut impl BufMut) {
     let decimals = ui_token_amount.decimals as u32;
 
-    encoding::encode_key(3, WireType::LengthDelimited, buf);
-    encoding::encode_varint(ui_token_amount_encoded_len(ui_token_amount) as u64, buf);
+    encode_key(3, WireType::LengthDelimited, buf);
+    encode_varint(ui_token_amount_encoded_len(ui_token_amount) as u64, buf);
     if let Some(ref ui_amount) = ui_token_amount.ui_amount {
         encoding::double::encode(1, ui_amount, buf)
     }
@@ -606,9 +598,7 @@ pub fn encode_ui_token_amount(
     encoding::string::encode(4, &ui_token_amount.ui_amount_string, buf)
 }
 
-pub fn ui_token_amount_encoded_len(
-    ui_token_amount: &solana_account_decoder_client_types::token::UiTokenAmount,
-) -> usize {
+pub fn ui_token_amount_encoded_len(ui_token_amount: &UiTokenAmount) -> usize {
     let decimals = ui_token_amount.decimals as u32;
     ui_token_amount
         .ui_amount
@@ -618,24 +608,19 @@ pub fn ui_token_amount_encoded_len(
         + encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
 }
 
-pub fn encode_rewards(rewards: &[solana_transaction_status::Reward], buf: &mut impl BufMut) {
-    encoding::encode_key(9, WireType::LengthDelimited, buf);
-    encoding::encode_varint(rewards_encoded_len(rewards) as u64, buf);
+pub fn encode_rewards(rewards: &[Reward], buf: &mut impl BufMut) {
+    encode_key(9, WireType::LengthDelimited, buf);
+    encode_varint(rewards_encoded_len(rewards) as u64, buf);
     for reward in rewards {
         encode_reward(reward, buf)
     }
 }
 
-pub fn rewards_encoded_len(rewards: &[solana_transaction_status::Reward]) -> usize {
-    encoding::key_len(9) * rewards.len()
-        + rewards
-            .iter()
-            .map(reward_encoded_len)
-            .map(|len| len + encoding::encoded_len_varint(len as u64))
-            .sum::<usize>()
+pub fn rewards_encoded_len(rewards: &[Reward]) -> usize {
+    iter_encoded_len(9, rewards.iter().map(reward_encoded_len), rewards.len())
 }
 
-pub const fn reward_type_as_i32(reward_type: &solana_transaction_status::RewardType) -> i32 {
+pub const fn reward_type_as_i32(reward_type: &RewardType) -> i32 {
     use solana_transaction_status::RewardType::*;
     match reward_type {
         Fee => 0,
@@ -645,7 +630,7 @@ pub const fn reward_type_as_i32(reward_type: &solana_transaction_status::RewardT
     }
 }
 
-pub fn encode_reward(reward: &solana_transaction_status::Reward, buf: &mut impl BufMut) {
+pub fn encode_reward(reward: &Reward, buf: &mut impl BufMut) {
     const NUM_STRINGS: [&str; 256] = [
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
         "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31",
@@ -684,7 +669,7 @@ pub fn encode_reward(reward: &solana_transaction_status::Reward, buf: &mut impl 
     }
 }
 
-pub fn reward_encoded_len(reward: &solana_transaction_status::Reward) -> usize {
+pub fn reward_encoded_len(reward: &Reward) -> usize {
     encoding::string::encoded_len(1, &reward.pubkey)
         + encoding::int64::encoded_len(2, &reward.lamports)
         + encoding::uint64::encoded_len(3, &reward.post_balance)
@@ -705,15 +690,14 @@ pub fn encode_loaded_writable_addresses(loaded_addresses: &LoadedAddresses, buf:
 }
 
 pub fn loaded_writable_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> usize {
-    encoding::key_len(12) * loaded_addresses.writable.len()
-        + loaded_addresses
+    iter_encoded_len(
+        12,
+        loaded_addresses
             .writable
             .iter()
-            .map(|key| {
-                let bytes = key.to_bytes();
-                bytes.len() + encoding::encoded_len_varint(bytes.len() as u64)
-            })
-            .sum::<usize>()
+            .map(|pubkey| pubkey.to_bytes().len()),
+        loaded_addresses.len(),
+    )
 }
 
 pub fn encode_loaded_readonly_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
@@ -724,31 +708,25 @@ pub fn encode_loaded_readonly_addresses(loaded_addresses: &LoadedAddresses, buf:
 }
 
 pub fn loaded_readonly_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> usize {
-    encoding::key_len(13) * loaded_addresses.readonly.len()
-        + loaded_addresses
+    iter_encoded_len(
+        12,
+        loaded_addresses
             .readonly
             .iter()
-            .map(|key| {
-                let bytes = key.to_bytes();
-                bytes.len() + encoding::encoded_len_varint(bytes.len() as u64)
-            })
-            .sum::<usize>()
+            .map(|pubkey| pubkey.to_bytes().len()),
+        loaded_addresses.len(),
+    )
 }
 
-pub fn encode_transaction_return_data(
-    return_data: &solana_sdk::transaction_context::TransactionReturnData,
-    buf: &mut impl BufMut,
-) {
-    encoding::encode_key(14, WireType::LengthDelimited, buf);
-    encoding::encode_varint(transaction_return_data_encoded_len(return_data) as u64, buf);
+pub fn encode_transaction_return_data(return_data: &TransactionReturnData, buf: &mut impl BufMut) {
+    encode_key(14, WireType::LengthDelimited, buf);
+    encode_varint(transaction_return_data_encoded_len(return_data) as u64, buf);
     bytes_encode(1, &return_data.program_id.to_bytes(), buf);
     bytes_encode(2, &return_data.data, buf)
 }
 
-pub fn transaction_return_data_encoded_len(
-    return_data: &solana_sdk::transaction_context::TransactionReturnData,
-) -> usize {
+pub fn transaction_return_data_encoded_len(return_data: &TransactionReturnData) -> usize {
     let len = bytes_encoded_len(1, &return_data.program_id.to_bytes())
         + bytes_encoded_len(2, &return_data.data);
-    encoding::key_len(14) + encoding::encoded_len_varint(len as u64) + len
+    field_encoded_len(14, len)
 }

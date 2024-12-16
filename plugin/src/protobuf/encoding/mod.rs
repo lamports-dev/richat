@@ -13,6 +13,13 @@ mod entry;
 mod slot;
 mod transaction;
 
+pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {
+    key_len(tag) * len
+        + iter
+            .map(|len| len + encoded_len_varint(len as u64))
+            .sum::<usize>()
+}
+
 #[inline]
 pub fn field_encoded_len(tag: u32, len: usize) -> usize {
     key_len(tag) + len + encoded_len_varint(len as u64)
