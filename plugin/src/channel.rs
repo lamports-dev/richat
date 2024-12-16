@@ -1,4 +1,4 @@
-use {crate::protobuf::ProtobufMessage, solana_sdk::clock::Slot, std::cell::RefCell};
+use {crate::protobuf::ProtobufMessage, std::cell::RefCell};
 
 /// 16 MiB, `should be` enough for any message
 const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;

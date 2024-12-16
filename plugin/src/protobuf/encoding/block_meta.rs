@@ -22,9 +22,9 @@ impl<'a> prost::Message for BlockMeta<'a> {
 
         encoding::uint64::encode(1, &self.blockinfo.slot, buf);
         bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
-        message::encode(3, &rewards, buf);
-        message::encode(4, &block_time, buf);
-        message::encode(5, &block_height, buf);
+        message::encode(3, &rewards, buf); // TODO
+        message::encode(4, &block_time, buf); // TODO
+        message::encode(5, &block_height, buf); // TODO
         encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf);
         bytes_encode(7, self.blockinfo.parent_blockhash.as_ref(), buf);
         encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);

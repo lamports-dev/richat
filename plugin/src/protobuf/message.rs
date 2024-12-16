@@ -7,7 +7,6 @@ use {
     prost::encoding::message,
     prost_types::Timestamp,
     solana_sdk::clock::Slot,
-    std::time::UNIX_EPOCH,
 };
 
 #[derive(Debug)]

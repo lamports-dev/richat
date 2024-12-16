@@ -38,6 +38,7 @@ serde_json = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
+solana-account-decoder-client-types = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
