@@ -96,17 +96,30 @@ mod proto {
     }
 
     pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
-        todo!()
+        let index = transaction.index as u64;
+
+        bytes_encoded_len(1, transaction.signature.as_ref())
+            + encoding::bool::encoded_len(2, &transaction.is_vote)
+            + sanitazed_transaction_encoded_len(transaction.transaction)
+            + 0 // TransactionStatusMeta
+            + encoding::uint64::encoded_len(5, &index)
     }
 
     pub fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
+        encoding::encode_key(3, WireType::LengthDelimited, buf);
+        encoding::encode_varint(sanitazed_transaction_encoded_len(sanitazed) as u64, buf);
         let signatures = sanitazed
             .signatures()
             .iter()
             .map(|signature| <solana_sdk::signature::Signature as AsRef<[u8]>>::as_ref(signature));
         for value in signatures {
-            bytes_encode(3, value, buf)
+            bytes_encode(1, value, buf)
         }
+        encoding::encode_key(2, WireType::LengthDelimited, buf);
+        encoding::encode_varint(
+            sanitazed_message_encoded_len(sanitazed.message()) as u64,
+            buf,
+        );
         encode_sanitazed_message(sanitazed.message(), buf)
     }
 
@@ -201,9 +214,10 @@ mod proto {
     }
 
     pub fn message_header_encoded_len(header: (u32, u32, u32)) -> usize {
-        encoding::uint32::encoded_len(1, &header.0)
+        let len = encoding::uint32::encoded_len(1, &header.0)
             + encoding::uint32::encoded_len(2, &header.1)
-            + encoding::uint32::encoded_len(3, &header.2)
+            + encoding::uint32::encoded_len(3, &header.2);
+        encoding::key_len(1) + encoding::encoded_len_varint(len as u64) + len
     }
 
     pub fn encode_pubkeys(pubkeys: &[Pubkey], buf: &mut impl BufMut) {
@@ -273,9 +287,10 @@ mod proto {
         compiled_instruction: &solana_sdk::instruction::CompiledInstruction,
     ) -> usize {
         let program_id_index = compiled_instruction.program_id_index as u32;
-        encoding::uint32::encoded_len(1, &program_id_index)
+        let len = encoding::uint32::encoded_len(1, &program_id_index)
             + bytes_encoded_len(2, &compiled_instruction.accounts)
-            + bytes_encoded_len(3, &compiled_instruction.data)
+            + bytes_encoded_len(3, &compiled_instruction.data);
+        encoding::key_len(4) + encoding::encoded_len_varint(len as u64) + len
     }
 
     pub fn encode_versioned(versioned: bool, buf: &mut impl BufMut) {
