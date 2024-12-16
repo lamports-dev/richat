@@ -21,30 +21,20 @@ use {
 #[derive(Debug)]
 pub struct Transaction<'a> {
     slot: Slot,
-    signature: Signature,
-    is_vote: bool,
-    transaction: proto::Transaction,
-    transaction_status_meta: proto::TransactionStatusMeta<'a>,
-    index: usize,
+    transaction: &'a ReplicaTransactionInfoV2<'a>,
 }
 
 impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
-        let index = self.index as u64;
+        encoding::encode_key(1, WireType::LengthDelimited, buf);
+        encoding::encode_varint(transaction_encoded_len(self.transaction) as u64, buf);
 
-        encode_key(1, WireType::LengthDelimited, buf);
-        encode_varint(self.transaction_encoded_len() as u64, buf);
-
-        bytes_encode(1, self.signature.as_ref(), buf);
-        encoding::bool::encode(2, &self.is_vote, buf);
-        message::encode(3, &self.transaction, buf);
-        message::encode(4, &self.transaction_status_meta, buf);
-        encoding::uint64::encode(5, &index, buf);
+        encode_transaction(self.transaction, buf);
 
         encoding::uint64::encode(2, &self.slot, buf)
     }
     fn encoded_len(&self) -> usize {
-        field_encoded_len(1, self.transaction_encoded_len())
+        field_encoded_len(1, transaction_encoded_len(self.transaction))
             + encoding::uint64::encoded_len(2, &self.slot)
     }
     fn merge_field(
@@ -64,47 +54,20 @@ impl<'a> prost::Message for Transaction<'a> {
     }
 }
 
-impl Transaction {
-    pub fn new(slot: Slot, transaction: &ReplicaTransactionInfoV2<'_>) -> Self {
-        Self {
-            slot,
-            signature: *transaction.signature,
-            is_vote: transaction.is_vote,
-            transaction: proto::convert_to::create_transaction(transaction.transaction),
-            transaction_status_meta: proto::convert_to::create_transaction_meta(
-                transaction.transaction_status_meta,
-            ),
-            index: transaction.index,
-        }
-    }
-    fn transaction_encoded_len(&self) -> usize {
-        let index = self.index as u64;
-
-        bytes_encoded_len(1u32, self.signature.as_ref())
-            + encoding::bool::encoded_len(2u32, &self.is_vote)
-            + message::encoded_len(3u32, &self.transaction)
-            + message::encoded_len(4u32, &self.transaction_status_meta)
-            + encoding::uint64::encoded_len(5u32, &index)
+impl<'a> Transaction<'a> {
+    pub const fn new(slot: Slot, transaction: &'a ReplicaTransactionInfoV2<'a>) -> Self {
+        Self { slot, transaction }
     }
 }
 
-pub fn encode_transaction(
-    slot: Slot,
-    transaction: &ReplicaTransactionInfoV2<'_>,
-    buf: &mut impl BufMut,
-) {
+pub fn encode_transaction(transaction: &ReplicaTransactionInfoV2<'_>, buf: &mut impl BufMut) {
     let index = transaction.index as u64;
-
-    encoding::encode_key(1, WireType::LengthDelimited, buf);
-    encoding::encode_varint(transaction_encoded_len(transaction) as u64, buf);
 
     bytes_encode(1, transaction.signature.as_ref(), buf);
     encoding::bool::encode(2, &transaction.is_vote, buf);
     encode_sanitazed_transaction(&transaction.transaction, buf);
     encode_transaction_status_meta(&transaction.transaction_status_meta, buf);
-    encoding::uint64::encode(5, &index, buf);
-
-    encoding::uint64::encode(2, &slot, buf)
+    encoding::uint64::encode(5, &index, buf)
 }
 
 pub fn transaction_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
