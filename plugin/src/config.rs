@@ -2,6 +2,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPluginError, Result as PluginResult,
     },
+    rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
         de::{self, Deserializer},
         Deserialize,
@@ -10,7 +11,7 @@ use {
         collections::HashSet,
         fs,
         net::{IpAddr, Ipv4Addr, SocketAddr},
-        path::Path,
+        path::{Path, PathBuf},
         time::Duration,
     },
     tonic::{
@@ -26,6 +27,7 @@ pub struct Config {
     pub log: ConfigLog,
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
+    pub quic: Option<ConfigQuic>,
     pub grpc: Option<ConfigGrpc>,
     pub prometheus: Option<ConfigPrometheus>,
 }
@@ -102,10 +104,107 @@ impl Default for ConfigChannel {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigQuic {
+    #[serde(default = "ConfigQuic::default_endpoint")]
+    pub endpoint: SocketAddr,
+    #[serde(deserialize_with = "ConfigQuic::deserialize_tls_config")]
+    pub tls_config: rustls::ServerConfig,
+    /// Value in ms
+    #[serde(default = "ConfigQuic::default_expected_rtt")]
+    pub expected_rtt: u32,
+    /// Value in bytes/s, default with expected rtt 100 is 100Mbps
+    #[serde(default = "ConfigQuic::default_max_stream_bandwidth")]
+    pub max_stream_bandwidth: u32,
+    /// Max number of outgoing streams
+    #[serde(default = "ConfigQuic::default_max_uni_streams")]
+    pub max_uni_streams: u32,
+}
+
+impl ConfigQuic {
+    const fn default_endpoint() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10100)
+    }
+
+    fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<rustls::ServerConfig, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Debug, Deserialize)]
+        #[serde(deny_unknown_fields, untagged)]
+        enum Config<'a> {
+            Signed { cert: &'a str, key: &'a str },
+            SelfSigned { self_signed_alt_names: Vec<String> },
+        }
+
+        let (certs, key) = match Config::deserialize(deserializer)? {
+            Config::Signed { cert, key } => {
+                let cert_path = PathBuf::from(cert);
+                let cert_bytes = fs::read(&cert_path).map_err(|error| {
+                    de::Error::custom(format!("failed to read cert {cert_path:?}: {error:?}"))
+                })?;
+                let cert_chain = if cert_path.extension().is_some_and(|x| x == "der") {
+                    vec![CertificateDer::from(cert_bytes)]
+                } else {
+                    rustls_pemfile::certs(&mut &*cert_bytes)
+                        .collect::<Result<_, _>>()
+                        .map_err(|error| {
+                            de::Error::custom(format!("invalid PEM-encoded certificate: {error:?}"))
+                        })?
+                };
+
+                let key_path = PathBuf::from(key);
+                let key_bytes = fs::read(&key_path).map_err(|error| {
+                    de::Error::custom(format!("failed to read key {key_path:?}: {error:?}"))
+                })?;
+                let key = if key_path.extension().is_some_and(|x| x == "der") {
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_bytes))
+                } else {
+                    rustls_pemfile::private_key(&mut &*key_bytes)
+                        .map_err(|error| {
+                            de::Error::custom(format!("malformed PKCS #1 private key: {error:?}"))
+                        })?
+                        .ok_or_else(|| de::Error::custom("no private keys found"))?
+                };
+
+                (cert_chain, key)
+            }
+            Config::SelfSigned {
+                self_signed_alt_names,
+            } => {
+                let cert =
+                    rcgen::generate_simple_self_signed(self_signed_alt_names).map_err(|error| {
+                        de::Error::custom(format!("failed to generate self-signed cert: {error:?}"))
+                    })?;
+                let cert_der = CertificateDer::from(cert.cert);
+                let priv_key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+                (vec![cert_der], priv_key.into())
+            }
+        };
+
+        rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|error| de::Error::custom(format!("failed to use cert: {error:?}")))
+    }
+
+    const fn default_expected_rtt() -> u32 {
+        100
+    }
+
+    const fn default_max_stream_bandwidth() -> u32 {
+        12_500 * 1000
+    }
+
+    const fn default_max_uni_streams() -> u32 {
+        16
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigGrpc {
     pub endpoint: SocketAddr,
-    /// TLS config
     #[serde(deserialize_with = "ConfigGrpc::deserialize_tls_config")]
     pub tls_config: Option<ServerTlsConfig>,
     pub compression: ConfigGrpcCompression,

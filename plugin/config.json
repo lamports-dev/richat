@@ -12,6 +12,17 @@
     "max_slots": 100,
     "max_bytes": "10_737_418_240"
   },
+  "quic": {
+    "endpoint": "0.0.0.0:10100",
+    "tls_config": {
+      // "cert": "/path/to/cert.cert",
+      // "key": "/path/to/key.key",
+      "self_signed_alt_names": ["localhost"]
+    },
+    "expected_rtt": 100,
+    "max_stream_bandwidth": 12500000,
+    "max_uni_streams": 16
+  },
   "grpc": {
     "endpoint": "0.0.0.0:10102",
     "tls_config": {

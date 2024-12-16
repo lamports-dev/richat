@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::Sender, config::Config, grpc::GrpcServer, metrics::PrometheusService,
-        protobuf::ProtobufMessage,
+        protobuf::ProtobufMessage, quic::QuicServer,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -26,8 +26,7 @@ pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
     shutdown: broadcast::Sender<()>,
-    jh_grpc: Option<JoinHandle<()>>,
-    jh_prometheus: Option<JoinHandle<()>>,
+    tasks: Vec<(&'static str, JoinHandle<()>)>,
 }
 
 impl PluginInner {
@@ -57,33 +56,42 @@ impl PluginInner {
 
         // Spawn servers
         let (tx, _rx) = broadcast::channel(1);
-        let (messages, tx, jh_grpc, jh_prometheus) = runtime
+        let (messages, tx, tasks) = runtime
             .block_on(async move {
-                // Start gRPC
-                let mut jh_grpc = None;
-                if let Some(config) = config.grpc {
+                let mut tasks = Vec::with_capacity(4);
+
+                let gen_shutdown = || {
                     let mut rx = tx.subscribe();
-                    jh_grpc = Some(
-                        GrpcServer::spawn(config, messages.clone(), async move {
-                            let _ = rx.recv().await;
-                        })
-                        .await?,
-                    );
+                    async move {
+                        let _ = rx.recv().await;
+                    }
+                };
+
+                // Start Quic
+                if let Some(config) = config.quic {
+                    tasks.push((
+                        "QUIC",
+                        QuicServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                    ));
+                }
+
+                // Start gRPC
+                if let Some(config) = config.grpc {
+                    tasks.push((
+                        "gRPC",
+                        GrpcServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                    ));
                 }
 
                 // Start prometheus server
-                let mut jh_prometheus = None;
                 if let Some(config) = config.prometheus {
-                    let mut rx = tx.subscribe();
-                    jh_prometheus = Some(
-                        PrometheusService::spawn(config, async move {
-                            let _ = rx.recv().await;
-                        })
-                        .await?,
-                    );
+                    tasks.push((
+                        "prometheus",
+                        PrometheusService::spawn(config, gen_shutdown()).await?,
+                    ));
                 }
 
-                Ok::<_, anyhow::Error>((messages, tx, jh_grpc, jh_prometheus))
+                Ok::<_, anyhow::Error>((messages, tx, tasks))
             })
             .map_err(|error| GeyserPluginError::Custom(format!("{error:?}").into()))?;
 
@@ -91,8 +99,7 @@ impl PluginInner {
             runtime,
             messages,
             shutdown: tx,
-            jh_grpc,
-            jh_prometheus,
+            tasks,
         })
     }
 }
@@ -130,14 +137,9 @@ impl GeyserPlugin for Plugin {
 
             let _ = inner.shutdown.send(());
             inner.runtime.block_on(async {
-                if let Some(jh) = inner.jh_grpc {
-                    if let Err(error) = jh.await {
-                        error!("failed to join gRPC task: {error:?}");
-                    }
-                }
-                if let Some(jh) = inner.jh_prometheus {
-                    if let Err(error) = jh.await {
-                        error!("failed to join prometheus task: {error:?}");
+                for (name, task) in inner.tasks {
+                    if let Err(error) = task.await {
+                        error!("failed to join {name} task: {error:?}");
                     }
                 }
             });

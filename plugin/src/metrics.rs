@@ -98,10 +98,6 @@ impl PrometheusService {
             tokio::pin!(shutdown);
             loop {
                 let stream = tokio::select! {
-                    () = &mut shutdown => {
-                        info!("shutdown");
-                        break
-                    },
                     maybe_conn = listener.accept() => {
                         match maybe_conn {
                             Ok((stream, _addr)) => stream,
@@ -111,6 +107,10 @@ impl PrometheusService {
                             }
                         }
                     }
+                    () = &mut shutdown => {
+                        info!("shutdown");
+                        break
+                    },
                 };
                 tokio::spawn(async move {
                     if let Err(error) = ServerBuilder::new(TokioExecutor::new())
