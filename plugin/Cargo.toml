@@ -28,16 +28,12 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
-humantime-serde = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
-rcgen = { workspace = true }
 richat-shared = { workspace = true }
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 solana-logger = { workspace = true }

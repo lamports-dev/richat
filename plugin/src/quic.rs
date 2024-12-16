@@ -1,7 +1,8 @@
 use {
-    crate::{channel::Sender, config::ConfigQuic},
+    crate::channel::Sender,
     anyhow::Context,
     quinn::{crypto::rustls::QuicServerConfig, Endpoint},
+    richat_shared::transports::quic::ConfigQuicServer,
     std::{future::Future, sync::Arc},
     tokio::task::JoinHandle,
 };
@@ -11,7 +12,7 @@ pub struct QuicServer;
 
 impl QuicServer {
     pub async fn spawn(
-        config: ConfigQuic,
+        config: ConfigQuicServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<JoinHandle<()>> {

@@ -1,5 +1,5 @@
 use {
-    crate::{config::ConfigPrometheus, version::VERSION as VERSION_INFO},
+    crate::version::VERSION as VERSION_INFO,
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     anyhow::Context,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
@@ -14,6 +14,7 @@ use {
     },
     log::{error, info},
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder},
+    richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
     std::{convert::Infallible, future::Future, sync::Once},
     tokio::{net::TcpListener, task::JoinHandle},
