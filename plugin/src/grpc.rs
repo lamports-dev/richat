@@ -1,14 +1,13 @@
 use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
-        config::ConfigGrpc,
         metrics,
         version::GrpcVersionInfo,
     },
-    anyhow::Context as _,
     futures::stream::Stream,
     log::{error, info},
     prost::{bytes::BufMut, Message},
+    richat_shared::transports::grpc::ConfigGrpcServer,
     std::{
         future::Future,
         marker::PhantomData,
@@ -22,7 +21,6 @@ use {
     tokio::task::JoinHandle,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        transport::server::{Server, TcpIncoming},
         Code, Request, Response, Status, Streaming,
     },
     yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse, SubscribeRequest},
@@ -43,43 +41,12 @@ pub struct GrpcServer {
 
 impl GrpcServer {
     pub async fn spawn(
-        config: ConfigGrpc,
+        config: ConfigGrpcServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<JoinHandle<()>> {
-        // Bind service address
-        let incoming = TcpIncoming::new(
-            config.endpoint,
-            config.server_tcp_nodelay,
-            config.server_tcp_keepalive,
-        )
-        .map_err(|error| anyhow::anyhow!(error))
-        .context(format!("failed to bind {}", config.endpoint))?;
+        let (incoming, mut server_builder) = config.create_server()?;
         info!("start server at {}", config.endpoint);
-
-        // Create service
-        let mut server_builder = Server::builder();
-        if let Some(tls_config) = config.tls_config {
-            server_builder = server_builder
-                .tls_config(tls_config)
-                .context("failed to apply tls_config")?;
-        }
-        if let Some(enabled) = config.server_http2_adaptive_window {
-            server_builder = server_builder.http2_adaptive_window(Some(enabled));
-        }
-        if let Some(http2_keepalive_interval) = config.server_http2_keepalive_interval {
-            server_builder =
-                server_builder.http2_keepalive_interval(Some(http2_keepalive_interval));
-        }
-        if let Some(http2_keepalive_timeout) = config.server_http2_keepalive_timeout {
-            server_builder = server_builder.http2_keepalive_timeout(Some(http2_keepalive_timeout));
-        }
-        if let Some(sz) = config.server_initial_connection_window_size {
-            server_builder = server_builder.initial_connection_window_size(sz);
-        }
-        if let Some(sz) = config.server_initial_stream_window_size {
-            server_builder = server_builder.initial_stream_window_size(sz);
-        }
 
         let mut service = gen::geyser_server::GeyserServer::new(Self {
             messages,

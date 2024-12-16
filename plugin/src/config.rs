@@ -2,6 +2,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPluginError, Result as PluginResult,
     },
+    richat_shared::{config::deserialize_usize_str, transports::grpc::ConfigGrpcServer},
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
         de::{self, Deserializer},
@@ -12,11 +13,6 @@ use {
         fs,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::{Path, PathBuf},
-        time::Duration,
-    },
-    tonic::{
-        codec::CompressionEncoding,
-        transport::{Identity, ServerTlsConfig},
     },
 };
 
@@ -28,7 +24,7 @@ pub struct Config {
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
     pub quic: Option<ConfigQuic>,
-    pub grpc: Option<ConfigGrpc>,
+    pub grpc: Option<ConfigGrpcServer>,
     pub prometheus: Option<ConfigPrometheus>,
 }
 
@@ -201,115 +197,6 @@ impl ConfigQuic {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ConfigGrpc {
-    pub endpoint: SocketAddr,
-    #[serde(deserialize_with = "ConfigGrpc::deserialize_tls_config")]
-    pub tls_config: Option<ServerTlsConfig>,
-    pub compression: ConfigGrpcCompression,
-    /// Limits the maximum size of a decoded message, default is 4MiB
-    #[serde(deserialize_with = "deserialize_usize_str")]
-    pub max_decoding_message_size: usize,
-    #[serde(with = "humantime_serde")]
-    pub server_tcp_keepalive: Option<Duration>,
-    pub server_tcp_nodelay: bool,
-    pub server_http2_adaptive_window: Option<bool>,
-    #[serde(with = "humantime_serde")]
-    pub server_http2_keepalive_interval: Option<Duration>,
-    #[serde(with = "humantime_serde")]
-    pub server_http2_keepalive_timeout: Option<Duration>,
-    pub server_initial_connection_window_size: Option<u32>,
-    pub server_initial_stream_window_size: Option<u32>,
-}
-
-impl Default for ConfigGrpc {
-    fn default() -> Self {
-        Self {
-            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10102),
-            tls_config: Default::default(),
-            compression: Default::default(),
-            max_decoding_message_size: 4 * 1024 * 1024, // 4MiB
-            server_tcp_keepalive: Some(Duration::from_secs(15)),
-            server_tcp_nodelay: true,
-            server_http2_adaptive_window: Default::default(),
-            server_http2_keepalive_interval: Default::default(),
-            server_http2_keepalive_timeout: Default::default(),
-            server_initial_connection_window_size: Default::default(),
-            server_initial_stream_window_size: Default::default(),
-        }
-    }
-}
-
-impl ConfigGrpc {
-    fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<Option<ServerTlsConfig>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Debug, Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct ConfigTls<'a> {
-            cert: &'a str,
-            key: &'a str,
-        }
-
-        Option::<ConfigTls>::deserialize(deserializer)?
-            .map(|config| {
-                let cert = fs::read(config.cert).map_err(|error| {
-                    de::Error::custom(format!("failed to read cert {}: {error:?}", config.cert))
-                })?;
-                let key = fs::read(config.key).map_err(|error| {
-                    de::Error::custom(format!("failed to read key {}: {error:?}", config.key))
-                })?;
-
-                Ok(ServerTlsConfig::new().identity(Identity::from_pem(cert, key)))
-            })
-            .transpose()
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ConfigGrpcCompression {
-    #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
-    pub accept: Vec<CompressionEncoding>,
-    #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
-    pub send: Vec<CompressionEncoding>,
-}
-
-impl Default for ConfigGrpcCompression {
-    fn default() -> Self {
-        Self {
-            accept: Self::default_compression(),
-            send: Self::default_compression(),
-        }
-    }
-}
-
-impl ConfigGrpcCompression {
-    fn deserialize_compression<'de, D>(
-        deserializer: D,
-    ) -> Result<Vec<CompressionEncoding>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Vec::<&str>::deserialize(deserializer)?
-            .into_iter()
-            .map(|value| match value {
-                "gzip" => Ok(CompressionEncoding::Gzip),
-                "zstd" => Ok(CompressionEncoding::Zstd),
-                value => Err(de::Error::custom(format!(
-                    "Unknown compression format: {value}"
-                ))),
-            })
-            .collect::<Result<_, _>>()
-    }
-
-    fn default_compression() -> Vec<CompressionEncoding> {
-        vec![CompressionEncoding::Gzip, CompressionEncoding::Zstd]
-    }
-}
-
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigPrometheus {
@@ -369,24 +256,4 @@ fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
     }
 
     Ok(vec)
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum ValueIntStr<'a> {
-    Int(usize),
-    Str(&'a str),
-}
-
-fn deserialize_usize_str<'de, D>(deserializer: D) -> Result<usize, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match ValueIntStr::deserialize(deserializer)? {
-        ValueIntStr::Int(value) => Ok(value),
-        ValueIntStr::Str(value) => value
-            .replace('_', "")
-            .parse::<usize>()
-            .map_err(de::Error::custom),
-    }
 }

@@ -2935,6 +2935,7 @@ dependencies = [
  "prost",
  "quinn",
  "rcgen",
+ "richat-shared",
  "rustls 0.23.20",
  "rustls-pemfile 2.2.0",
  "serde",
@@ -2947,6 +2948,16 @@ dependencies = [
  "tonic-build",
  "vergen",
  "yellowstone-grpc-proto",
+]
+
+[[package]]
+name = "richat-shared"
+version = "2.0.0"
+dependencies = [
+ "humantime-serde",
+ "serde",
+ "thiserror 2.0.7",
+ "tonic",
 ]
 
 [[package]]

@@ -35,6 +35,7 @@ prometheus = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
 rcgen = { workspace = true }
+richat-shared = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
