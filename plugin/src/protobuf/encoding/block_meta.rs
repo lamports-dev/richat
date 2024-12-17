@@ -64,7 +64,7 @@ impl<'a> BlockMeta<'a> {
     }
 }
 
-pub fn encode_rewards_and_num_partitions(
+fn encode_rewards_and_num_partitions(
     tag: u32,
     rewards: &RewardsAndNumPartitions,
     buf: &mut impl BufMut,
@@ -79,16 +79,13 @@ pub fn encode_rewards_and_num_partitions(
     encode_uint64_optional_message(2, &rewards.num_partitions, buf)
 }
 
-pub fn rewards_and_num_partitions_encoded_len(
-    tag: u32,
-    rewards: &RewardsAndNumPartitions,
-) -> usize {
+fn rewards_and_num_partitions_encoded_len(tag: u32, rewards: &RewardsAndNumPartitions) -> usize {
     let len = rewards_encoded_len(1, &rewards.rewards)
         + uint64_optional_message_encoded_len(2, &rewards.num_partitions);
     field_encoded_len(tag, len)
 }
 
-pub fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufMut) {
+fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufMut) {
     encode_key(tag, WireType::LengthDelimited, buf);
     encode_varint(block_time_encoded_len(tag, block_time) as u64, buf);
 
@@ -97,12 +94,12 @@ pub fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufM
     }
 }
 
-pub fn block_time_encoded_len(tag: u32, block_time: &Option<i64>) -> usize {
+fn block_time_encoded_len(tag: u32, block_time: &Option<i64>) -> usize {
     let len = block_time.map_or(0, |block_time| encoding::int64::encoded_len(1, &block_time));
     field_encoded_len(tag, len)
 }
 
-pub fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut impl BufMut) {
+fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut impl BufMut) {
     encode_key(tag, WireType::LengthDelimited, buf);
     encode_varint(uint64_optional_message_encoded_len(tag, value) as u64, buf);
 
@@ -111,7 +108,7 @@ pub fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut i
     }
 }
 
-pub fn uint64_optional_message_encoded_len(tag: u32, value: &Option<u64>) -> usize {
+fn uint64_optional_message_encoded_len(tag: u32, value: &Option<u64>) -> usize {
     let len = value.map_or(0, |value| encoding::uint64::encoded_len(1, &value));
     field_encoded_len(tag, len)
 }

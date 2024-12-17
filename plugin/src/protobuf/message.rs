@@ -1,5 +1,5 @@
 use {
-    super::encoding::{self, bytes_encode, Account, BlockMeta, Entry, Transaction},
+    super::encoding::{self, bytes_encode},
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -48,7 +48,7 @@ impl<'a> ProtobufMessage<'a> {
         bytes_encode(1, &[], buffer);
         match self {
             Self::Account { slot, account } => {
-                let account = Account::new(*slot, account);
+                let account = encoding::Account::new(*slot, account);
                 message::encode(2, &account, buffer)
             }
             Self::Slot {
@@ -60,15 +60,15 @@ impl<'a> ProtobufMessage<'a> {
                 message::encode(3, &slot, buffer)
             }
             Self::Transaction { slot, transaction } => {
-                let transaction = Transaction::new(*slot, transaction);
+                let transaction = encoding::Transaction::new(*slot, transaction);
                 message::encode(4, &transaction, buffer)
             }
             Self::BlockMeta { blockinfo } => {
-                let blockmeta = BlockMeta::new(blockinfo);
+                let blockmeta = encoding::BlockMeta::new(blockinfo);
                 message::encode(7, &blockmeta, buffer)
             }
             Self::Entry { entry } => {
-                let entry = Entry::new(entry);
+                let entry = encoding::Entry::new(entry);
                 message::encode(8, &entry, buffer)
             }
         }
