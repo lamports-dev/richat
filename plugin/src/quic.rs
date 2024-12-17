@@ -49,6 +49,8 @@ impl QuicServer {
                                 id, incoming, messages, config.max_recv_streams
                             ).await {
                                 error!("#{id}: connection failed: {error:?}");
+                            } else {
+                                info!("#{id}: connection closed");
                             }
                         });
                         id += 1;
