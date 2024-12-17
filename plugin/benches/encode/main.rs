@@ -8,6 +8,7 @@ mod account;
 mod block_meta;
 mod entry;
 mod predefined;
+mod transaction;
 
 const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
 
@@ -28,6 +29,7 @@ criterion_group!(
     account::bench_encode_accounts,
     entry::bench_encode_entries,
     block_meta::bench_encode_block_meta,
+    transaction::bench_encode_transaction
 );
 
 criterion_main!(benches);

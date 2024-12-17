@@ -1,11 +1,10 @@
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4;
-use criterion::{black_box, BenchmarkId, Criterion};
-use richat_plugin::protobuf::ProtobufMessage;
-use solana_transaction_status::RewardsAndNumPartitions;
-
-use crate::encode_protobuf_message;
-
-use super::predefined::load_predefined_blocks;
+use {
+    super::{encode_protobuf_message, predefined::load_predefined_blocks},
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
+    criterion::{black_box, BenchmarkId, Criterion},
+    richat_plugin::protobuf::ProtobufMessage,
+    solana_transaction_status::RewardsAndNumPartitions,
+};
 
 pub fn bench_encode_block_meta(criterion: &mut Criterion) {
     let blocks = load_predefined_blocks().unwrap_or_default();
