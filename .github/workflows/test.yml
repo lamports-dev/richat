@@ -32,7 +32,7 @@ jobs:
           command: check advisories
 
       - name: run clippy
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -Dwarnings
 
       - name: check features in `richat`
         run: cargo check -p richat-plugin --all-targets
