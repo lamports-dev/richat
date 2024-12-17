@@ -21,6 +21,7 @@ path = "src/bin/config-check.rs"
 affinity = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
+bincode = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 hostname = { workspace = true }
@@ -31,12 +32,15 @@ lazy_static = { workspace = true }
 log = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
+prost-types = { workspace = true }
 quinn = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+solana-account-decoder = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
+solana-transaction-status = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tonic = { workspace = true, features = ["server", "tls"] }

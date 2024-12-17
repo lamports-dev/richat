@@ -6,7 +6,7 @@ use {
     log::debug,
     solana_sdk::clock::Slot,
     std::{
-        cell::UnsafeCell,
+        cell::RefCell,
         collections::BTreeMap,
         fmt,
         future::Future,
@@ -17,6 +17,14 @@ use {
     },
     thiserror::Error,
 };
+
+/// 16 MiB, `should be` enough for any message
+const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    // except blockinfo with rewards list (what doesn't make sense after partition reward, starts from epoch 706)
+    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
+}
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -54,13 +62,12 @@ impl Sender {
     }
 
     pub fn push(&self, message: ProtobufMessage) {
-        thread_local! {
-            // 16MiB should be enough for any message
-            // except blockinfo with rewards list (what doesn't make sense after partition reward, starts from epoch 706)
-            static BUFFER: UnsafeCell<Vec<u8>> = UnsafeCell::new(Vec::with_capacity(16 * 1024 * 1024));
-        }
-
-        let data = BUFFER.with(|buffer| message.encode(unsafe { &mut *buffer.get() }));
+        let data = BUFFER.with(|cell| {
+            let mut buffer = cell.borrow_mut();
+            let message = message.encode(&mut buffer);
+            drop(buffer);
+            message
+        });
 
         // acquire state lock
         let mut state = self.shared.state_lock();

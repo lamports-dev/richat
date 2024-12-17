@@ -2919,6 +2919,7 @@ dependencies = [
  "affinity",
  "agave-geyser-plugin-interface",
  "anyhow",
+ "bincode",
  "cargo-lock",
  "clap",
  "futures",
@@ -2931,12 +2932,15 @@ dependencies = [
  "log",
  "prometheus",
  "prost",
+ "prost-types",
  "quinn",
  "richat-shared",
  "serde",
  "serde_json",
+ "solana-account-decoder",
  "solana-logger",
  "solana-sdk",
+ "solana-transaction-status",
  "thiserror 2.0.7",
  "tokio",
  "tonic",
@@ -5466,9 +5470,9 @@ dependencies = [
 
 [[package]]
 name = "yellowstone-grpc-proto"
-version = "4.1.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f67d182702783036254e9ee945891e66d20c574a07a5f71f8ada0359e08bea64"
+checksum = "c4931eb5efc681021d71fd19d7621a85358e5328d505a86f8c9c627e2deaf423"
 dependencies = [
  "anyhow",
  "bincode",
