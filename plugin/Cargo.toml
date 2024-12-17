@@ -17,6 +17,10 @@ crate-type = ["cdylib", "rlib"]
 name = "richat-plugin-config-check"
 path = "src/bin/config-check.rs"
 
+[[bench]]
+name = "encode"
+harness = false
+
 [dependencies]
 affinity = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
@@ -41,6 +45,9 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tonic = { workspace = true, features = ["server", "tls"] }
 yellowstone-grpc-proto = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }
