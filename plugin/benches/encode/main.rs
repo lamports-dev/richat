@@ -1,12 +1,13 @@
-use criterion::{criterion_group, criterion_main};
-use prost_011::Message;
-use richat_plugin::protobuf::ProtobufMessage;
-use solana_storage_proto::convert::generated;
-use solana_transaction_status::ConfirmedBlock;
-use std::{cell::RefCell, fs, io};
+use {
+    criterion::{criterion_group, criterion_main},
+    richat_plugin::protobuf::ProtobufMessage,
+    std::cell::RefCell,
+};
 
 mod account;
+mod block_meta;
 mod entry;
+mod predefined;
 
 const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
 
@@ -22,24 +23,11 @@ pub fn encode_protobuf_message(message: ProtobufMessage) {
     })
 }
 
-pub fn load_predefined() -> io::Result<Vec<ConfirmedBlock>> {
-    let mut blocks = Vec::with_capacity(3);
-    for entry in fs::read_dir("./fixtures/blocks")? {
-        let entry = entry?;
-        let data = fs::read(entry.path())?;
-        blocks.push(
-            generated::ConfirmedBlock::decode(data.as_slice())?
-                .try_into()
-                .unwrap(),
-        )
-    }
-    Ok(blocks)
-}
-
 criterion_group!(
     benches,
     account::bench_encode_accounts,
-    entry::bench_encode_entries
+    entry::bench_encode_entries,
+    block_meta::bench_encode_block_meta,
 );
 
 criterion_main!(benches);

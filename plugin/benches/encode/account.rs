@@ -2,6 +2,7 @@ use {
     super::encode_protobuf_message,
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     criterion::{black_box, BenchmarkId, Criterion},
+    richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::pubkey::Pubkey,
 };
 
@@ -55,8 +56,8 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         |criterion, accounts| {
             criterion.iter(|| {
                 black_box(for account in accounts {
-                    encode_protobuf_message(richat_plugin::protobuf::ProtobufMessage::Account {
-                        slot: 0,
+                    encode_protobuf_message(ProtobufMessage::Account {
+                        slot: 0, // ???
                         account: &ReplicaAccountInfoV3 {
                             pubkey: account.pubkey,
                             owner: account.owner,
@@ -65,7 +66,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                             rent_epoch: account.rent_epoch,
                             data: &account.data,
                             write_version: account.write_version,
-                            txn: None,
+                            txn: None, // ???
                         },
                     });
                 })
