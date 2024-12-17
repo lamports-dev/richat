@@ -8,7 +8,7 @@ use {
         bytes::BufMut,
         encoding::{self, encode_key, encode_varint, WireType},
     },
-    solana_account_decoder_client_types::token::UiTokenAmount,
+    solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         clock::Slot,
         instruction::CompiledInstruction,
@@ -128,7 +128,7 @@ pub fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl Buf
     encode_varint(sanitazed_message_encoded_len(sanitazed) as u64, buf);
     match sanitazed {
         SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
-            encode_message_header(&message.header, buf);
+            encode_message_header(message.header, buf);
             encode_pubkeys(&message.account_keys, buf);
             encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
             encode_compiled_instructions(&message.instructions, buf);
@@ -136,7 +136,7 @@ pub fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl Buf
             encode_address_table_lookups(&[], buf);
         }
         SanitizedMessage::V0(LoadedMessage { message, .. }) => {
-            encode_message_header(&message.header, buf);
+            encode_message_header(message.header, buf);
             encode_pubkeys(&message.account_keys, buf);
             encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
             encode_compiled_instructions(&message.instructions, buf);
@@ -182,7 +182,7 @@ pub fn sanitazed_message_encoded_len(sanitazed: &SanitizedMessage) -> usize {
     field_encoded_len(2, len)
 }
 
-pub fn encode_message_header(header: &solana_sdk::message::MessageHeader, buf: &mut impl BufMut) {
+pub fn encode_message_header(header: solana_sdk::message::MessageHeader, buf: &mut impl BufMut) {
     let num_required_signatures = header.num_required_signatures as u32;
     let num_readonly_signed_accounts = header.num_readonly_signed_accounts as u32;
     let num_readonly_unsigned_accounts = header.num_readonly_unsigned_accounts as u32;

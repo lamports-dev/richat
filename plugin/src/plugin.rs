@@ -1,7 +1,7 @@
 use {
     crate::{
-        channel::GeyserMessages, config::Config, metrics::PrometheusService,
-        protobuf::ProtobufMessage,
+        channel::Sender, config::Config, grpc::GrpcServer, metrics, protobuf::ProtobufMessage,
+        quic::QuicServer,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -14,14 +14,19 @@ use {
         sync::atomic::{AtomicU64, Ordering},
         time::Duration,
     },
-    tokio::runtime::{Builder, Runtime},
+    tokio::{
+        runtime::{Builder, Runtime},
+        sync::broadcast,
+        task::JoinHandle,
+    },
 };
 
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
-    messages: GeyserMessages,
-    prometheus: PrometheusService,
+    messages: Sender,
+    shutdown: broadcast::Sender<()>,
+    tasks: Vec<(&'static str, JoinHandle<()>)>,
 }
 
 impl PluginInner {
@@ -47,20 +52,54 @@ impl PluginInner {
             .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
 
         // Create messages store
-        let messages = GeyserMessages::new();
+        let messages = Sender::new(config.channel);
 
-        // Start prometheus server
-        let prometheus = runtime.block_on(async move {
-            let prometheus = PrometheusService::new(config.prometheus)
-                .await
-                .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
-            Ok::<_, GeyserPluginError>(prometheus)
-        })?;
+        // Spawn servers
+        let (tx, _rx) = broadcast::channel(1);
+        let (messages, tx, tasks) = runtime
+            .block_on(async move {
+                let mut tasks = Vec::with_capacity(4);
+
+                let gen_shutdown = || {
+                    let mut rx = tx.subscribe();
+                    async move {
+                        let _ = rx.recv().await;
+                    }
+                };
+
+                // Start Quic
+                if let Some(config) = config.quic {
+                    tasks.push((
+                        "QUIC",
+                        QuicServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                    ));
+                }
+
+                // Start gRPC
+                if let Some(config) = config.grpc {
+                    tasks.push((
+                        "gRPC",
+                        GrpcServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                    ));
+                }
+
+                // Start prometheus server
+                if let Some(config) = config.prometheus {
+                    tasks.push((
+                        "prometheus",
+                        metrics::spawn_server(config, gen_shutdown()).await?,
+                    ));
+                }
+
+                Ok::<_, anyhow::Error>((messages, tx, tasks))
+            })
+            .map_err(|error| GeyserPluginError::Custom(format!("{error:?}").into()))?;
 
         Ok(Self {
             runtime,
             messages,
-            prometheus,
+            shutdown: tx,
+            tasks,
         })
     }
 }
@@ -94,8 +133,18 @@ impl GeyserPlugin for Plugin {
 
     fn on_unload(&mut self) {
         if let Some(inner) = self.inner.take() {
-            inner.prometheus.shutdown();
-            inner.runtime.shutdown_timeout(Duration::from_secs(30));
+            inner.messages.close();
+
+            let _ = inner.shutdown.send(());
+            inner.runtime.block_on(async {
+                for (name, task) in inner.tasks {
+                    if let Err(error) = task.await {
+                        error!("failed to join {name} task: {error:?}");
+                    }
+                }
+            });
+
+            inner.runtime.shutdown_timeout(Duration::from_secs(10));
         }
     }
 

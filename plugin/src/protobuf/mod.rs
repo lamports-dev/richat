@@ -1,4 +1,4 @@
 mod encoding;
-pub mod message;
+mod message;
 
 pub use message::ProtobufMessage;

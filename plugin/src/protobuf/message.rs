@@ -34,14 +34,12 @@ pub enum ProtobufMessage<'a> {
 
 impl<'a> ProtobufMessage<'a> {
     pub const fn get_slot(&self) -> Slot {
-        use ProtobufMessage::*;
-
         match self {
-            Account { slot, .. } => *slot,
-            Slot { slot, .. } => *slot,
-            Transaction { slot, .. } => *slot,
-            Entry { entry } => entry.slot,
-            BlockMeta { blockinfo } => blockinfo.slot,
+            Self::Account { slot, .. } => *slot,
+            Self::Slot { slot, .. } => *slot,
+            Self::Transaction { slot, .. } => *slot,
+            Self::Entry { entry } => entry.slot,
+            Self::BlockMeta { blockinfo } => blockinfo.slot,
         }
     }
 

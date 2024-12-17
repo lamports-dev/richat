@@ -1,11 +1,12 @@
-use prost::{
-    bytes::BufMut,
-    encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
-};
-use solana_transaction_status::{Reward, RewardType};
-
 pub use self::{
     account::Account, block_meta::BlockMeta, entry::Entry, slot::Slot, transaction::Transaction,
+};
+use {
+    prost::{
+        bytes::BufMut,
+        encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
+    },
+    solana_transaction_status::{Reward, RewardType},
 };
 
 mod account;
@@ -26,14 +27,13 @@ pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
     iter_encoded_len(tag, rewards.iter().map(reward_encoded_len), rewards.len())
 }
 
-pub const fn reward_type_as_i32(reward_type: &Option<RewardType>) -> i32 {
-    use solana_transaction_status::RewardType::*;
+pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
     match reward_type {
         None => 0,
-        Some(Fee) => 1,
-        Some(Rent) => 2,
-        Some(Staking) => 3,
-        Some(Voting) => 4,
+        Some(RewardType::Fee) => 1,
+        Some(RewardType::Rent) => 2,
+        Some(RewardType::Staking) => 3,
+        Some(RewardType::Voting) => 4,
     }
 }
 
@@ -67,7 +67,7 @@ pub fn encode_reward(reward: &Reward, buf: &mut impl BufMut) {
     encoding::string::encode(1, &reward.pubkey, buf);
     encoding::int64::encode(2, &reward.lamports, buf);
     encoding::uint64::encode(3, &reward.post_balance, buf);
-    encoding::int32::encode(4, &reward_type_as_i32(&reward.reward_type), buf);
+    encoding::int32::encode(4, &reward_type_as_i32(reward.reward_type), buf);
     if let Some(commission) = reward.commission {
         bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
     }
@@ -77,7 +77,7 @@ pub fn reward_encoded_len(reward: &Reward) -> usize {
     encoding::string::encoded_len(1, &reward.pubkey)
         + encoding::int64::encoded_len(2, &reward.lamports)
         + encoding::uint64::encoded_len(3, &reward.post_balance)
-        + encoding::int32::encoded_len(4, &reward_type_as_i32(&reward.reward_type))
+        + encoding::int32::encoded_len(4, &reward_type_as_i32(reward.reward_type))
         + reward
             .commission
             .map_or(0, |commission| bytes_encoded_len(5, &[commission]))
