@@ -93,7 +93,7 @@ impl PluginInner {
                 // Start prometheus server
                 if let Some(config) = config.prometheus {
                     tasks.push((
-                        "prometheus",
+                        "Prometheus Server",
                         metrics::spawn_server(config, gen_shutdown()).await?,
                     ));
                 }
@@ -146,7 +146,7 @@ impl GeyserPlugin for Plugin {
             inner.runtime.block_on(async {
                 for (name, task) in inner.tasks {
                     if let Err(error) = task.await {
-                        error!("failed to join {name} task: {error:?}");
+                        error!("failed to join `{name}` task: {error:?}");
                     }
                 }
             });
