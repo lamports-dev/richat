@@ -167,11 +167,11 @@ impl ConfigGrpcServer {
 
 #[derive(Debug, Error)]
 pub enum CreateServerError {
-    #[error("failed to bind {endpoint}: {error:?}")]
+    #[error("failed to bind {endpoint}: {error}")]
     Bind {
         error: Box<dyn std::error::Error + Send + Sync>,
         endpoint: SocketAddr,
     },
-    #[error("failed to apply tls_config: {0:?}")]
+    #[error("failed to apply tls_config: {0}")]
     Tls(#[from] tonic::transport::Error),
 }

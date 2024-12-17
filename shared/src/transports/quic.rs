@@ -1,14 +1,20 @@
 use {
+    quinn::{
+        crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
+        Endpoint,
+    },
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
         de::{self, Deserializer},
         Deserialize,
     },
     std::{
-        fs,
+        fs, io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
+        sync::Arc,
     },
+    thiserror::Error,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -107,4 +113,40 @@ impl ConfigQuicServer {
     const fn default_max_uni_streams() -> u32 {
         16
     }
+
+    pub fn create_server(&self) -> Result<Endpoint, CreateServerError> {
+        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
+            QuicServerConfig::try_from(self.tls_config.clone())?,
+        ));
+
+        // disallow incoming uni streams
+        let transport_config =
+            Arc::get_mut(&mut server_config.transport).ok_or(CreateServerError::TransportConfig)?;
+        transport_config.max_concurrent_bidi_streams(1u8.into());
+        transport_config.max_concurrent_uni_streams(0u8.into());
+
+        // set window size
+        let stream_rwnd = self.max_stream_bandwidth / 1_000 * self.expected_rtt;
+        transport_config.stream_receive_window(stream_rwnd.into());
+        transport_config.send_window(8 * stream_rwnd as u64);
+        transport_config.datagram_receive_buffer_size(Some(stream_rwnd as usize));
+
+        Endpoint::server(server_config, self.endpoint).map_err(|error| CreateServerError::Bind {
+            error,
+            endpoint: self.endpoint,
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum CreateServerError {
+    #[error("failed to crate QuicServerConfig")]
+    ServerConfig(#[from] NoInitialCipherSuite),
+    #[error("failed to modify TransportConfig")]
+    TransportConfig,
+    #[error("failed to bind {endpoint}: {error}")]
+    Bind {
+        error: io::Error,
+        endpoint: SocketAddr,
+    },
 }
