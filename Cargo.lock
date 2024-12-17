@@ -2950,11 +2950,14 @@ name = "richat-shared"
 version = "2.0.0"
 dependencies = [
  "affinity",
+ "anyhow",
  "http 1.2.0",
  "http-body-util",
  "humantime-serde",
  "hyper 1.5.1",
  "hyper-util",
+ "prost",
+ "protobuf-src",
  "quinn",
  "rcgen",
  "rustls 0.23.20",
@@ -2963,6 +2966,7 @@ dependencies = [
  "thiserror 2.0.7",
  "tokio",
  "tonic",
+ "tonic-build",
  "tracing",
 ]
 

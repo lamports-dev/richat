@@ -1,3 +1,4 @@
+pub use crate::transports::proto::SubscribeRequestGrpc;
 use {
     crate::config::deserialize_usize_str,
     serde::{

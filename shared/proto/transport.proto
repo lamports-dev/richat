@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package transport;
+
+message SubscribeRequestGrpc {
+  optional uint64 from_slot = 11; // same tag as in yellowstone gRPC SubscribeRequest
+}

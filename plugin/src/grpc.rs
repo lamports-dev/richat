@@ -7,7 +7,7 @@ use {
     futures::stream::Stream,
     log::{error, info},
     prost::{bytes::BufMut, Message},
-    richat_shared::transports::grpc::ConfigGrpcServer,
+    richat_shared::transports::grpc::{ConfigGrpcServer, SubscribeRequestGrpc},
     std::{
         future::Future,
         marker::PhantomData,
@@ -23,7 +23,7 @@ use {
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
         Code, Request, Response, Status, Streaming,
     },
-    yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse, SubscribeRequest},
+    yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse},
 };
 
 pub mod gen {
@@ -81,7 +81,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn subscribe(
         &self,
-        mut request: Request<Streaming<SubscribeRequest>>,
+        mut request: Request<Streaming<SubscribeRequestGrpc>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         info!("#{id}: new connection");
