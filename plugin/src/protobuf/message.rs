@@ -33,6 +33,18 @@ pub enum ProtobufMessage<'a> {
 }
 
 impl<'a> ProtobufMessage<'a> {
+    pub const fn get_slot(&self) -> Slot {
+        use ProtobufMessage::*;
+
+        match self {
+            Account { slot, .. } => *slot,
+            Slot { slot, .. } => *slot,
+            Transaction { slot, .. } => *slot,
+            Entry { entry } => entry.slot,
+            BlockMeta { blockinfo } => blockinfo.slot,
+        }
+    }
+
     pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
         buffer.clear();
         bytes_encode(1, &[], buffer);
