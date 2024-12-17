@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::Sender, config::Config, grpc::GrpcServer, metrics, protobuf::ProtobufMessage,
-        quic::QuicServer,
+        quic::QuicServer, tcp::TcpServer,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -70,15 +70,22 @@ impl PluginInner {
                 // Start Quic
                 if let Some(config) = config.quic {
                     tasks.push((
-                        "QUIC",
+                        "Quic Server",
                         QuicServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                    ));
+                }
+
+                if let Some(config) = config.tcp {
+                    tasks.push((
+                        "Tcp Server",
+                        TcpServer::spawn(config, messages.clone(), gen_shutdown()).await?,
                     ));
                 }
 
                 // Start gRPC
                 if let Some(config) = config.grpc {
                     tasks.push((
-                        "gRPC",
+                        "gRPC Server",
                         GrpcServer::spawn(config, messages.clone(), gen_shutdown()).await?,
                     ));
                 }

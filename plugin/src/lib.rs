@@ -5,4 +5,5 @@ pub mod metrics;
 pub mod plugin;
 pub mod protobuf;
 pub mod quic;
+pub mod tcp;
 pub mod version;
