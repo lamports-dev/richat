@@ -133,7 +133,7 @@ fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl BufMut)
         SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
             encode_message_header(message.header, buf);
             encode_pubkeys(&message.account_keys, buf);
-            encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
+            encode_recent_blockhash(message.recent_blockhash.as_ref(), buf);
             encode_compiled_instructions(&message.instructions, buf);
             encode_versioned(false, buf);
             encode_address_table_lookups(&[], buf);
@@ -141,7 +141,7 @@ fn encode_sanitazed_message(sanitazed: &SanitizedMessage, buf: &mut impl BufMut)
         SanitizedMessage::V0(LoadedMessage { message, .. }) => {
             encode_message_header(message.header, buf);
             encode_pubkeys(&message.account_keys, buf);
-            encode_recent_blockhash(&message.recent_blockhash.to_bytes(), buf);
+            encode_recent_blockhash(message.recent_blockhash.as_ref(), buf);
             encode_compiled_instructions(&message.instructions, buf);
             encode_versioned(true, buf);
             encode_address_table_lookups(&message.address_table_lookups, buf)
@@ -161,7 +161,7 @@ fn sanitazed_message_encoded_len(sanitazed: &SanitizedMessage) -> usize {
                 num_readonly_signed_accounts,
                 num_readonly_unsigned_accounts,
             )) + pubkeys_encoded_len(&message.account_keys)
-                + recent_blockhash_encoded_len(&message.recent_blockhash.to_bytes())
+                + recent_blockhash_encoded_len(message.recent_blockhash.as_ref())
                 + compiled_instructions_encoded_len(&message.instructions)
                 + versioned_encoded_len(false)
                 + address_table_lookups_encoded_len(&[])
@@ -176,7 +176,7 @@ fn sanitazed_message_encoded_len(sanitazed: &SanitizedMessage) -> usize {
                 num_readonly_signed_accounts,
                 num_readonly_unsigned_accounts,
             )) + pubkeys_encoded_len(&message.account_keys)
-                + recent_blockhash_encoded_len(&message.recent_blockhash.to_bytes())
+                + recent_blockhash_encoded_len(message.recent_blockhash.as_ref())
                 + compiled_instructions_encoded_len(&message.instructions)
                 + versioned_encoded_len(true)
                 + address_table_lookups_encoded_len(&message.address_table_lookups)
@@ -220,7 +220,7 @@ fn encode_pubkeys(pubkeys: &[Pubkey], buf: &mut impl BufMut) {
 fn pubkeys_encoded_len(pubkeys: &[Pubkey]) -> usize {
     iter_encoded_len(
         2,
-        pubkeys.iter().map(|pubkey| pubkey.to_bytes().len()),
+        pubkeys.iter().map(|pubkey| pubkey.as_ref().len()),
         pubkeys.len(),
     )
 }
@@ -307,13 +307,13 @@ fn encode_address_table_lookup(
     address_table_lookup: &MessageAddressTableLookup,
     buf: &mut impl BufMut,
 ) {
-    bytes_encode(1, &address_table_lookup.account_key.to_bytes(), buf);
+    bytes_encode(1, address_table_lookup.account_key.as_ref(), buf);
     bytes_encode(2, &address_table_lookup.writable_indexes, buf);
     bytes_encode(3, &address_table_lookup.readonly_indexes, buf)
 }
 
 fn address_table_lookup_encoded_len(address_table_lookup: &MessageAddressTableLookup) -> usize {
-    bytes_encoded_len(1, &address_table_lookup.account_key.to_bytes())
+    bytes_encoded_len(1, address_table_lookup.account_key.as_ref())
         + bytes_encoded_len(2, &address_table_lookup.writable_indexes)
         + bytes_encoded_len(3, &address_table_lookup.readonly_indexes)
 }
@@ -611,7 +611,7 @@ fn loaded_writable_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> 
         loaded_addresses
             .writable
             .iter()
-            .map(|pubkey| pubkey.to_bytes().len()),
+            .map(|pubkey| pubkey.as_ref().len()),
         loaded_addresses.len(),
     )
 }
@@ -629,7 +629,7 @@ fn loaded_readonly_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> 
         loaded_addresses
             .readonly
             .iter()
-            .map(|pubkey| pubkey.to_bytes().len()),
+            .map(|pubkey| pubkey.as_ref().len()),
         loaded_addresses.len(),
     )
 }
@@ -637,12 +637,12 @@ fn loaded_readonly_addresses_encoded_len(loaded_addresses: &LoadedAddresses) -> 
 fn encode_transaction_return_data(return_data: &TransactionReturnData, buf: &mut impl BufMut) {
     encode_key(14, WireType::LengthDelimited, buf);
     encode_varint(transaction_return_data_encoded_len(return_data) as u64, buf);
-    bytes_encode(1, &return_data.program_id.to_bytes(), buf);
+    bytes_encode(1, return_data.program_id.as_ref(), buf);
     bytes_encode(2, &return_data.data, buf)
 }
 
 fn transaction_return_data_encoded_len(return_data: &TransactionReturnData) -> usize {
-    let len = bytes_encoded_len(1, &return_data.program_id.to_bytes())
+    let len = bytes_encoded_len(1, return_data.program_id.as_ref())
         + bytes_encoded_len(2, &return_data.data);
     field_encoded_len(14, len)
 }
