@@ -442,15 +442,12 @@ pub fn encode_transaction_error(error: &TransactionError, buf: &mut impl BufMut)
 }
 
 pub fn transaction_error_encoded_len(error: &TransactionError) -> usize {
-    BUFFER.with(|cell| {
+    let len = BUFFER.with(|cell| {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
         bincode::serialize_into(&mut *borrow_mut, &error)
-            .expect("failed to serialize transaction error into buffer")
-    });
-    let len = BUFFER.with(|cell| {
-        let borrow = cell.borrow();
-        encoding::bytes::encoded_len(1, &*borrow)
+            .expect("failed to serialize transaction error into buffer");
+        encoding::bytes::encoded_len(1, &*borrow_mut)
     });
     field_encoded_len(1, len)
 }
