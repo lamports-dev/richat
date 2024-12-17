@@ -56,7 +56,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
             Method::builder()
                 .name("subscribe")
                 .route_name("Subscribe")
-                .input_type("richat_shared::transports::grpc::SubscribeRequestGrpc")
+                .input_type("richat_shared::transports::grpc::GrpcSubscribeRequest")
                 .output_type("Arc<Vec<u8>>")
                 .codec_path("crate::grpc::SubscribeCodec")
                 .client_streaming()

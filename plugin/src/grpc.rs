@@ -7,8 +7,9 @@ use {
     futures::stream::Stream,
     log::{error, info},
     prost::{bytes::BufMut, Message},
-    richat_shared::transports::grpc::{ConfigGrpcServer, SubscribeRequestGrpc},
+    richat_shared::transports::grpc::{ConfigGrpcServer, GrpcSubscribeRequest},
     std::{
+        borrow::Cow,
         future::Future,
         marker::PhantomData,
         pin::Pin,
@@ -81,13 +82,13 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn subscribe(
         &self,
-        mut request: Request<Streaming<SubscribeRequestGrpc>>,
+        mut request: Request<Streaming<GrpcSubscribeRequest>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         info!("#{id}: new connection");
 
         let replay_from_slot = match request.get_mut().message().await {
-            Ok(Some(request)) => request.from_slot,
+            Ok(Some(request)) => request.replay_from_slot,
             Ok(None) => {
                 info!("#{id}: connection closed before receiving request");
                 return Err(Status::aborted("stream closed before request received"));
@@ -99,7 +100,13 @@ impl gen::geyser_server::Geyser for GrpcServer {
         };
 
         match self.messages.subscribe(replay_from_slot) {
-            Ok(rx) => Ok(Response::new(ReceiverStream::new(rx, id))),
+            Ok(rx) => {
+                let pos = replay_from_slot
+                    .map(|slot| format!("slot {slot}").into())
+                    .unwrap_or(Cow::Borrowed("latest"));
+                info!("#{id}: subscribed from {pos}");
+                Ok(Response::new(ReceiverStream::new(rx, id)))
+            }
             Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),
             Err(SubscribeError::SlotNotAvailable { first_available }) => Err(
                 Status::invalid_argument(format!("first available slot: {first_available}")),

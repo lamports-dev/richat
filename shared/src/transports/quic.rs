@@ -1,3 +1,7 @@
+pub use crate::transports::proto::{
+    QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeRequest, QuicSubscribeResponse,
+    QuicSubscribeResponseError,
+};
 use {
     quinn::{
         crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
@@ -31,8 +35,8 @@ pub struct ConfigQuicServer {
     #[serde(default = "ConfigQuicServer::default_max_stream_bandwidth")]
     pub max_stream_bandwidth: u32,
     /// Max number of outgoing streams
-    #[serde(default = "ConfigQuicServer::default_max_uni_streams")]
-    pub max_uni_streams: u32,
+    #[serde(default = "ConfigQuicServer::default_max_recv_streams")]
+    pub max_recv_streams: u32,
 }
 
 impl ConfigQuicServer {
@@ -110,7 +114,7 @@ impl ConfigQuicServer {
         12_500 * 1000
     }
 
-    const fn default_max_uni_streams() -> u32 {
+    const fn default_max_recv_streams() -> u32 {
         16
     }
 
