@@ -45,10 +45,12 @@ impl<'a> prost::Message for Transaction<'a> {
 
         encoding::uint64::encode(2, &self.slot, buf)
     }
+
     fn encoded_len(&self) -> usize {
         field_encoded_len(1, replica_transaction_info_encoded_len(self.transaction))
             + encoding::uint64::encoded_len(2, &self.slot)
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -61,6 +63,7 @@ impl<'a> prost::Message for Transaction<'a> {
     {
         unimplemented!()
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
@@ -80,8 +83,8 @@ pub fn encode_replica_transaction_info(
 
     bytes_encode(1, transaction.signature.as_ref(), buf);
     encoding::bool::encode(2, &transaction.is_vote, buf);
-    encode_sanitazed_transaction(&transaction.transaction, buf);
-    encode_transaction_status_meta(&transaction.transaction_status_meta, buf);
+    encode_sanitazed_transaction(transaction.transaction, buf);
+    encode_transaction_status_meta(transaction.transaction_status_meta, buf);
     encoding::uint64::encode(5, &index, buf)
 }
 
@@ -336,7 +339,7 @@ pub fn encode_transaction_status_meta(
     encoding::uint64::encode_repeated(3, &transaction_status_meta.pre_balances, buf);
     encoding::uint64::encode_repeated(4, &transaction_status_meta.post_balances, buf);
     if let Some(ref inner_instructions) = transaction_status_meta.inner_instructions {
-        encode_inner_instructions_vec(&inner_instructions, buf)
+        encode_inner_instructions_vec(inner_instructions, buf)
     }
     if let Some(ref log_messages) = transaction_status_meta.log_messages {
         encoding::string::encode_repeated(6, log_messages, buf)
@@ -374,7 +377,7 @@ pub fn transaction_status_meta_encoded_len(
         .status
         .as_ref()
         .err()
-        .map_or(0, |error| transaction_error_encoded_len(error))
+        .map_or(0, transaction_error_encoded_len)
         + encoding::uint64::encoded_len(2, &transaction_status_meta.fee)
         + encoding::uint64::encoded_len_repeated(3, &transaction_status_meta.pre_balances)
         + encoding::uint64::encoded_len_repeated(4, &transaction_status_meta.post_balances)
@@ -426,10 +429,10 @@ pub fn transaction_status_meta_encoded_len(
     field_encoded_len(4, len)
 }
 
-const KIB: usize = 1024;
+const BUFFER_CAPACITY: usize = 1024;
 
 thread_local! {
-    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(KIB));
+    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
 }
 
 pub fn encode_transaction_error(error: &TransactionError, buf: &mut impl BufMut) {

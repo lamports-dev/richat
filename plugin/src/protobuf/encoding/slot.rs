@@ -20,6 +20,7 @@ impl<'a> prost::Message for Slot<'a> {
             encoding::string::encode(4, value, buf)
         }
     }
+
     fn encoded_len(&self) -> usize {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);
@@ -35,6 +36,7 @@ impl<'a> prost::Message for Slot<'a> {
                 0
             }
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -47,6 +49,7 @@ impl<'a> prost::Message for Slot<'a> {
     {
         unimplemented!()
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }

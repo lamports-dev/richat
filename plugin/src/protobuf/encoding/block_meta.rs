@@ -1,6 +1,7 @@
 use {
-    super::{bytes_encoded_len, encode_rewards, field_encoded_len, rewards_encoded_len},
-    crate::protobuf::encoding::bytes_encode,
+    super::{
+        bytes_encode, bytes_encoded_len, encode_rewards, field_encoded_len, rewards_encoded_len,
+    },
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::{
         bytes::BufMut,
@@ -18,7 +19,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         encoding::uint64::encode(1, &self.blockinfo.slot, buf);
         bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
-        encode_rewards_and_num_partitions(3, &self.blockinfo.rewards, buf);
+        encode_rewards_and_num_partitions(3, self.blockinfo.rewards, buf);
         encode_block_time(4, &self.blockinfo.block_time, buf);
         encode_uint64_optional_message(5, &self.blockinfo.block_height, buf);
         encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf);
@@ -26,10 +27,11 @@ impl<'a> prost::Message for BlockMeta<'a> {
         encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);
         encoding::uint64::encode(9, &self.blockinfo.entry_count, buf);
     }
+
     fn encoded_len(&self) -> usize {
         encoding::uint64::encoded_len(1, &self.blockinfo.slot)
             + bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
-            + rewards_and_num_partitions_encoded_len(3, &self.blockinfo.rewards)
+            + rewards_and_num_partitions_encoded_len(3, self.blockinfo.rewards)
             + block_time_encoded_len(4, &self.blockinfo.block_time)
             + uint64_optional_message_encoded_len(5, &self.blockinfo.block_height)
             + encoding::uint64::encoded_len(6, &self.blockinfo.parent_slot)
@@ -37,6 +39,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
             + encoding::uint64::encoded_len(8, &self.blockinfo.executed_transaction_count)
             + encoding::uint64::encoded_len(9, &self.blockinfo.entry_count)
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -49,6 +52,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
     {
         unimplemented!()
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
