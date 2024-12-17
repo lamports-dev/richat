@@ -1,11 +1,10 @@
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2;
-use solana_sdk::hash::Hash;
-
-pub struct Account;
-
-pub fn accounts() -> Vec<Account> {
-    todo!()
-}
+use {
+    super::encode_protobuf_message,
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
+    criterion::{black_box, BenchmarkId, Criterion},
+    richat_plugin::protobuf::ProtobufMessage,
+    solana_sdk::hash::Hash,
+};
 
 pub fn entries<'a>() -> [ReplicaEntryInfoV2<'static>; 2] {
     const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
@@ -28,4 +27,19 @@ pub fn entries<'a>() -> [ReplicaEntryInfoV2<'static>; 2] {
             starting_transaction_index: 1000,
         },
     ]
+}
+
+pub fn bench_encode_entries(criterion: &mut Criterion) {
+    let entries = entries();
+    criterion.bench_with_input(
+        BenchmarkId::new("bench_encode_entries", "two entries"),
+        &entries,
+        |criterion, entries| {
+            criterion.iter(|| {
+                black_box(for entry in entries {
+                    encode_protobuf_message(ProtobufMessage::Entry { entry })
+                })
+            });
+        },
+    );
 }
