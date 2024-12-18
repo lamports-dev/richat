@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 agave-geyser-plugin-interface = { workspace = true }
+solana-transaction-status = { workspace = true }
 
 [dependencies.richat-plugin]
 path = ".."

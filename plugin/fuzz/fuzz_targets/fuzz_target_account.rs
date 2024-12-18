@@ -43,5 +43,5 @@ fuzz_target!(|message: Message| {
         },
     };
     let encoded = message.encode(&mut buf);
-    assert!(!encoded.is_empty());
+    assert!(!encoded.is_empty())
 });
