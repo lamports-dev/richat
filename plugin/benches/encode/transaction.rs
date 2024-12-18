@@ -9,10 +9,7 @@ use {
 
 pub fn bench_encode_transaction(criterion: &mut Criterion) {
     let blocks = load_predefined_blocks().expect("failed to load predefined blocks");
-    let capacity = blocks
-        .iter()
-        .map(|block| block.transactions.iter().count())
-        .count();
+    let capacity = blocks.iter().map(|block| block.transactions.len()).sum();
     let mut transactions_data = Vec::with_capacity(capacity);
     blocks.into_iter().for_each(|block| {
         block.transactions.into_iter().for_each(|transaction| {
@@ -39,17 +36,19 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
         &transactions_data,
         |criterion, transactions_data| {
             criterion.iter(|| {
-                black_box(for transaction_data in transactions_data {
-                    encode_protobuf_message(ProtobufMessage::Transaction {
-                        slot: 0,
-                        transaction: &ReplicaTransactionInfoV2 {
-                            signature: &transaction_data.0,
-                            is_vote: false,
-                            transaction: &transaction_data.1,
-                            transaction_status_meta: &transaction_data.2,
-                            index: 0,
-                        },
-                    })
+                black_box(|| {
+                    for transaction_data in transactions_data {
+                        encode_protobuf_message(ProtobufMessage::Transaction {
+                            slot: 0,
+                            transaction: &ReplicaTransactionInfoV2 {
+                                signature: &transaction_data.0,
+                                is_vote: false,
+                                transaction: &transaction_data.1,
+                                transaction_status_meta: &transaction_data.2,
+                                index: 0,
+                            },
+                        })
+                    }
                 })
             });
         },

@@ -55,20 +55,22 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         &accounts,
         |criterion, accounts| {
             criterion.iter(|| {
-                black_box(for account in accounts {
-                    encode_protobuf_message(ProtobufMessage::Account {
-                        slot: 0,
-                        account: &ReplicaAccountInfoV3 {
-                            pubkey: account.pubkey,
-                            owner: account.owner,
-                            lamports: account.lamports,
-                            executable: account.executable,
-                            rent_epoch: account.rent_epoch,
-                            data: &account.data,
-                            write_version: account.write_version,
-                            txn: None,
-                        },
-                    });
+                black_box(|| {
+                    for account in accounts {
+                        encode_protobuf_message(ProtobufMessage::Account {
+                            slot: 0,
+                            account: &ReplicaAccountInfoV3 {
+                                pubkey: account.pubkey,
+                                owner: account.owner,
+                                lamports: account.lamports,
+                                executable: account.executable,
+                                rent_epoch: account.rent_epoch,
+                                data: &account.data,
+                                write_version: account.write_version,
+                                txn: None,
+                            },
+                        });
+                    }
                 })
             })
         },

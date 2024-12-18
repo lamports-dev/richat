@@ -21,7 +21,7 @@ pub fn encode_protobuf_message(message: ProtobufMessage) {
     BUFFER.with(|cell| {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
-        message.encode(&mut *borrow_mut);
+        message.encode(&mut borrow_mut);
     })
 }
 

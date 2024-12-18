@@ -15,23 +15,25 @@ pub fn bench_encode_block_meta(criterion: &mut Criterion) {
             criterion.iter_batched(
                 || blocks.to_owned(),
                 |blocks| {
-                    black_box(for block in blocks {
-                        encode_protobuf_message(ProtobufMessage::BlockMeta {
-                            blockinfo: &ReplicaBlockInfoV4 {
-                                parent_slot: block.parent_slot,
-                                slot: 0,
-                                parent_blockhash: &block.previous_blockhash,
-                                blockhash: &block.blockhash,
-                                rewards: &RewardsAndNumPartitions {
-                                    rewards: block.rewards,
-                                    num_partitions: block.num_partitions,
+                    black_box(|| {
+                        for block in blocks {
+                            encode_protobuf_message(ProtobufMessage::BlockMeta {
+                                blockinfo: &ReplicaBlockInfoV4 {
+                                    parent_slot: block.parent_slot,
+                                    slot: 0,
+                                    parent_blockhash: &block.previous_blockhash,
+                                    blockhash: &block.blockhash,
+                                    rewards: &RewardsAndNumPartitions {
+                                        rewards: block.rewards,
+                                        num_partitions: block.num_partitions,
+                                    },
+                                    block_time: block.block_time,
+                                    block_height: block.block_height,
+                                    executed_transaction_count: 0,
+                                    entry_count: 0,
                                 },
-                                block_time: block.block_time,
-                                block_height: block.block_height,
-                                executed_transaction_count: 0,
-                                entry_count: 0,
-                            },
-                        })
+                            })
+                        }
                     })
                 },
                 BatchSize::SmallInput,

@@ -15,7 +15,7 @@ impl<'a> prost::Message for Account<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.account_encoded_len() as u64, buf);
-      
+
         bytes_encode(1, self.account.pubkey, buf);
         encoding::uint64::encode(2, &self.account.lamports, buf);
         bytes_encode(3, self.account.owner, buf);
@@ -28,7 +28,7 @@ impl<'a> prost::Message for Account<'a> {
 
         encoding::uint64::encode(2, &self.slot, buf)
     }
-  
+
     fn encoded_len(&self) -> usize {
         field_encoded_len(1, self.account_encoded_len())
             + encoding::uint64::encoded_len(2, &self.slot)

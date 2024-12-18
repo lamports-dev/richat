@@ -6,7 +6,7 @@ use {
     solana_sdk::hash::Hash,
 };
 
-pub fn entries<'a>() -> [ReplicaEntryInfoV2<'static>; 2] {
+pub fn entries() -> [ReplicaEntryInfoV2<'static>; 2] {
     const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
     const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
     [
@@ -36,8 +36,10 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
         &entries,
         |criterion, entries| {
             criterion.iter(|| {
-                black_box(for entry in entries {
-                    encode_protobuf_message(ProtobufMessage::Entry { entry })
+                black_box(|| {
+                    for entry in entries {
+                        encode_protobuf_message(ProtobufMessage::Entry { entry })
+                    }
                 })
             });
         },

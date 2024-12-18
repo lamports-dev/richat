@@ -27,7 +27,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
         encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);
         encoding::uint64::encode(9, &self.blockinfo.entry_count, buf);
     }
-  
+
     fn encoded_len(&self) -> usize {
         encoding::uint64::encoded_len(1, &self.blockinfo.slot)
             + bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
@@ -39,7 +39,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
             + encoding::uint64::encoded_len(8, &self.blockinfo.executed_transaction_count)
             + encoding::uint64::encoded_len(9, &self.blockinfo.entry_count)
     }
-  
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -52,7 +52,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
     {
         unimplemented!()
     }
-  
+
     fn clear(&mut self) {
         unimplemented!()
     }

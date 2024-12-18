@@ -1,8 +1,9 @@
-use std::{fs, io};
-
-use prost_011::Message;
-use solana_storage_proto::convert::generated;
-use solana_transaction_status::ConfirmedBlock;
+use {
+    prost_011::Message,
+    solana_storage_proto::convert::generated,
+    solana_transaction_status::ConfirmedBlock,
+    std::{fs, io},
+};
 
 pub fn load_predefined_blocks() -> io::Result<Vec<ConfirmedBlock>> {
     let mut blocks = Vec::with_capacity(3);
