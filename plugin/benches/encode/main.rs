@@ -8,6 +8,7 @@ mod account;
 mod block_meta;
 mod entry;
 mod predefined;
+mod slot;
 mod transaction;
 
 const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
@@ -27,6 +28,7 @@ pub fn encode_protobuf_message(message: ProtobufMessage) {
 criterion_group!(
     benches,
     account::bench_encode_accounts,
+    slot::bench_encode_slot,
     entry::bench_encode_entries,
     block_meta::bench_encode_block_meta,
     transaction::bench_encode_transaction
