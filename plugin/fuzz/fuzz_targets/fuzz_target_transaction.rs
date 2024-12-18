@@ -82,6 +82,7 @@ pub mod sanitized {
 
 pub mod status_meta {
     use arbitrary::Arbitrary;
+    use solana_transaction_status::RewardType;
 
     #[derive(Arbitrary, Debug)]
     pub enum FuzzTransactionError {
@@ -123,6 +124,17 @@ pub mod status_meta {
         Rent,
         Staking,
         Voting,
+    }
+
+    impl FuzzRewardType {
+        pub const fn into_solana(self) -> RewardType {
+            match self {
+                FuzzRewardType::Fee => RewardType::Fee,
+                FuzzRewardType::Rent => RewardType::Rent,
+                FuzzRewardType::Staking => RewardType::Staking,
+                FuzzRewardType::Voting => RewardType::Voting,
+            }
+        }
     }
 
     #[derive(Arbitrary, Debug)]

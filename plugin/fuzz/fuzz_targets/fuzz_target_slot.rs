@@ -16,6 +16,20 @@ pub enum FuzzSlotStatus {
     Dead(String),
 }
 
+impl FuzzSlotStatus {
+    pub fn into_solana(self) -> SlotStatus {
+        match self {
+            FuzzSlotStatus::Processed => SlotStatus::Processed,
+            FuzzSlotStatus::Rooted => SlotStatus::Rooted,
+            FuzzSlotStatus::Confirmed => SlotStatus::Confirmed,
+            FuzzSlotStatus::FirstShredReceived => SlotStatus::FirstShredReceived,
+            FuzzSlotStatus::Completed => SlotStatus::Completed,
+            FuzzSlotStatus::CreatedBank => SlotStatus::CreatedBank,
+            FuzzSlotStatus::Dead(dead) => SlotStatus::Dead(dead),
+        }
+    }
+}
+
 #[derive(Arbitrary, Debug)]
 pub struct FuzzSlot {
     slot: u64,
@@ -25,19 +39,10 @@ pub struct FuzzSlot {
 
 fuzz_target!(|fuzz_slot: FuzzSlot| {
     let mut buf = Vec::new();
-    let status = match fuzz_slot.status {
-        FuzzSlotStatus::Processed => SlotStatus::Processed,
-        FuzzSlotStatus::Rooted => SlotStatus::Rooted,
-        FuzzSlotStatus::Confirmed => SlotStatus::Confirmed,
-        FuzzSlotStatus::FirstShredReceived => SlotStatus::FirstShredReceived,
-        FuzzSlotStatus::Completed => SlotStatus::Completed,
-        FuzzSlotStatus::CreatedBank => SlotStatus::CreatedBank,
-        FuzzSlotStatus::Dead(dead) => SlotStatus::Dead(dead),
-    };
     let message = ProtobufMessage::Slot {
         slot: fuzz_slot.slot,
         parent: fuzz_slot.parent,
-        status: &status,
+        status: &fuzz_slot.status.into_solana(),
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty())

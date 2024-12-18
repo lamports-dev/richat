@@ -14,6 +14,17 @@ pub enum FuzzRewardType {
     Voting,
 }
 
+impl FuzzRewardType {
+    pub const fn into_solana(self) -> RewardType {
+        match self {
+            FuzzRewardType::Fee => RewardType::Fee,
+            FuzzRewardType::Rent => RewardType::Rent,
+            FuzzRewardType::Staking => RewardType::Staking,
+            FuzzRewardType::Voting => RewardType::Voting,
+        }
+    }
+}
+
 #[derive(Arbitrary, Debug)]
 pub struct FuzzReward {
     pubkey: String,
@@ -47,12 +58,7 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
                 pubkey: reward.pubkey,
                 lamports: reward.lamports,
                 post_balance: reward.post_balance,
-                reward_type: reward.reward_type.map(|reward_type| match reward_type {
-                    FuzzRewardType::Fee => RewardType::Fee,
-                    FuzzRewardType::Rent => RewardType::Rent,
-                    FuzzRewardType::Staking => RewardType::Staking,
-                    FuzzRewardType::Voting => RewardType::Voting,
-                }),
+                reward_type: reward.reward_type.map(FuzzRewardType::into_solana),
                 commission: reward.commission,
             })
             .collect(),
