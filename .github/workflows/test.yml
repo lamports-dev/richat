@@ -34,6 +34,12 @@ jobs:
       - name: run clippy
         run: cargo clippy --workspace --all-targets -- -Dwarnings
 
+      - name: check features in `richat-cli`
+        run: cargo check -p richat-cli --all-targets
+
+      - name: check features in `richat-client`
+        run: cargo check -p richat-client --all-targets
+
       - name: check features in `richat`
         run: cargo check -p richat-plugin --all-targets
 

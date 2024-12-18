@@ -20,7 +20,7 @@ hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 prost = { workspace = true }
 quinn = { workspace = true }
 rcgen = { workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true, features = ["std", "tls12", "ring"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
