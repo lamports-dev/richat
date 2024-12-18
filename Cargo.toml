@@ -30,6 +30,7 @@ lazy_static = "1.4.0"
 log = "0.4.22"
 prometheus = "0.13.4"
 prost = "0.13.4"
+prost_011 = { package = "prost", version = "0.11.9" }
 prost-types = "0.13.4"
 protobuf-src = "1.1.0"
 quinn = "0.11.6"
@@ -55,6 +56,7 @@ tonic-build = "0.12.3"
 tracing = "0.1.41"
 vergen = "9.0.2"
 yellowstone-grpc-proto = "4.1.0"
+criterion = "0.5"
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"
