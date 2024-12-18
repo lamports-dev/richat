@@ -31,6 +31,7 @@ impl QuicServer {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<JoinHandle<()>> {
         let endpoint = config.create_server()?;
+        info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
             let mut id = 0;
@@ -71,7 +72,7 @@ impl QuicServer {
         max_recv_streams: u32,
     ) -> anyhow::Result<()> {
         let conn = incoming.await?;
-        info!("#{id}: new connection");
+        info!("#{id}: new connection from {:?}", conn.remote_address());
 
         let Some((recv_streams, max_backlog, mut rx)) =
             Self::handle_request(id, &conn, messages, max_recv_streams).await?
@@ -122,6 +123,7 @@ impl QuicServer {
                     match message {
                         Ok(message) => next_message = Some(message),
                         Err(error) => {
+                            error!("#{id}: failed to get message: {error:?}");
                             if streams.is_empty() {
                                 match set.join_next().await {
                                     Some(Ok(Ok((msg_id, stream)))) => {
@@ -192,10 +194,11 @@ impl QuicServer {
         recv.read_exact(buf.as_mut_slice()).await?;
 
         let QuicSubscribeRequest {
+            request,
             recv_streams,
             max_backlog,
-            replay_from_slot,
         } = QuicSubscribeRequest::decode(buf.as_slice())?;
+        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
         let (msg, result) = if recv_streams == 0 || recv_streams > max_recv_streams {
             let code = if recv_streams == 0 {
                 QuicSubscribeResponseError::ZeroRecvStreams

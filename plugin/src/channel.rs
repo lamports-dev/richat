@@ -1,5 +1,4 @@
 // Based on https://github.com/tokio-rs/tokio/blob/master/tokio/src/sync/broadcast.rs
-
 use {
     crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
@@ -64,9 +63,7 @@ impl Sender {
     pub fn push(&self, message: ProtobufMessage) {
         let data = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
-            let message = message.encode(&mut buffer);
-            drop(buffer);
-            message
+            message.encode(&mut buffer)
         });
 
         // acquire state lock

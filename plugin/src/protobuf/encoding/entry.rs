@@ -33,6 +33,7 @@ impl<'a> prost::Message for Entry<'a> {
             + encoding::uint64::encoded_len(5, &self.entry.executed_transaction_count)
             + encoding::uint64::encoded_len(6, &starting_transaction_index)
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -45,6 +46,7 @@ impl<'a> prost::Message for Entry<'a> {
     {
         unimplemented!()
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }

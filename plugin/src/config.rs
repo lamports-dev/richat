@@ -4,7 +4,7 @@ use {
     },
     richat_shared::{
         config::{deserialize_usize_str, ConfigPrometheus, ConfigTokio},
-        transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
+        transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer},
     },
     serde::Deserialize,
     std::{fs, path::Path},
@@ -18,6 +18,7 @@ pub struct Config {
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
     pub quic: Option<ConfigQuicServer>,
+    pub tcp: Option<ConfigTcpServer>,
     pub grpc: Option<ConfigGrpcServer>,
     pub prometheus: Option<ConfigPrometheus>,
 }

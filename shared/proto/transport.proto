@@ -2,10 +2,14 @@ syntax = "proto3";
 
 package transport;
 
+message GrpcSubscribeRequest {
+  optional uint64 replay_from_slot = 11; // same tag as in yellowstone gRPC SubscribeRequest
+}
+
 message QuicSubscribeRequest {
-  uint32 recv_streams = 1;
-  optional uint64 max_backlog = 2;
-  optional uint64 replay_from_slot = 3;
+  GrpcSubscribeRequest request = 1;
+  uint32 recv_streams = 2;
+  optional uint64 max_backlog = 3;
 }
 
 message QuicSubscribeResponse {
@@ -28,8 +32,4 @@ message QuicSubscribeClose {
 enum QuicSubscribeCloseError {
   LAGGED = 0;
   CLOSED = 1;
-}
-
-message GrpcSubscribeRequest {
-  optional uint64 replay_from_slot = 11; // same tag as in yellowstone gRPC SubscribeRequest
 }

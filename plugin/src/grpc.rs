@@ -85,7 +85,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
         mut request: Request<Streaming<GrpcSubscribeRequest>>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
-        info!("#{id}: new connection");
+        info!("#{id}: new connection from {:?}", request.remote_addr());
 
         let replay_from_slot = match request.get_mut().message().await {
             Ok(Some(request)) => request.replay_from_slot,
@@ -151,8 +151,13 @@ impl Stream for ReceiverStream {
         match self.rx.recv_ref(cx.waker()) {
             Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
             Ok(None) => Poll::Pending,
-            Err(RecvError::Lagged) => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
-            Err(RecvError::Closed) => Poll::Ready(Some(Err(Status::out_of_range("closed")))),
+            Err(error) => {
+                error!("#{}: failed to get message: {error:?}", self.id);
+                match error {
+                    RecvError::Lagged => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
+                    RecvError::Closed => Poll::Ready(Some(Err(Status::out_of_range("closed")))),
+                }
+            }
         }
     }
 }
