@@ -9,13 +9,42 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 [dependencies.richat-plugin]
 path = ".."
 
 [[bin]]
-name = "fuzz_target_1"
-path = "fuzz_targets/fuzz_target_1.rs"
+name = "fuzz_target_account"
+path = "fuzz_targets/fuzz_target_account.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_slot"
+path = "fuzz_targets/fuzz_target_slot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_transaction"
+path = "fuzz_targets/fuzz_target_transaction.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_entry"
+path = "fuzz_targets/fuzz_target_entry.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_blockmeta"
+path = "fuzz_targets/fuzz_target_blockmeta.rs"
 test = false
 doc = false
 bench = false
