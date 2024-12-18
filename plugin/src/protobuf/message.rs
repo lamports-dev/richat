@@ -1,5 +1,7 @@
 use {
-    super::encoding::{self, bytes_encode, Account, BlockMeta, Entry, Transaction},
+    super::encoding::{
+        self, bytes_encode, bytes_encoded_len, Account, BlockMeta, Entry, Transaction,
+    },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -75,6 +77,6 @@ impl<'a> ProtobufMessage<'a> {
         let now = std::time::SystemTime::now();
         let timestamp = Timestamp::from(now);
         message::encode(11, &timestamp, buffer);
-        buffer.to_owned()
+        buffer.as_slice().to_vec()
     }
 }
