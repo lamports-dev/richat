@@ -24,7 +24,7 @@ pub struct FuzzReward {
 }
 
 #[derive(Arbitrary, Debug)]
-pub struct BlockMeta<'a> {
+pub struct FuzzBlockMeta<'a> {
     parent_slot: u64,
     parent_blockhash: &'a str,
     slot: u64,
@@ -37,10 +37,10 @@ pub struct BlockMeta<'a> {
     entry_count: u64,
 }
 
-fuzz_target!(|blockmeta: BlockMeta| {
+fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
     let mut buf = Vec::new();
     let rewards_and_num_partitions = RewardsAndNumPartitions {
-        rewards: blockmeta
+        rewards: fuzz_blockmeta
             .rewards
             .into_iter()
             .map(|reward| Reward {
@@ -56,21 +56,21 @@ fuzz_target!(|blockmeta: BlockMeta| {
                 commission: reward.commission,
             })
             .collect(),
-        num_partitions: blockmeta.num_partitions,
+        num_partitions: fuzz_blockmeta.num_partitions,
     };
     let message = ProtobufMessage::BlockMeta {
         blockinfo: &ReplicaBlockInfoV4 {
-            parent_slot: blockmeta.parent_slot,
-            parent_blockhash: blockmeta.parent_blockhash,
-            slot: blockmeta.slot,
-            blockhash: blockmeta.blockhash,
+            parent_slot: fuzz_blockmeta.parent_slot,
+            parent_blockhash: fuzz_blockmeta.parent_blockhash,
+            slot: fuzz_blockmeta.slot,
+            blockhash: fuzz_blockmeta.blockhash,
             rewards: &rewards_and_num_partitions,
-            block_time: blockmeta.block_time,
-            block_height: blockmeta.block_height,
-            executed_transaction_count: blockmeta.executed_transaction_count,
-            entry_count: blockmeta.entry_count,
+            block_time: fuzz_blockmeta.block_time,
+            block_height: fuzz_blockmeta.block_height,
+            executed_transaction_count: fuzz_blockmeta.executed_transaction_count,
+            entry_count: fuzz_blockmeta.entry_count,
         },
     };
-    let encoded = message.encode(&mut buf);
-    assert!(!encoded.is_empty())
+    message.encode(&mut buf);
+    assert!(!buf.is_empty())
 });

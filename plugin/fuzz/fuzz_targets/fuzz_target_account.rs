@@ -18,30 +18,32 @@ pub struct Account<'a> {
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
-pub struct Message<'a> {
+pub struct FuzzMessage<'a> {
     slot: u64,
     account: Account<'a>,
 }
 
-fuzz_target!(|message: Message| {
-    if message.account.pubkey.len() != PUBKEY_LEN || message.account.owner.len() != PUBKEY_LEN {
+fuzz_target!(|fuzz_message: FuzzMessage| {
+    if fuzz_message.account.pubkey.len() != PUBKEY_LEN
+        || fuzz_message.account.owner.len() != PUBKEY_LEN
+    {
         return;
     }
 
     let mut buf = Vec::new();
     let message = ProtobufMessage::Account {
-        slot: message.slot,
+        slot: fuzz_message.slot,
         account: &ReplicaAccountInfoV3 {
-            pubkey: message.account.pubkey,
-            lamports: message.account.lamports,
-            owner: message.account.owner,
-            executable: message.account.executable,
-            rent_epoch: message.account.rent_epoch,
-            data: message.account.data,
-            write_version: message.account.write_version,
+            pubkey: fuzz_message.account.pubkey,
+            lamports: fuzz_message.account.lamports,
+            owner: fuzz_message.account.owner,
+            executable: fuzz_message.account.executable,
+            rent_epoch: fuzz_message.account.rent_epoch,
+            data: fuzz_message.account.data,
+            write_version: fuzz_message.account.write_version,
             txn: None,
         },
     };
-    let encoded = message.encode(&mut buf);
-    assert!(!encoded.is_empty())
+    message.encode(&mut buf);
+    assert!(!buf.is_empty())
 });
