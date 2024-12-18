@@ -57,7 +57,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             criterion.iter(|| {
                 black_box(for account in accounts {
                     encode_protobuf_message(ProtobufMessage::Account {
-                        slot: 0, // ???
+                        slot: 0,
                         account: &ReplicaAccountInfoV3 {
                             pubkey: account.pubkey,
                             owner: account.owner,
@@ -66,7 +66,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                             rent_epoch: account.rent_epoch,
                             data: &account.data,
                             write_version: account.write_version,
-                            txn: None, // ???
+                            txn: None,
                         },
                     });
                 })
