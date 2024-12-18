@@ -23,6 +23,7 @@ use {
     },
     yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
+
 #[derive(Debug, Default)]
 pub struct TcpClientBuilder {
     keepalive: Option<bool>,
