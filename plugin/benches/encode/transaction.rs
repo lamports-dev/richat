@@ -13,36 +13,41 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
         .iter()
         .map(|block| block.transactions.iter().count())
         .count();
-    let mut transactions = Vec::with_capacity(capacity);
+    let mut transactions_data = Vec::with_capacity(capacity);
     blocks.into_iter().for_each(|block| {
-        block
-            .transactions
-            .into_iter()
-            .for_each(|transaction| transactions.push(transaction))
+        block.transactions.into_iter().for_each(|transaction| {
+            let sanitazed_transaction = SanitizedTransaction::try_create(
+                transaction.get_transaction(),
+                Hash::new_unique(),
+                None,
+                SimpleAddressLoader::Disabled,
+                &HashSet::new(),
+            )
+            .expect("failed to create `SanitazedTransaction`");
+            let transaction_status_meta = transaction
+                .get_status_meta()
+                .expect("failed to get `TransactionStatusMeta`");
+            transactions_data.push((
+                *transaction.transaction_signature(),
+                sanitazed_transaction,
+                transaction_status_meta,
+            ))
+        })
     });
     criterion.bench_with_input(
         BenchmarkId::new("bench_encode_transaction", "many transactions"),
-        &transactions,
-        |criterion, transactions| {
+        &transactions_data,
+        |criterion, transactions_data| {
             criterion.iter(|| {
-                black_box(for transaction in transactions {
+                black_box(for transaction_data in transactions_data {
                     encode_protobuf_message(ProtobufMessage::Transaction {
-                        slot: 0, // ???
+                        slot: 0,
                         transaction: &ReplicaTransactionInfoV2 {
-                            signature: transaction.transaction_signature(),
-                            is_vote: false, // ???
-                            transaction: &SanitizedTransaction::try_create(
-                                transaction.get_transaction(),
-                                Hash::new_unique(),
-                                None,
-                                SimpleAddressLoader::Disabled,
-                                &HashSet::new(),
-                            )
-                            .unwrap(),
-                            transaction_status_meta: &transaction
-                                .get_status_meta()
-                                .unwrap_or_default(),
-                            index: 0, // ???
+                            signature: &transaction_data.0,
+                            is_vote: false,
+                            transaction: &transaction_data.1,
+                            transaction_status_meta: &transaction_data.2,
+                            index: 0,
                         },
                     })
                 })
