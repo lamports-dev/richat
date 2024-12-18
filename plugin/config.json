@@ -21,7 +21,14 @@
     },
     "expected_rtt": 100,
     "max_stream_bandwidth": 12500000,
-    "max_uni_streams": 16
+    "max_recv_streams": 16
+  },
+  "tcp": {
+    "endpoint": "0.0.0.0:10101",
+    "backlog": 1024,
+    "keepalive": null,
+    "nodelay": true,
+    "send_buffer_size": null
   },
   "grpc": {
     "endpoint": "0.0.0.0:10102",
