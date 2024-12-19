@@ -6,17 +6,17 @@ use {
     solana_sdk::pubkey::Pubkey,
 };
 
-pub struct Account<'a> {
-    pubkey: &'a [u8],
+pub struct Account {
+    pubkey: Pubkey,
     lamports: u64,
-    owner: &'a [u8],
+    owner: Pubkey,
     executable: bool,
     rent_epoch: u64,
     data: Vec<u8>,
     write_version: u64,
 }
 
-pub fn accounts<'a>() -> Vec<Account<'a>> {
+pub fn gen_accounts() -> Vec<Account> {
     const PUBKEY: Pubkey = Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
     const OWNER: Pubkey = Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
 
@@ -32,9 +32,9 @@ pub fn accounts<'a>() -> Vec<Account<'a>> {
                 ] {
                     for write_version in [0, 1] {
                         accounts.push(Account {
-                            pubkey: PUBKEY.as_ref(),
+                            pubkey: PUBKEY,
                             lamports,
-                            owner: OWNER.as_ref(),
+                            owner: OWNER,
                             executable,
                             rent_epoch,
                             data: data.to_owned(),
@@ -49,27 +49,30 @@ pub fn accounts<'a>() -> Vec<Account<'a>> {
 }
 
 pub fn bench_encode_accounts(criterion: &mut Criterion) {
-    let accounts = accounts();
+    let accounts_data = gen_accounts();
+    let accounts = accounts_data
+        .iter()
+        .map(|account| ReplicaAccountInfoV3 {
+            pubkey: account.pubkey.as_ref(),
+            owner: account.owner.as_ref(),
+            lamports: account.lamports,
+            executable: account.executable,
+            rent_epoch: account.rent_epoch,
+            data: &account.data,
+            write_version: account.write_version,
+            txn: None,
+        })
+        .collect::<Vec<_>>();
+
     criterion.bench_with_input(
-        BenchmarkId::new("bench_encode_accounts", "many accounts"),
+        BenchmarkId::new("encode_accounts", "richat"),
         &accounts,
         |criterion, accounts| {
             criterion.iter(|| {
-                black_box(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
                     for account in accounts {
-                        encode_protobuf_message(ProtobufMessage::Account {
-                            slot: 0,
-                            account: &ReplicaAccountInfoV3 {
-                                pubkey: account.pubkey,
-                                owner: account.owner,
-                                lamports: account.lamports,
-                                executable: account.executable,
-                                rent_epoch: account.rent_epoch,
-                                data: &account.data,
-                                write_version: account.write_version,
-                                txn: None,
-                            },
-                        });
+                        encode_protobuf_message(ProtobufMessage::Account { slot: 0, account });
                     }
                 })
             })

@@ -12,7 +12,6 @@ mod slot;
 mod transaction;
 
 const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
-
 thread_local! {
     static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
 }

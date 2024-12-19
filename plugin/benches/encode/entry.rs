@@ -6,7 +6,7 @@ use {
     solana_sdk::hash::Hash,
 };
 
-pub fn entries() -> [ReplicaEntryInfoV2<'static>; 2] {
+pub fn gen_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
     const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
     const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
     [
@@ -30,13 +30,15 @@ pub fn entries() -> [ReplicaEntryInfoV2<'static>; 2] {
 }
 
 pub fn bench_encode_entries(criterion: &mut Criterion) {
-    let entries = entries();
+    let entries = gen_entries();
+
     criterion.bench_with_input(
-        BenchmarkId::new("bench_encode_entries", "two entries"),
+        BenchmarkId::new("encode_entry", "richat"),
         &entries,
         |criterion, entries| {
             criterion.iter(|| {
-                black_box(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
                     for entry in entries {
                         encode_protobuf_message(ProtobufMessage::Entry { entry })
                     }
