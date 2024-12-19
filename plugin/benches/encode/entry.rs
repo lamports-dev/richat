@@ -47,7 +47,7 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for entry in entries {
-                        encode_protobuf_message(ProtobufMessage::Entry { entry })
+                        encode_protobuf_message(&ProtobufMessage::Entry { entry })
                     }
                 })
             });

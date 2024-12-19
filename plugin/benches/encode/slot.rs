@@ -20,7 +20,7 @@ pub fn bench_encode_slot(criterion: &mut Criterion) {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for slot in 0..1000 {
-                        encode_protobuf_message(ProtobufMessage::Slot {
+                        encode_protobuf_message(&ProtobufMessage::Slot {
                             slot,
                             parent: Some(slot.wrapping_add(1)),
                             status: &SlotStatus::Completed,

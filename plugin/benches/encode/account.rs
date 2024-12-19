@@ -1,7 +1,7 @@
 use {
     super::encode_protobuf_message,
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
-    criterion::{black_box, BatchSize, BenchmarkId, Criterion},
+    criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
     richat_plugin::protobuf::ProtobufMessage,
@@ -71,19 +71,14 @@ pub fn generate_data_slice() -> Vec<FilterAccountsDataSlice> {
     .collect()
 }
 
-pub fn generate_message_accounts_and_data_slices(
-    replicas: &[ReplicaAccountInfoV3],
-) -> Vec<(MessageAccount, FilterAccountsDataSlice)> {
+pub fn generate_data_slices<'a>(
+    replicas: &'a [ReplicaAccountInfoV3<'a>],
+) -> Vec<(&'a ReplicaAccountInfoV3<'a>, FilterAccountsDataSlice)> {
     let mut accounts_and_data_slice = Vec::new();
     for replica in replicas {
-        for slot in [0, 42] {
-            for is_startup in [true, false] {
-                let data_slices = generate_data_slice();
-                for data_slice in data_slices {
-                    let message = MessageAccount::from_geyser(replica, slot, is_startup);
-                    accounts_and_data_slice.push((message, data_slice));
-                }
-            }
+        let data_slices = generate_data_slice();
+        for data_slice in data_slices {
+            accounts_and_data_slice.push((replica, data_slice))
         }
     }
     accounts_and_data_slice
@@ -104,46 +99,94 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             txn: None,
         })
         .collect::<Vec<_>>();
+    let protobuf_account_messages = accounts
+        .iter()
+        .map(|account| ProtobufMessage::Account { slot: 0, account })
+        .collect::<Vec<_>>();
+    let replica_accounts_and_data_slices = generate_data_slices(&accounts);
+    let message_accounts_and_data_slices = replica_accounts_and_data_slices
+        .iter()
+        .map(|(replica, data_slice)| {
+            (
+                MessageAccount::from_geyser(replica, 0, false),
+                data_slice.to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
 
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_accounts", "richat"),
-        &accounts,
-        |criterion, accounts| {
+    criterion
+        .benchmark_group("encode_accounts")
+        .bench_with_input(
+            "richat/encoding-only",
+            &protobuf_account_messages,
+            |criterion, protobuf_account_messages| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for message in protobuf_account_messages {
+                            encode_protobuf_message(message)
+                        }
+                    })
+                })
+            },
+        )
+        .bench_with_input("richat/full-pipeline", &accounts, |criterion, accounts| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for account in accounts {
-                        encode_protobuf_message(ProtobufMessage::Account { slot: 0, account });
+                        let message = ProtobufMessage::Account { slot: 0, account };
+                        encode_protobuf_message(&message)
                     }
                 })
             })
-        },
-    );
-
-    let accounts_and_data_slices = generate_message_accounts_and_data_slices(&accounts);
-    let created_at = Timestamp::from(SystemTime::now());
-
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_accounts", "dragons-mouth"),
-        &accounts_and_data_slices,
-        |criterion, accounts_and_data_slices| {
-            criterion.iter_batched(
-                || accounts_and_data_slices.to_owned(),
-                |accounts_and_data_slices| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for (message, data_slice) in accounts_and_data_slices {
-                            let update = FilteredUpdate {
-                                filters: FilteredUpdateFilters::new(),
-                                message: FilteredUpdateOneof::account(&message, data_slice),
-                                created_at,
-                            };
-                            update.encode_to_vec();
-                        }
-                    })
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
+        })
+        .bench_with_input(
+            "dragons-mouth/encoding-only",
+            &message_accounts_and_data_slices,
+            |criterion, message_accounts_and_data_slices| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter_batched(
+                    || message_accounts_and_data_slices.to_owned(),
+                    |message_accounts_and_data_slices| {
+                        #[allow(clippy::unit_arg)]
+                        black_box({
+                            for (message, data_slice) in message_accounts_and_data_slices {
+                                let update = FilteredUpdate {
+                                    filters: FilteredUpdateFilters::new(),
+                                    message: FilteredUpdateOneof::account(&message, data_slice),
+                                    created_at,
+                                };
+                                update.encode_to_vec();
+                            }
+                        })
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        )
+        .bench_with_input(
+            "dragons-mouth/full-pipeline",
+            &replica_accounts_and_data_slices,
+            |criterion, replica_accounts_and_data_slices| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter_batched(
+                    || replica_accounts_and_data_slices.to_owned(),
+                    |replica_accounts_and_data_slices| {
+                        black_box(
+                            for (replica, data_slice) in replica_accounts_and_data_slices {
+                                let message = MessageAccount::from_geyser(replica, 0, false);
+                                let update = FilteredUpdate {
+                                    filters: FilteredUpdateFilters::new(),
+                                    message: FilteredUpdateOneof::account(&message, data_slice),
+                                    created_at,
+                                };
+                                update.encode_to_vec();
+                            },
+                        )
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
 }

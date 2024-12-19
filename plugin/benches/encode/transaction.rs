@@ -73,7 +73,7 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for (slot, transaction) in transactions {
-                        encode_protobuf_message(ProtobufMessage::Transaction {
+                        encode_protobuf_message(&ProtobufMessage::Transaction {
                             slot: *slot,
                             transaction,
                         })

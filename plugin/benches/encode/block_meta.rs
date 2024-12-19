@@ -50,7 +50,7 @@ pub fn bench_encode_block_meta(criterion: &mut Criterion) {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for blockinfo in block_metas {
-                        encode_protobuf_message(ProtobufMessage::BlockMeta { blockinfo });
+                        encode_protobuf_message(&ProtobufMessage::BlockMeta { blockinfo });
                     }
                 })
             })
