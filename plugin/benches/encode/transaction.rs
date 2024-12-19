@@ -1,7 +1,7 @@
 use {
     super::{encode_protobuf_message, predefined::load_predefined_blocks},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
-    criterion::{black_box, BenchmarkId, Criterion},
+    criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
     richat_plugin::protobuf::ProtobufMessage,
