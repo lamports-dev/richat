@@ -13,7 +13,7 @@ use {
     },
 };
 
-pub fn bench_encode_block_meta(criterion: &mut Criterion) {
+pub fn bench_encode_block_metas(criterion: &mut Criterion) {
     let blocks = load_predefined_blocks();
 
     let rewards_and_num_partitions = blocks

@@ -29,7 +29,7 @@ criterion_group!(
     account::bench_encode_accounts,
     slot::bench_encode_slot,
     entry::bench_encode_entries,
-    block_meta::bench_encode_block_meta,
+    block_meta::bench_encode_block_metas,
     transaction::bench_encode_transaction
 );
 
