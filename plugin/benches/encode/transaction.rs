@@ -84,19 +84,22 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
     );
 
     let created_at = Timestamp::from(SystemTime::now());
+    let messages = transactions
+        .iter()
+        .map(|(slot, transaction)| MessageTransaction::from_geyser(transaction, *slot))
+        .collect::<Vec<_>>();
 
     criterion.bench_with_input(
         BenchmarkId::new("encode_transaction", "dragons-mouth"),
-        &transactions,
-        |criterion, transactions| {
+        &messages,
+        |criterion, messages| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
-                    for (slot, transaction) in transactions {
-                        let message = MessageTransaction::from_geyser(transaction, *slot);
+                    for message in messages {
                         let update = FilteredUpdate {
                             filters: FilteredUpdateFilters::new(),
-                            message: FilteredUpdateOneof::transaction(&message),
+                            message: FilteredUpdateOneof::transaction(message),
                             created_at,
                         };
                         update.encode_to_vec();
