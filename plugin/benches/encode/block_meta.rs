@@ -18,7 +18,7 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
 
     let rewards_and_num_partitions = blocks
         .iter()
-        .map(|(_, block)| RewardsAndNumPartitions {
+        .map(|(_slot, block)| RewardsAndNumPartitions {
             rewards: block.rewards.to_owned(),
             num_partitions: block.num_partitions,
         })
