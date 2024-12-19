@@ -80,7 +80,7 @@ pub fn generate_message_accounts_and_data_slices(
             for is_startup in [true, false] {
                 let data_slices = generate_data_slice();
                 for data_slice in data_slices {
-                    let message = MessageAccount::from_geyser(&replica, slot, is_startup);
+                    let message = MessageAccount::from_geyser(replica, slot, is_startup);
                     accounts_and_data_slice.push((message, data_slice));
                 }
             }
@@ -142,7 +142,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                         }
                     })
                 },
-                BatchSize::SmallInput,
+                BatchSize::LargeInput,
             );
         },
     );

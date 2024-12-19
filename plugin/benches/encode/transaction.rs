@@ -50,14 +50,14 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
     let transactions = transactions_data
         .iter()
         .map(
-            |(slot, index, signature, sanitized_transaction, transaction_status_meta)| {
+            |(slot, index, signature, transaction, transaction_status_meta)| {
                 (
                     *slot,
                     ReplicaTransactionInfoV2 {
-                        signature: &signature,
+                        signature,
                         is_vote: false,
-                        transaction: &sanitized_transaction,
-                        transaction_status_meta: &transaction_status_meta,
+                        transaction,
+                        transaction_status_meta,
                         index: *index,
                     },
                 )
