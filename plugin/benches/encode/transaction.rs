@@ -8,7 +8,7 @@ use {
 };
 
 pub fn bench_encode_transaction(criterion: &mut Criterion) {
-    let blocks = load_predefined_blocks().expect("failed to load predefined blocks");
+    let blocks = load_predefined_blocks();
 
     let transactions_data = blocks
         .into_iter()

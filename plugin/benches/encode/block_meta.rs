@@ -7,7 +7,8 @@ use {
 };
 
 pub fn bench_encode_block_meta(criterion: &mut Criterion) {
-    let blocks = load_predefined_blocks().expect("failed to load predefined blocks");
+    let blocks = load_predefined_blocks();
+
     let rewards = blocks
         .iter()
         .map(|(_slot, block)| RewardsAndNumPartitions {
