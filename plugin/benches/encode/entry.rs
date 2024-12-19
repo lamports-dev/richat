@@ -6,7 +6,7 @@ use {
     solana_sdk::hash::Hash,
 };
 
-pub fn gen_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
+pub fn generate_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
     const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
     const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
     [
@@ -30,7 +30,7 @@ pub fn gen_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
 }
 
 pub fn bench_encode_entries(criterion: &mut Criterion) {
-    let entries = gen_entries();
+    let entries = generate_entries();
 
     criterion.bench_with_input(
         BenchmarkId::new("encode_entry", "richat"),

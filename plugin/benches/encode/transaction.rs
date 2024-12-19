@@ -24,7 +24,7 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                 .into_iter()
                 .enumerate()
                 .map(move |(index, transaction)| {
-                    let sanitazed_transaction = SanitizedTransaction::try_create(
+                    let sanitized_transaction = SanitizedTransaction::try_create(
                         transaction.get_transaction(),
                         Hash::new_unique(),
                         None,
@@ -40,26 +40,29 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                         slot,
                         index,
                         *transaction.transaction_signature(),
-                        sanitazed_transaction,
+                        sanitized_transaction,
                         transaction_status_meta,
                     )
                 })
         })
         .collect::<Vec<_>>();
+
     let transactions = transactions_data
         .iter()
-        .map(|transaction_data| {
-            (
-                transaction_data.0,
-                ReplicaTransactionInfoV2 {
-                    signature: &transaction_data.2,
-                    is_vote: false,
-                    transaction: &transaction_data.3,
-                    transaction_status_meta: &transaction_data.4,
-                    index: transaction_data.1,
-                },
-            )
-        })
+        .map(
+            |(slot, index, signature, sanitized_transaction, transaction_status_meta)| {
+                (
+                    *slot,
+                    ReplicaTransactionInfoV2 {
+                        signature: &signature,
+                        is_vote: false,
+                        transaction: &sanitized_transaction,
+                        transaction_status_meta: &transaction_status_meta,
+                        index: *index,
+                    },
+                )
+            },
+        )
         .collect::<Vec<_>>();
 
     criterion.bench_with_input(
@@ -96,7 +99,7 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                             message: FilteredUpdateOneof::transaction(&message),
                             created_at,
                         };
-                        let _ = update.encode_to_vec();
+                        update.encode_to_vec();
                     }
                 })
             });

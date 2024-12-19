@@ -12,10 +12,10 @@ pub fn bench_encode_slot(criterion: &mut Criterion) {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
-                    for _ in 0..1000 {
+                    for slot in 0..1000 {
                         encode_protobuf_message(ProtobufMessage::Slot {
-                            slot: 1000,
-                            parent: Some(1001),
+                            slot,
+                            parent: Some(slot.wrapping_add(1)),
                             status: &SlotStatus::Completed,
                         });
                     }

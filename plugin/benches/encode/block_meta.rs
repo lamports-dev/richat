@@ -9,27 +9,30 @@ use {
 pub fn bench_encode_block_meta(criterion: &mut Criterion) {
     let blocks = load_predefined_blocks();
 
-    let rewards = blocks
+    let rewards_and_num_partitions = blocks
         .iter()
-        .map(|(_slot, block)| RewardsAndNumPartitions {
-            rewards: block.rewards.clone(),
+        .map(|(_, block)| RewardsAndNumPartitions {
+            rewards: block.rewards.to_owned(),
             num_partitions: block.num_partitions,
         })
         .collect::<Vec<_>>();
+
     let block_metas = blocks
         .iter()
-        .zip(rewards.iter())
-        .map(|((slot, block), rewards)| ReplicaBlockInfoV4 {
-            parent_slot: block.parent_slot,
-            slot: *slot,
-            parent_blockhash: &block.previous_blockhash,
-            blockhash: &block.blockhash,
-            rewards,
-            block_time: block.block_time,
-            block_height: block.block_height,
-            executed_transaction_count: 0,
-            entry_count: 0,
-        })
+        .zip(rewards_and_num_partitions.iter())
+        .map(
+            |((slot, block), rewards_and_num_partitions)| ReplicaBlockInfoV4 {
+                parent_slot: block.parent_slot,
+                slot: *slot,
+                parent_blockhash: &block.previous_blockhash,
+                blockhash: &block.blockhash,
+                rewards: rewards_and_num_partitions,
+                block_time: block.block_time,
+                block_height: block.block_height,
+                executed_transaction_count: 0,
+                entry_count: 0,
+            },
+        )
         .collect::<Vec<_>>();
 
     criterion.bench_with_input(
