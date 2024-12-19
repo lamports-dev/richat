@@ -173,6 +173,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                 criterion.iter_batched(
                     || replica_accounts_and_data_slices.to_owned(),
                     |replica_accounts_and_data_slices| {
+                        #[allow(clippy::unit_arg)]
                         black_box(
                             for (replica, data_slice) in replica_accounts_and_data_slices {
                                 let message = MessageAccount::from_geyser(replica, 0, false);

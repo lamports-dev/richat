@@ -1,7 +1,7 @@
 use {
     super::{encode_protobuf_message, predefined::load_predefined_blocks},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
-    criterion::{black_box, BatchSize, BenchmarkId, Criterion},
+    criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
     richat_plugin::protobuf::ProtobufMessage,
@@ -23,7 +23,6 @@ pub fn bench_encode_block_meta(criterion: &mut Criterion) {
             num_partitions: block.num_partitions,
         })
         .collect::<Vec<_>>();
-
     let block_metas = blocks
         .iter()
         .zip(rewards_and_num_partitions.iter())
