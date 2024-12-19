@@ -54,6 +54,7 @@ yellowstone-grpc-proto = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 prost_011 = { workspace = true }
+yellowstone-grpc-proto = { workspace = true, features = ["plugin"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

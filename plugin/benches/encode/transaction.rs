@@ -2,9 +2,15 @@ use {
     super::{encode_protobuf_message, predefined::load_predefined_blocks},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     criterion::{black_box, BenchmarkId, Criterion},
+    prost::Message,
+    prost_types::Timestamp,
     richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::{hash::Hash, message::SimpleAddressLoader, transaction::SanitizedTransaction},
-    std::collections::HashSet,
+    std::{collections::HashSet, time::SystemTime},
+    yellowstone_grpc_proto::plugin::{
+        filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
+        message::MessageTransaction,
+    },
 };
 
 pub fn bench_encode_transaction(criterion: &mut Criterion) {
@@ -68,6 +74,29 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                             slot: *slot,
                             transaction,
                         })
+                    }
+                })
+            });
+        },
+    );
+
+    let created_at = Timestamp::from(SystemTime::now());
+
+    criterion.bench_with_input(
+        BenchmarkId::new("encode_transaction", "dragons-mouth"),
+        &transactions,
+        |criterion, transactions| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for (slot, transaction) in transactions {
+                        let message = MessageTransaction::from_geyser(transaction, *slot);
+                        let update = FilteredUpdate {
+                            filters: FilteredUpdateFilters::new(),
+                            message: FilteredUpdateOneof::transaction(&message),
+                            created_at,
+                        };
+                        let _ = update.encode_to_vec();
                     }
                 })
             });
