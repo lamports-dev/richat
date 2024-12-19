@@ -13,7 +13,7 @@ use {
     },
 };
 
-pub fn bench_encode_transaction(criterion: &mut Criterion) {
+pub fn bench_encode_transactions(criterion: &mut Criterion) {
     let blocks = load_predefined_blocks();
 
     let transactions_data = blocks
@@ -46,7 +46,6 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
                 })
         })
         .collect::<Vec<_>>();
-
     let transactions = transactions_data
         .iter()
         .map(
@@ -64,48 +63,91 @@ pub fn bench_encode_transaction(criterion: &mut Criterion) {
             },
         )
         .collect::<Vec<_>>();
-
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_transaction", "richat"),
-        &transactions,
-        |criterion, transactions| {
-            criterion.iter(|| {
-                #[allow(clippy::unit_arg)]
-                black_box({
-                    for (slot, transaction) in transactions {
-                        encode_protobuf_message(&ProtobufMessage::Transaction {
-                            slot: *slot,
-                            transaction,
-                        })
-                    }
-                })
-            });
-        },
-    );
-
-    let created_at = Timestamp::from(SystemTime::now());
-    let messages = transactions
+    let protobuf_transaction_messages = transactions
+        .iter()
+        .map(|(slot, transaction)| ProtobufMessage::Transaction {
+            slot: *slot,
+            transaction,
+        })
+        .collect::<Vec<_>>();
+    let transaction_messages = transactions
         .iter()
         .map(|(slot, transaction)| MessageTransaction::from_geyser(transaction, *slot))
         .collect::<Vec<_>>();
 
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_transaction", "dragons-mouth"),
-        &messages,
-        |criterion, messages| {
-            criterion.iter(|| {
-                #[allow(clippy::unit_arg)]
-                black_box({
-                    for message in messages {
-                        let update = FilteredUpdate {
-                            filters: FilteredUpdateFilters::new(),
-                            message: FilteredUpdateOneof::transaction(message),
-                            created_at,
-                        };
-                        update.encode_to_vec();
-                    }
-                })
-            });
-        },
-    );
+    criterion
+        .benchmark_group("encode_transaction")
+        .bench_with_input(
+            "richat/encoding-only",
+            &protobuf_transaction_messages,
+            |criterion, protobuf_transaction_messages| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for message in protobuf_transaction_messages {
+                            encode_protobuf_message(message)
+                        }
+                    })
+                });
+            },
+        )
+        .bench_with_input(
+            "richat/full-pipeline",
+            &transactions,
+            |criterion, transactions| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for (slot, transaction) in transactions {
+                            let message = ProtobufMessage::Transaction {
+                                slot: *slot,
+                                transaction,
+                            };
+                            encode_protobuf_message(&message)
+                        }
+                    })
+                });
+            },
+        )
+        .bench_with_input(
+            "dragons-mouth/encoding-only",
+            &transaction_messages,
+            |criterion, transaction_messages| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for message in transaction_messages {
+                            let update = FilteredUpdate {
+                                filters: FilteredUpdateFilters::new(),
+                                message: FilteredUpdateOneof::transaction(message),
+                                created_at,
+                            };
+                            update.encode_to_vec();
+                        }
+                    })
+                });
+            },
+        )
+        .bench_with_input(
+            "dragons-mouth/full-pipeline",
+            &transactions,
+            |criterion, transactions| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for (slot, transaction) in transactions {
+                            let message = MessageTransaction::from_geyser(transaction, *slot);
+                            let update = FilteredUpdate {
+                                filters: FilteredUpdateFilters::new(),
+                                message: FilteredUpdateOneof::transaction(&message),
+                                created_at,
+                            };
+                            update.encode_to_vec();
+                        }
+                    })
+                });
+            },
+        );
 }

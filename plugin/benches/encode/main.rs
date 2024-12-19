@@ -30,7 +30,7 @@ criterion_group!(
     slot::bench_encode_slot,
     entry::bench_encode_entries,
     block_meta::bench_encode_block_metas,
-    transaction::bench_encode_transaction
+    transaction::bench_encode_transactions
 );
 
 criterion_main!(benches);
