@@ -41,50 +41,88 @@ pub fn bench_encode_block_meta(criterion: &mut Criterion) {
             },
         )
         .collect::<Vec<_>>();
-
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_block_meta", "richat"),
-        &block_metas,
-        |criterion, block_metas| {
-            criterion.iter(|| {
-                #[allow(clippy::unit_arg)]
-                black_box({
-                    for blockinfo in block_metas {
-                        encode_protobuf_message(&ProtobufMessage::BlockMeta { blockinfo });
-                    }
-                })
-            })
-        },
-    );
-
-    let created_at = Timestamp::from(SystemTime::now());
-    let messages = block_metas
+    let protobuf_block_meta_messages = block_metas
+        .iter()
+        .map(|blockinfo| ProtobufMessage::BlockMeta { blockinfo })
+        .collect::<Vec<_>>();
+    let block_meta_messages = block_metas
         .iter()
         .map(MessageBlockMeta::from_geyser)
         .map(Arc::new)
         .collect::<Vec<_>>();
 
-    criterion.bench_with_input(
-        BenchmarkId::new("encode_block_meta", "dragons-mouth"),
-        &messages,
-        |criterion, messages| {
-            criterion.iter_batched(
-                || messages.to_owned(),
-                |messages| {
+    criterion
+        .benchmark_group("encode_block_meta")
+        .bench_with_input(
+            "richat/encoding-only",
+            &protobuf_block_meta_messages,
+            |criterion, protobuf_block_meta_messages| {
+                criterion.iter(|| {
                     #[allow(clippy::unit_arg)]
                     black_box({
-                        for message in messages {
-                            let update = FilteredUpdate {
-                                filters: FilteredUpdateFilters::new(),
-                                message: FilteredUpdateOneof::block_meta(message),
-                                created_at,
-                            };
-                            update.encode_to_vec();
+                        for message in protobuf_block_meta_messages {
+                            encode_protobuf_message(message)
                         }
                     })
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
+                })
+            },
+        )
+        .bench_with_input(
+            "richat/full-pipeline",
+            &block_metas,
+            |criterion, block_metas| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for blockinfo in block_metas {
+                            let message = ProtobufMessage::BlockMeta { blockinfo };
+                            encode_protobuf_message(&message)
+                        }
+                    })
+                })
+            },
+        )
+        .bench_with_input(
+            "dragons-mouth/encoding-only",
+            &block_meta_messages,
+            |criterion, messages| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter_batched(
+                    || messages.to_owned(),
+                    |messages| {
+                        #[allow(clippy::unit_arg)]
+                        black_box({
+                            for message in messages {
+                                let update = FilteredUpdate {
+                                    filters: FilteredUpdateFilters::new(),
+                                    message: FilteredUpdateOneof::block_meta(message),
+                                    created_at,
+                                };
+                                update.encode_to_vec();
+                            }
+                        })
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        )
+        .bench_with_input(
+            "dragons-mouth/full-pipeline",
+            &block_metas,
+            |criterion, block_metas| {
+                let created_at = Timestamp::from(SystemTime::now());
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box(for blockinfo in block_metas {
+                        let message = MessageBlockMeta::from_geyser(blockinfo);
+                        let update = FilteredUpdate {
+                            filters: FilteredUpdateFilters::new(),
+                            message: FilteredUpdateOneof::block_meta(Arc::new(message)),
+                            created_at,
+                        };
+                        update.encode_to_vec();
+                    })
+                });
+            },
+        );
 }
