@@ -5,18 +5,14 @@ use {
 
 pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
     fs::read_dir("./fixtures/blocks")
-        .expect("failed to read dir with fixtures")
+        .expect("failed to read `fixtures` directory")
         .map(|entry| {
-            let entry = entry.expect("failed to read dir entry");
+            let entry = entry.expect("failed to read entry directory");
             let path = entry.path();
 
-            let file_name = path
-                .file_name()
-                .expect("failed to get file name of fixture");
-            let extension = path
-                .extension()
-                .expect("failed to get extension of fxiture");
-            let slot = file_name.to_str().expect("failed to stringify file_name")
+            let file_name = path.file_name().expect("failed to get fixture file name");
+            let extension = path.extension().expect("failed to get fixture extension");
+            let slot = file_name.to_str().expect("failed to stringify file name")
                 [0..extension.len()]
                 .parse::<u64>()
                 .expect("failed to parse file name");
