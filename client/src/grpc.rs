@@ -198,7 +198,6 @@ impl GrpcClientBuilder {
         if let Some(limit) = self.max_encoding_message_size {
             geyser = geyser.max_encoding_message_size(limit);
         }
-
         GrpcClient::new(geyser)
     }
 
@@ -230,7 +229,6 @@ impl Interceptor for GrpcInterceptor {
 #[derive(Debug)]
 pub struct GrpcClient<F> {
     geyser: GeyserClient<InterceptedService<Channel, F>>,
-    //
 }
 
 impl GrpcClient<()> {

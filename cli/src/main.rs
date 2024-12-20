@@ -106,6 +106,7 @@ struct ArgsAppStreamGrpc {
     /// Richat Geyser plugin gRPC Server endpoint
     #[clap(default_value_t = format!("http://{}", ConfigGrpcServer::default().endpoint))]
     endpoint: String,
+
     /// Path of a certificate authority file
     #[clap(long)]
     ca_certificate: Option<PathBuf>,
