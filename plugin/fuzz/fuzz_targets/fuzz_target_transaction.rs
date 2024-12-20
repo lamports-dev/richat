@@ -1,8 +1,23 @@
 #![allow(unused)] // FIXME: remove it!!!
 #![no_main]
 
+use std::collections::HashSet;
+
+use sanitized::FuzzSanitizedMessage;
+use solana_sdk::{
+    hash::Hash,
+    message::{SimpleAddressLoader, VersionedMessage},
+    pubkey::Pubkey,
+    signature::Signature,
+    signer::Signer,
+    signers::Signers,
+    transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
+};
+
+use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2;
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
+use solana_transaction_status::TransactionStatusMeta;
 
 #[derive(Arbitrary, Debug, Clone)]
 pub struct FuzzCompiledInstruction {
@@ -23,46 +38,46 @@ pub mod sanitized {
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzLegacyMessageInner {
-        header: FuzzMessageHeader,
-        account_keys: Vec<[u8; 32]>,
-        recent_blockhash: [u8; 32],
-        instructions: Vec<super::FuzzCompiledInstruction>,
+        pub header: FuzzMessageHeader,
+        pub account_keys: Vec<[u8; 32]>,
+        pub recent_blockhash: [u8; 32],
+        pub instructions: Vec<super::FuzzCompiledInstruction>,
     }
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzMessageAddressTableLookup {
-        account_key: [u8; 32],
-        writable_indexes: Vec<u8>,
-        readonly_indexes: Vec<u8>,
+        pub account_key: [u8; 32],
+        pub writable_indexes: Vec<u8>,
+        pub readonly_indexes: Vec<u8>,
     }
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzMessageHeader {
-        num_required_signatures: u8,
-        num_readonly_signed_accounts: u8,
-        num_readonly_unsigned_accounts: u8,
+        pub num_required_signatures: u8,
+        pub num_readonly_signed_accounts: u8,
+        pub num_readonly_unsigned_accounts: u8,
     }
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzLoadedMessageInner {
-        header: FuzzMessageHeader,
-        account_keys: Vec<[u8; 32]>,
-        recent_blockhash: [u8; 32],
-        instructions: Vec<super::FuzzCompiledInstruction>,
-        address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
+        pub header: FuzzMessageHeader,
+        pub account_keys: Vec<[u8; 32]>,
+        pub recent_blockhash: [u8; 32],
+        pub instructions: Vec<super::FuzzCompiledInstruction>,
+        pub address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzLegacyMessage<'a> {
-        message: Cow<'a, FuzzLegacyMessageInner>,
-        is_writable_account_cache: Vec<bool>,
+        pub message: Cow<'a, FuzzLegacyMessageInner>,
+        pub is_writable_account_cache: Vec<bool>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzLoadedMessage<'a> {
-        message: Cow<'a, FuzzLoadedMessageInner>,
-        loaded_addresses: Cow<'a, super::FuzzLoadedAddresses>,
-        is_writable_account_cache: Vec<bool>,
+        pub message: Cow<'a, FuzzLoadedMessageInner>,
+        pub loaded_addresses: Cow<'a, super::FuzzLoadedAddresses>,
+        pub is_writable_account_cache: Vec<bool>,
     }
 
     #[derive(Arbitrary, Debug)]
@@ -73,10 +88,10 @@ pub mod sanitized {
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzSanitizedTransaction<'a> {
-        message: FuzzSanitizedMessage<'a>,
-        message_hash: [u8; 32],
-        is_simple_vote_tx: bool,
-        signatures: Vec<&'a [u8]>,
+        pub message: FuzzSanitizedMessage<'a>,
+        pub message_hash: [u8; 32],
+        pub is_simple_vote_tx: bool,
+        pub signatures: Vec<&'a [u8]>,
     }
 }
 
@@ -91,31 +106,31 @@ pub mod status_meta {
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzInnerInstruction {
-        instruction: super::FuzzCompiledInstruction,
-        stack_height: Option<u32>,
+        pub instruction: super::FuzzCompiledInstruction,
+        pub stack_height: Option<u32>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzInnerInstructions {
-        index: u8,
-        instructions: Vec<FuzzInnerInstruction>,
+        pub index: u8,
+        pub instructions: Vec<FuzzInnerInstruction>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzUiTokenAmount {
-        ui_amount: Option<f64>,
-        decimals: u8,
-        amount: String,
-        ui_amount_string: String,
+        pub ui_amount: Option<f64>,
+        pub decimals: u8,
+        pub amount: String,
+        pub ui_amount_string: String,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzTransactionTokenBalance {
-        account_index: u8,
-        mint: String,
-        ui_token_amount: FuzzUiTokenAmount,
-        owner: String,
-        program_id: String,
+        pub account_index: u8,
+        pub mint: String,
+        pub ui_token_amount: FuzzUiTokenAmount,
+        pub owner: String,
+        pub program_id: String,
     }
 
     #[derive(Arbitrary, Debug)]
@@ -139,39 +154,39 @@ pub mod status_meta {
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzReward {
-        pubkey: String,
-        lamports: i64,
-        post_balance: u64,
-        reward_type: Option<FuzzRewardType>,
-        commission: Option<u8>,
+        pub pubkey: String,
+        pub lamports: i64,
+        pub post_balance: u64,
+        pub reward_type: Option<FuzzRewardType>,
+        pub commission: Option<u8>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzTransactionReturnData {
-        program_id: [u8; 32],
-        data: Vec<u8>,
+        pub program_id: [u8; 32],
+        pub data: Vec<u8>,
     }
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzTransactionStatusMeta {
-        status: Result<(), FuzzTransactionError>,
-        fee: u64,
-        pre_balances: Vec<u64>,
-        post_balances: Vec<u64>,
-        inner_instructions: Option<Vec<FuzzInnerInstructions>>,
-        log_messages: Option<Vec<String>>,
-        pre_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
-        post_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
-        rewards: Option<Vec<FuzzReward>>,
-        loaded_addresses: super::FuzzLoadedAddresses,
-        return_data: Option<FuzzTransactionReturnData>,
-        compute_units_consumed: u64,
+        pub status: Result<(), FuzzTransactionError>,
+        pub fee: u64,
+        pub pre_balances: Vec<u64>,
+        pub post_balances: Vec<u64>,
+        pub inner_instructions: Option<Vec<FuzzInnerInstructions>>,
+        pub log_messages: Option<Vec<String>>,
+        pub pre_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
+        pub post_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
+        pub rewards: Option<Vec<FuzzReward>>,
+        pub loaded_addresses: super::FuzzLoadedAddresses,
+        pub return_data: Option<FuzzTransactionReturnData>,
+        pub compute_units_consumed: Option<u64>,
     }
 }
 
 #[derive(Arbitrary, Debug)]
 pub struct FuzzTransaction<'a> {
-    pub signature: &'a [u8],
+    pub signature: [u8; 64],
     pub is_vote: bool,
     pub transaction: sanitized::FuzzSanitizedTransaction<'a>,
     pub transaction_status_meta: status_meta::FuzzTransactionStatusMeta,
@@ -180,8 +195,82 @@ pub struct FuzzTransaction<'a> {
 
 #[derive(Arbitrary, Debug)]
 pub struct FuzzTransactionMessage<'a> {
-    slot: u64,
-    transaction: FuzzTransaction<'a>,
+    pub slot: u64,
+    pub transaction: FuzzTransaction<'a>,
 }
 
-fuzz_target!(|_fuzz_message: FuzzTransactionMessage| {});
+pub struct FuzzSigner;
+
+impl Signers for FuzzSigner {
+    fn pubkeys(&self) -> Vec<Pubkey> {
+        vec![Pubkey::new_unique()]
+    }
+    fn try_pubkeys(&self) -> Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
+        Ok(vec![Pubkey::new_unique()])
+    }
+    fn sign_message(&self, message: &[u8]) -> Vec<Signature> {
+        vec![Signature::new_unique()]
+    }
+    fn try_sign_message(
+        &self,
+        message: &[u8],
+    ) -> Result<Vec<Signature>, solana_sdk::signer::SignerError> {
+        Ok(vec![Signature::new_unique()])
+    }
+    fn is_interactive(&self) -> bool {
+        false
+    }
+}
+
+fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
+    let versioned_message = match fuzz_message.transaction.transaction.message {
+        FuzzSanitizedMessage::Legacy(legacy) => todo!(),
+        FuzzSanitizedMessage::V0(v0) => todo!(),
+    };
+    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &FuzzSigner)
+        .expect("failed to define `VersionedTransaction`");
+    let sanitized_versioned_transaction =
+        SanitizedVersionedTransaction::try_new(versioned_transaction)
+            .expect("failed to define `SanitizedVersionedTransaction`");
+    let sanitized_transaction = SanitizedTransaction::try_new(
+        sanitized_versioned_transaction,
+        Hash::new_from_array(fuzz_message.transaction.transaction.message_hash),
+        fuzz_message.transaction.transaction.is_simple_vote_tx,
+        SimpleAddressLoader::Disabled,
+        &HashSet::new(),
+    )
+    .expect("failed to define `SanitizedTransaction`");
+    let transaction_status_meta = TransactionStatusMeta {
+        status: Ok(()), // TODO
+        fee: fuzz_message.transaction.transaction_status_meta.fee,
+        pre_balances: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .pre_balances,
+        post_balances: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .post_balances,
+        inner_instructions: todo!(), // TODO
+        log_messages: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .log_messages,
+        pre_token_balances: todo!(),  // TODO
+        post_token_balances: todo!(), // TODO
+        rewards: todo!(),             // TODO
+        loaded_addresses: todo!(),    // TODO
+        return_data: todo!(),         // TODO
+        compute_units_consumed: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .compute_units_consumed,
+    };
+    let replica = ReplicaTransactionInfoV2 {
+        signature: &Signature::from(fuzz_message.transaction.signature),
+        is_vote: fuzz_message.transaction.is_vote,
+        transaction: &sanitized_transaction,
+        transaction_status_meta: &transaction_status_meta,
+        index: fuzz_message.transaction.index,
+    };
+});
