@@ -9,18 +9,14 @@ use {
         hash::Hash,
         instruction::CompiledInstruction,
         message::{v0::LoadedAddresses, SimpleAddressLoader},
-        pubkey::Pubkey,
-        signature::Signature,
+        pubkey::{Pubkey, PUBKEY_BYTES},
+        signature::{Signature, SIGNATURE_BYTES},
         signers::Signers,
         transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
     },
     solana_transaction_status::TransactionStatusMeta,
     std::collections::HashSet,
 };
-
-pub const SIGNATURE_LEN: usize = 64;
-pub const PUBKEY_LEN: usize = 32;
-pub const HASH_LEN: usize = 32;
 
 pub struct FuzzSigner;
 
@@ -64,8 +60,8 @@ impl Into<CompiledInstruction> for FuzzCompiledInstruction {
 
 #[derive(Arbitrary, Debug, Clone)]
 pub struct FuzzLoadedAddresses {
-    writable: Vec<[u8; PUBKEY_LEN]>,
-    readonly: Vec<[u8; PUBKEY_LEN]>,
+    writable: Vec<[u8; PUBKEY_BYTES]>,
+    readonly: Vec<[u8; PUBKEY_BYTES]>,
 }
 
 impl Into<LoadedAddresses> for FuzzLoadedAddresses {
@@ -87,16 +83,16 @@ impl Into<LoadedAddresses> for FuzzLoadedAddresses {
 
 pub mod sanitized {
     use {
-        super::{HASH_LEN, PUBKEY_LEN},
         arbitrary::Arbitrary,
         solana_sdk::{
             hash::Hash,
+            keccak::HASH_BYTES,
             message::{
                 legacy,
                 v0::{self, MessageAddressTableLookup},
                 LegacyMessage, MessageHeader, VersionedMessage,
             },
-            pubkey::Pubkey,
+            pubkey::{Pubkey, PUBKEY_BYTES},
         },
         std::borrow::Cow,
     };
@@ -104,8 +100,8 @@ pub mod sanitized {
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzLegacyMessageInner {
         pub header: FuzzMessageHeader,
-        pub account_keys: Vec<[u8; PUBKEY_LEN]>,
-        pub recent_blockhash: [u8; HASH_LEN],
+        pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
+        pub recent_blockhash: [u8; HASH_BYTES],
         pub instructions: Vec<super::FuzzCompiledInstruction>,
     }
 
@@ -130,7 +126,7 @@ pub mod sanitized {
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzMessageAddressTableLookup {
-        pub account_key: [u8; PUBKEY_LEN],
+        pub account_key: [u8; PUBKEY_BYTES],
         pub writable_indexes: Vec<u8>,
         pub readonly_indexes: Vec<u8>,
     }
@@ -165,8 +161,8 @@ pub mod sanitized {
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzLoadedMessageInner {
         pub header: FuzzMessageHeader,
-        pub account_keys: Vec<[u8; PUBKEY_LEN]>,
-        pub recent_blockhash: [u8; HASH_LEN],
+        pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
+        pub recent_blockhash: [u8; HASH_BYTES],
         pub instructions: Vec<super::FuzzCompiledInstruction>,
         pub address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
     }
@@ -248,7 +244,7 @@ pub mod sanitized {
     #[derive(Arbitrary, Debug)]
     pub struct FuzzSanitizedTransaction<'a> {
         pub message: FuzzSanitizedMessage<'a>,
-        pub message_hash: [u8; HASH_LEN],
+        pub message_hash: [u8; HASH_BYTES],
         pub is_simple_vote_tx: bool,
         pub signatures: Vec<&'a [u8]>,
     }
@@ -256,10 +252,12 @@ pub mod sanitized {
 
 pub mod status_meta {
     use {
-        crate::PUBKEY_LEN,
         arbitrary::Arbitrary,
         solana_account_decoder::parse_token::UiTokenAmount,
-        solana_sdk::{pubkey::Pubkey, transaction_context::TransactionReturnData},
+        solana_sdk::{
+            pubkey::{Pubkey, PUBKEY_BYTES},
+            transaction_context::TransactionReturnData,
+        },
         solana_transaction_status::{
             InnerInstruction, InnerInstructions, Reward, RewardType, TransactionTokenBalance,
         },
@@ -384,7 +382,7 @@ pub mod status_meta {
 
     #[derive(Arbitrary, Debug)]
     pub struct FuzzTransactionReturnData {
-        pub program_id: [u8; PUBKEY_LEN],
+        pub program_id: [u8; PUBKEY_BYTES],
         pub data: Vec<u8>,
     }
 
@@ -416,7 +414,7 @@ pub mod status_meta {
 
 #[derive(Arbitrary, Debug)]
 pub struct FuzzTransaction<'a> {
-    pub signature: [u8; SIGNATURE_LEN],
+    pub signature: [u8; SIGNATURE_BYTES],
     pub is_vote: bool,
     pub transaction: sanitized::FuzzSanitizedTransaction<'a>,
     pub transaction_status_meta: status_meta::FuzzTransactionStatusMeta,
