@@ -1,14 +1,16 @@
 #![no_main]
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3;
-use libfuzzer_sys::fuzz_target;
-use richat_plugin::protobuf::ProtobufMessage;
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
+    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    solana_sdk::pubkey::PUBKEY_BYTES,
+};
 
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct Account<'a> {
-    pubkey: [u8; 32],
+    pubkey: [u8; PUBKEY_BYTES],
     lamports: u64,
-    owner: [u8; 32],
+    owner: [u8; PUBKEY_BYTES],
     executable: bool,
     rent_epoch: u64,
     data: &'a [u8],

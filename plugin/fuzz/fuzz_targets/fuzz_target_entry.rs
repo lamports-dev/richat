@@ -1,8 +1,9 @@
 #![no_main]
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2;
-use libfuzzer_sys::fuzz_target;
-use richat_plugin::protobuf::ProtobufMessage;
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
+    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+};
 
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct FuzzEntry {

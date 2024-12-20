@@ -1,10 +1,12 @@
 #![no_main]
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4;
-use arbitrary::Arbitrary;
-use libfuzzer_sys::fuzz_target;
-use richat_plugin::protobuf::ProtobufMessage;
-use solana_transaction_status::{Reward, RewardType, RewardsAndNumPartitions};
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
+    arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target,
+    richat_plugin::protobuf::ProtobufMessage,
+    solana_transaction_status::{Reward, RewardType, RewardsAndNumPartitions},
+};
 
 #[derive(Arbitrary, Debug)]
 pub enum FuzzRewardType {
@@ -14,8 +16,8 @@ pub enum FuzzRewardType {
     Voting,
 }
 
-impl FuzzRewardType {
-    pub const fn into_solana(self) -> RewardType {
+impl Into<RewardType> for FuzzRewardType {
+    fn into(self) -> RewardType {
         match self {
             FuzzRewardType::Fee => RewardType::Fee,
             FuzzRewardType::Rent => RewardType::Rent,
@@ -58,7 +60,7 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
                 pubkey: reward.pubkey,
                 lamports: reward.lamports,
                 post_balance: reward.post_balance,
-                reward_type: reward.reward_type.map(FuzzRewardType::into_solana),
+                reward_type: reward.reward_type.map(Into::into),
                 commission: reward.commission,
             })
             .collect(),

@@ -1,9 +1,9 @@
 #![no_main]
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus;
-use arbitrary::Arbitrary;
-use libfuzzer_sys::fuzz_target;
-use richat_plugin::protobuf::ProtobufMessage;
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+};
 
 #[derive(Arbitrary, Debug)]
 pub enum FuzzSlotStatus {
@@ -16,8 +16,8 @@ pub enum FuzzSlotStatus {
     Dead(String),
 }
 
-impl FuzzSlotStatus {
-    pub fn into_solana(self) -> SlotStatus {
+impl Into<SlotStatus> for FuzzSlotStatus {
+    fn into(self) -> SlotStatus {
         match self {
             FuzzSlotStatus::Processed => SlotStatus::Processed,
             FuzzSlotStatus::Rooted => SlotStatus::Rooted,
@@ -42,7 +42,7 @@ fuzz_target!(|fuzz_slot: FuzzSlot| {
     let message = ProtobufMessage::Slot {
         slot: fuzz_slot.slot,
         parent: fuzz_slot.parent,
-        status: &fuzz_slot.status.into_solana(),
+        status: &fuzz_slot.status.into(),
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty())
