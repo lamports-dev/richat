@@ -1,19 +1,33 @@
 #![no_main]
 
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target,
+    prost_011::{Enumeration, Message},
+    richat_plugin::protobuf::ProtobufMessage,
 };
 
-#[derive(Arbitrary, Debug)]
+#[derive(Message)] // FIXME: compile error!!!
+pub struct Slot {
+    #[prost(uint64, tag = "1")]
+    slot: u64,
+    #[prost(uint64, optional, tag = "2")]
+    parent: Option<u64>,
+    #[prost(enumeration = "FuzzSlotStatus", tag = "3")]
+    status: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Enumeration)]
+#[repr(i32)]
 pub enum FuzzSlotStatus {
-    Processed,
-    Rooted,
-    Confirmed,
-    FirstShredReceived,
-    Completed,
-    CreatedBank,
-    Dead(String),
+    Processed = 0,
+    Rooted = 1,
+    Confirmed = 2,
+    FirstShredReceived = 3,
+    Completed = 4,
+    CreatedBank = 5,
+    Dead = 6,
 }
 
 impl Into<SlotStatus> for FuzzSlotStatus {
@@ -25,7 +39,7 @@ impl Into<SlotStatus> for FuzzSlotStatus {
             FuzzSlotStatus::FirstShredReceived => SlotStatus::FirstShredReceived,
             FuzzSlotStatus::Completed => SlotStatus::Completed,
             FuzzSlotStatus::CreatedBank => SlotStatus::CreatedBank,
-            FuzzSlotStatus::Dead(dead) => SlotStatus::Dead(dead),
+            FuzzSlotStatus::Dead => SlotStatus::Dead(String::new()),
         }
     }
 }

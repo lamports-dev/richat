@@ -4,9 +4,33 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     arbitrary::Arbitrary,
     libfuzzer_sys::fuzz_target,
+    prost_011::Message,
     richat_plugin::protobuf::ProtobufMessage,
+    solana_storage_proto::convert::generated::Rewards,
     solana_transaction_status::{Reward, RewardType, RewardsAndNumPartitions},
 };
+
+#[derive(Message)] // FIXME: compile error!!!
+pub struct BlockMeta {
+    #[prost(uint64, tag = "6")]
+    parent_slot: u64,
+    #[prost(string, tag = "7")]
+    parent_blockhash: String,
+    #[prost(uint64, tag = "1")]
+    slot: u64,
+    #[prost(string, tag = "2")]
+    blockhash: String,
+    #[prost(message, optional, tag = "3")]
+    rewards: Option<Rewards>,
+    #[prost(message, optional, tag = "4")]
+    block_time: Option<i64>,
+    #[prost(message, optional, tag = "5")]
+    block_height: Option<u64>,
+    #[prost(uint64, tag = "8")]
+    executed_transaction_count: u64,
+    #[prost(uint64, tag = "9")]
+    entry_count: u64,
+}
 
 #[derive(Arbitrary, Debug)]
 pub enum FuzzRewardType {
