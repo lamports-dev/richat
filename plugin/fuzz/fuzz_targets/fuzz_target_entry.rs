@@ -2,9 +2,7 @@
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2;
 use libfuzzer_sys::fuzz_target;
-use prost_011::Message;
 use richat_plugin::protobuf::ProtobufMessage;
-use solana_storage_proto::convert::entries::Entry;
 
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct FuzzEntry {

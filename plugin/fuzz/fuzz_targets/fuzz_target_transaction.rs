@@ -1,4 +1,4 @@
-#![allow(dead_code)] // FIXME: remove it!!
+#![allow(unused)] // FIXME: remove it!!!
 #![no_main]
 
 use arbitrary::Arbitrary;

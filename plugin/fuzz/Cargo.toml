@@ -12,8 +12,6 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 agave-geyser-plugin-interface = { workspace = true }
 solana-transaction-status = { workspace = true }
-solana-storage-proto = { workspace = true }
-prost_011 = { workspace = true }
 
 [dependencies.richat-plugin]
 path = ".."
