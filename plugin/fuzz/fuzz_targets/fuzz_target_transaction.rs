@@ -1,23 +1,30 @@
 #![allow(unused)] // FIXME: remove it!!!
 #![no_main]
 
-use std::collections::HashSet;
-
-use sanitized::FuzzSanitizedMessage;
-use solana_sdk::{
-    hash::Hash,
-    message::{SimpleAddressLoader, VersionedMessage},
-    pubkey::Pubkey,
-    signature::Signature,
-    signer::Signer,
-    signers::Signers,
-    transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+    arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target,
+    richat_plugin::protobuf::ProtobufMessage,
+    sanitized::FuzzSanitizedMessage,
+    solana_account_decoder::parse_token::UiTokenAmount,
+    solana_sdk::{
+        hash::Hash,
+        instruction::CompiledInstruction,
+        message::{v0::LoadedAddresses, SimpleAddressLoader, VersionedMessage},
+        pubkey::Pubkey,
+        signature::Signature,
+        signer::Signer,
+        signers::Signers,
+        transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
+        transaction_context::TransactionReturnData,
+    },
+    solana_transaction_status::{
+        InnerInstruction, InnerInstructions, Reward, TransactionStatusMeta, TransactionTokenBalance,
+    },
+    status_meta::FuzzRewardType,
+    std::collections::HashSet,
 };
-
-use agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2;
-use arbitrary::Arbitrary;
-use libfuzzer_sys::fuzz_target;
-use solana_transaction_status::TransactionStatusMeta;
 
 #[derive(Arbitrary, Debug, Clone)]
 pub struct FuzzCompiledInstruction {
@@ -33,8 +40,7 @@ pub struct FuzzLoadedAddresses {
 }
 
 pub mod sanitized {
-    use arbitrary::Arbitrary;
-    use std::borrow::Cow;
+    use {arbitrary::Arbitrary, std::borrow::Cow};
 
     #[derive(Arbitrary, Debug, Clone)]
     pub struct FuzzLegacyMessageInner {
@@ -96,8 +102,7 @@ pub mod sanitized {
 }
 
 pub mod status_meta {
-    use arbitrary::Arbitrary;
-    use solana_transaction_status::RewardType;
+    use {arbitrary::Arbitrary, solana_transaction_status::RewardType};
 
     #[derive(Arbitrary, Debug)]
     pub enum FuzzTransactionError {
@@ -223,6 +228,7 @@ impl Signers for FuzzSigner {
 }
 
 fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
+    let mut buf = Vec::new();
     let versioned_message = match fuzz_message.transaction.transaction.message {
         FuzzSanitizedMessage::Legacy(legacy) => todo!(),
         FuzzSanitizedMessage::V0(v0) => todo!(),
@@ -240,6 +246,127 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         &HashSet::new(),
     )
     .expect("failed to define `SanitizedTransaction`");
+    let status = ();
+    let inner_instructions = fuzz_message
+        .transaction
+        .transaction_status_meta
+        .inner_instructions
+        .map(|inner_instructions| {
+            inner_instructions
+                .into_iter()
+                .map(|inner_instructions| {
+                    let instructions = inner_instructions
+                        .instructions
+                        .into_iter()
+                        .map(|inner_instruction| {
+                            let instruction = CompiledInstruction {
+                                program_id_index: inner_instruction.instruction.program_id_index,
+                                accounts: inner_instruction.instruction.accounts,
+                                data: inner_instruction.instruction.data,
+                            };
+                            InnerInstruction {
+                                instruction,
+                                stack_height: inner_instruction.stack_height,
+                            }
+                        })
+                        .collect();
+                    InnerInstructions {
+                        index: inner_instructions.index,
+                        instructions,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+    let pre_token_balances = fuzz_message
+        .transaction
+        .transaction_status_meta
+        .pre_token_balances
+        .map(|pre_token_balances| {
+            pre_token_balances
+                .into_iter()
+                .map(|token_balance| {
+                    let ui_token_amount = UiTokenAmount {
+                        ui_amount: token_balance.ui_token_amount.ui_amount,
+                        amount: token_balance.ui_token_amount.amount,
+                        decimals: token_balance.ui_token_amount.decimals,
+                        ui_amount_string: token_balance.ui_token_amount.ui_amount_string,
+                    };
+                    TransactionTokenBalance {
+                        account_index: token_balance.account_index,
+                        mint: token_balance.mint,
+                        ui_token_amount,
+                        owner: token_balance.owner,
+                        program_id: token_balance.program_id,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+    let post_token_balances = fuzz_message
+        .transaction
+        .transaction_status_meta
+        .post_token_balances
+        .map(|post_token_balances| {
+            post_token_balances
+                .into_iter()
+                .map(|token_balance| {
+                    let ui_token_amount = UiTokenAmount {
+                        ui_amount: token_balance.ui_token_amount.ui_amount,
+                        amount: token_balance.ui_token_amount.amount,
+                        decimals: token_balance.ui_token_amount.decimals,
+                        ui_amount_string: token_balance.ui_token_amount.ui_amount_string,
+                    };
+                    TransactionTokenBalance {
+                        account_index: token_balance.account_index,
+                        mint: token_balance.mint,
+                        ui_token_amount,
+                        owner: token_balance.owner,
+                        program_id: token_balance.program_id,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+    let rewards = fuzz_message
+        .transaction
+        .transaction_status_meta
+        .rewards
+        .map(|rewards| {
+            rewards
+                .into_iter()
+                .map(|reward| Reward {
+                    pubkey: reward.pubkey,
+                    lamports: reward.lamports,
+                    post_balance: reward.post_balance,
+                    reward_type: reward.reward_type.map(FuzzRewardType::into_solana),
+                    commission: reward.commission,
+                })
+                .collect::<Vec<_>>()
+        });
+    let loaded_addresses = LoadedAddresses {
+        writable: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .loaded_addresses
+            .writable
+            .into_iter()
+            .map(Pubkey::new_from_array)
+            .collect(),
+        readonly: fuzz_message
+            .transaction
+            .transaction_status_meta
+            .loaded_addresses
+            .readonly
+            .into_iter()
+            .map(Pubkey::new_from_array)
+            .collect(),
+    };
+    let return_data = fuzz_message
+        .transaction
+        .transaction_status_meta
+        .return_data
+        .map(|return_data| TransactionReturnData {
+            program_id: Pubkey::new_from_array(return_data.program_id),
+            data: return_data.data,
+        });
     let transaction_status_meta = TransactionStatusMeta {
         status: Ok(()), // TODO
         fee: fuzz_message.transaction.transaction_status_meta.fee,
@@ -251,16 +378,16 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
             .transaction
             .transaction_status_meta
             .post_balances,
-        inner_instructions: todo!(), // TODO
+        inner_instructions,
         log_messages: fuzz_message
             .transaction
             .transaction_status_meta
             .log_messages,
-        pre_token_balances: todo!(),  // TODO
-        post_token_balances: todo!(), // TODO
-        rewards: todo!(),             // TODO
-        loaded_addresses: todo!(),    // TODO
-        return_data: todo!(),         // TODO
+        pre_token_balances,
+        post_token_balances,
+        rewards,
+        loaded_addresses,
+        return_data,
         compute_units_consumed: fuzz_message
             .transaction
             .transaction_status_meta
@@ -273,4 +400,10 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         transaction_status_meta: &transaction_status_meta,
         index: fuzz_message.transaction.index,
     };
+    let message = ProtobufMessage::Transaction {
+        slot: fuzz_message.slot,
+        transaction: &replica,
+    };
+    message.encode(&mut buf);
+    assert!(!buf.is_empty())
 });

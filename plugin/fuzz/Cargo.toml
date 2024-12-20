@@ -13,6 +13,7 @@ arbitrary = { version = "1", features = ["derive"] }
 solana-sdk = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 solana-transaction-status = { workspace = true }
+solana-account-decoder = { workspace = true }
 
 [dependencies.richat-plugin]
 path = ".."
