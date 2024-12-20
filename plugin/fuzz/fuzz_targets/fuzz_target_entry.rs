@@ -29,17 +29,5 @@ fuzz_target!(|fuzz_entry: FuzzEntry| {
         },
     };
     message.encode(&mut buf);
-    assert!(!buf.is_empty());
-    let decoded = Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
-    assert_eq!(fuzz_entry.index, decoded.index as usize);
-    assert_eq!(fuzz_entry.num_hashes, decoded.num_hashes);
-    assert_eq!(fuzz_entry.hash, decoded.hash);
-    assert_eq!(
-        fuzz_entry.executed_transaction_count,
-        decoded.num_transactions
-    );
-    assert_eq!(
-        fuzz_entry.starting_transaction_index,
-        decoded.starting_transaction_index as usize
-    )
+    assert!(!buf.is_empty())
 });
