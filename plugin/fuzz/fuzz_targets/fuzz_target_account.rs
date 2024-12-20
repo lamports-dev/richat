@@ -6,8 +6,31 @@ use {
     solana_sdk::pubkey::PUBKEY_BYTES,
 };
 
+pub mod decode {
+    use prost::Message;
+    use prost_011 as prost;
+
+    #[derive(Message)]
+    pub struct FuzzAccount {
+        #[prost(bytes = "vec", tag = "1")]
+        pubkey: Vec<u8>,
+        #[prost(uint64, tag = "2")]
+        lamports: u64,
+        #[prost(bytes = "vec", tag = "3")]
+        owner: Vec<u8>,
+        #[prost(bool, tag = "4")]
+        executable: bool,
+        #[prost(uint64, tag = "5")]
+        rent_epoch: u64,
+        #[prost(bytes = "vec", tag = "6")]
+        data: Vec<u8>,
+        #[prost(uint64, tag = "7")]
+        write_version: u64,
+    }
+}
+
 #[derive(arbitrary::Arbitrary, Debug)]
-pub struct Account<'a> {
+pub struct FuzzAccount<'a> {
     pubkey: [u8; PUBKEY_BYTES],
     lamports: u64,
     owner: [u8; PUBKEY_BYTES],
@@ -20,7 +43,7 @@ pub struct Account<'a> {
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct FuzzAccountMessage<'a> {
     slot: u64,
-    account: Account<'a>,
+    account: FuzzAccount<'a>,
 }
 
 fuzz_target!(|fuzz_message: FuzzAccountMessage| {
