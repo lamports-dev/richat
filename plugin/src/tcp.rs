@@ -75,14 +75,11 @@ impl TcpServer {
             return Ok(());
         };
 
-        let mut msg_id = 0;
         loop {
             match rx.recv().await {
                 Ok(message) => {
-                    stream.write_u64(msg_id).await?;
                     stream.write_u64(message.len() as u64).await?;
                     stream.write_all(&message).await?;
-                    msg_id += 1;
                 }
                 Err(error) => {
                     error!("#{id}: failed to get message: {error:?}");
@@ -94,7 +91,7 @@ impl TcpServer {
                     };
                     let message = msg.encode_to_vec();
 
-                    stream.write_u64(u64::MAX).await?;
+                    stream.write_u64(0).await?;
                     stream.write_u64(message.len() as u64).await?;
                     stream.write_all(&message).await?;
                     break;

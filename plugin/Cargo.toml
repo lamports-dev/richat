@@ -17,6 +17,10 @@ crate-type = ["cdylib", "rlib"]
 name = "richat-plugin-config-check"
 path = "src/bin/config-check.rs"
 
+[[bench]]
+name = "encode"
+harness = false
+
 [dependencies]
 affinity = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
@@ -40,11 +44,17 @@ serde_json = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
+solana-storage-proto = { workspace = true }
 solana-transaction-status = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tonic = { workspace = true, features = ["server", "tls"] }
 yellowstone-grpc-proto = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+prost_011 = { workspace = true }
+yellowstone-grpc-proto = { workspace = true, features = ["plugin"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

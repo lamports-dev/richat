@@ -90,7 +90,7 @@ fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufMut) 
     encode_varint(block_time_encoded_len(tag, block_time) as u64, buf);
 
     if let Some(block_time) = block_time {
-        encoding::int64::encode(tag, block_time, buf)
+        encoding::int64::encode(1, block_time, buf)
     }
 }
 
@@ -104,7 +104,7 @@ fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut impl 
     encode_varint(uint64_optional_message_encoded_len(tag, value) as u64, buf);
 
     if let Some(value) = value {
-        encoding::uint64::encode(tag, value, buf)
+        encoding::uint64::encode(1, value, buf)
     }
 }
 

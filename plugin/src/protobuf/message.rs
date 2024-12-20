@@ -75,6 +75,6 @@ impl<'a> ProtobufMessage<'a> {
         let now = std::time::SystemTime::now();
         let timestamp = Timestamp::from(now);
         message::encode(11, &timestamp, buffer);
-        buffer.to_owned()
+        buffer.as_slice().to_vec()
     }
 }
