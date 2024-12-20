@@ -15,9 +15,6 @@ use {
         transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
     },
     solana_transaction_status::TransactionStatusMeta,
-    status_meta::{
-        FuzzInnerInstructions, FuzzReward, FuzzTransactionReturnData, FuzzTransactionTokenBalance,
-    },
     std::collections::HashSet,
 };
 
@@ -51,8 +48,8 @@ pub struct FuzzCompiledInstruction {
     data: Vec<u8>,
 }
 
-impl FuzzCompiledInstruction {
-    pub fn into_solana(self) -> CompiledInstruction {
+impl Into<CompiledInstruction> for FuzzCompiledInstruction {
+    fn into(self) -> CompiledInstruction {
         CompiledInstruction {
             program_id_index: self.program_id_index,
             accounts: self.accounts,
@@ -67,8 +64,8 @@ pub struct FuzzLoadedAddresses {
     readonly: Vec<[u8; 32]>,
 }
 
-impl FuzzLoadedAddresses {
-    pub fn into_solana(self) -> LoadedAddresses {
+impl Into<LoadedAddresses> for FuzzLoadedAddresses {
+    fn into(self) -> LoadedAddresses {
         LoadedAddresses {
             writable: self
                 .writable
@@ -86,7 +83,6 @@ impl FuzzLoadedAddresses {
 
 pub mod sanitized {
     use {
-        crate::FuzzCompiledInstruction,
         arbitrary::Arbitrary,
         solana_sdk::{
             hash::Hash,
@@ -108,8 +104,8 @@ pub mod sanitized {
         pub instructions: Vec<super::FuzzCompiledInstruction>,
     }
 
-    impl FuzzLegacyMessageInner {
-        pub fn into_solana(self) -> legacy::Message {
+    impl Into<legacy::Message> for FuzzLegacyMessageInner {
+        fn into(self) -> legacy::Message {
             let header = self.header.into_solana();
             let account_keys = self
                 .account_keys
@@ -117,11 +113,7 @@ pub mod sanitized {
                 .map(Pubkey::new_from_array)
                 .collect();
             let recent_blockhash = Hash::new_from_array(self.recent_blockhash);
-            let instructions = self
-                .instructions
-                .into_iter()
-                .map(FuzzCompiledInstruction::into_solana)
-                .collect();
+            let instructions = self.instructions.into_iter().map(Into::into).collect();
             legacy::Message {
                 header,
                 account_keys,
@@ -138,8 +130,8 @@ pub mod sanitized {
         pub readonly_indexes: Vec<u8>,
     }
 
-    impl FuzzMessageAddressTableLookup {
-        pub fn into_solana(self) -> MessageAddressTableLookup {
+    impl Into<MessageAddressTableLookup> for FuzzMessageAddressTableLookup {
+        fn into(self) -> MessageAddressTableLookup {
             MessageAddressTableLookup {
                 account_key: Pubkey::new_from_array(self.account_key),
                 writable_indexes: self.writable_indexes,
@@ -174,8 +166,8 @@ pub mod sanitized {
         pub address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
     }
 
-    impl FuzzLoadedMessageInner {
-        pub fn into_solana(self) -> v0::Message {
+    impl Into<v0::Message> for FuzzLoadedMessageInner {
+        fn into(self) -> v0::Message {
             let header = self.header.into_solana();
             let account_keys = self
                 .account_keys
@@ -183,15 +175,11 @@ pub mod sanitized {
                 .map(Pubkey::new_from_array)
                 .collect();
             let recent_blockhash = Hash::new_from_array(self.recent_blockhash);
-            let instructions = self
-                .instructions
-                .into_iter()
-                .map(FuzzCompiledInstruction::into_solana)
-                .collect();
+            let instructions = self.instructions.into_iter().map(Into::into).collect();
             let address_table_lookups = self
                 .address_table_lookups
                 .into_iter()
-                .map(FuzzMessageAddressTableLookup::into_solana)
+                .map(Into::into)
                 .collect();
             v0::Message {
                 header,
@@ -209,10 +197,10 @@ pub mod sanitized {
         pub is_writable_account_cache: Vec<bool>,
     }
 
-    impl<'a> FuzzLegacyMessage<'a> {
-        pub fn into_solana(self) -> LegacyMessage<'static> {
+    impl<'a> Into<LegacyMessage<'static>> for FuzzLegacyMessage<'a> {
+        fn into(self) -> LegacyMessage<'static> {
             LegacyMessage {
-                message: Cow::Owned(self.message.into_owned().into_solana()),
+                message: Cow::Owned(self.message.into_owned().into()),
                 is_writable_account_cache: self.is_writable_account_cache,
             }
         }
@@ -225,11 +213,11 @@ pub mod sanitized {
         pub is_writable_account_cache: Vec<bool>,
     }
 
-    impl<'a> FuzzLoadedMessage<'a> {
-        pub fn into_solana(self) -> v0::LoadedMessage<'static> {
+    impl<'a> Into<v0::LoadedMessage<'static>> for FuzzLoadedMessage<'a> {
+        fn into(self) -> v0::LoadedMessage<'static> {
             v0::LoadedMessage {
-                message: Cow::Owned(self.message.into_owned().into_solana()),
-                loaded_addresses: Cow::Owned(self.loaded_addresses.into_owned().into_solana()),
+                message: Cow::Owned(self.message.into_owned().into()),
+                loaded_addresses: Cow::Owned(self.loaded_addresses.into_owned().into()),
                 is_writable_account_cache: self.is_writable_account_cache,
             }
         }
@@ -241,13 +229,13 @@ pub mod sanitized {
         V0(FuzzLoadedMessage<'a>),
     }
 
-    impl<'a> FuzzSanitizedMessage<'a> {
-        pub fn into_solana(self) -> VersionedMessage {
+    impl<'a> Into<VersionedMessage> for FuzzSanitizedMessage<'a> {
+        fn into(self) -> VersionedMessage {
             match self {
                 Self::Legacy(legacy) => {
-                    VersionedMessage::Legacy(legacy.message.into_owned().into_solana())
+                    VersionedMessage::Legacy(legacy.message.into_owned().into())
                 }
-                Self::V0(v0) => VersionedMessage::V0(v0.message.into_owned().into_solana()),
+                Self::V0(v0) => VersionedMessage::V0(v0.message.into_owned().into()),
             }
         }
     }
@@ -282,9 +270,9 @@ pub mod status_meta {
         pub stack_height: Option<u32>,
     }
 
-    impl FuzzInnerInstruction {
-        pub fn into_solana(self) -> InnerInstruction {
-            let instruction = self.instruction.into_solana();
+    impl Into<InnerInstruction> for FuzzInnerInstruction {
+        fn into(self) -> InnerInstruction {
+            let instruction = self.instruction.into();
             InnerInstruction {
                 instruction,
                 stack_height: self.stack_height,
@@ -298,13 +286,9 @@ pub mod status_meta {
         pub instructions: Vec<FuzzInnerInstruction>,
     }
 
-    impl FuzzInnerInstructions {
-        pub fn into_solana(self) -> InnerInstructions {
-            let instructions = self
-                .instructions
-                .into_iter()
-                .map(FuzzInnerInstruction::into_solana)
-                .collect();
+    impl Into<InnerInstructions> for FuzzInnerInstructions {
+        fn into(self) -> InnerInstructions {
+            let instructions = self.instructions.into_iter().map(Into::into).collect();
             InnerInstructions {
                 index: self.index,
                 instructions,
@@ -320,8 +304,8 @@ pub mod status_meta {
         pub ui_amount_string: String,
     }
 
-    impl FuzzUiTokenAmount {
-        pub fn into_solana(self) -> UiTokenAmount {
+    impl Into<UiTokenAmount> for FuzzUiTokenAmount {
+        fn into(self) -> UiTokenAmount {
             UiTokenAmount {
                 ui_amount: self.ui_amount,
                 amount: self.amount,
@@ -340,12 +324,12 @@ pub mod status_meta {
         pub program_id: String,
     }
 
-    impl FuzzTransactionTokenBalance {
-        pub fn into_solana(self) -> TransactionTokenBalance {
+    impl Into<TransactionTokenBalance> for FuzzTransactionTokenBalance {
+        fn into(self) -> TransactionTokenBalance {
             TransactionTokenBalance {
                 account_index: self.account_index,
                 mint: self.mint,
-                ui_token_amount: self.ui_token_amount.into_solana(),
+                ui_token_amount: self.ui_token_amount.into(),
                 owner: self.owner,
                 program_id: self.program_id,
             }
@@ -360,8 +344,8 @@ pub mod status_meta {
         Voting,
     }
 
-    impl FuzzRewardType {
-        pub const fn into_solana(self) -> RewardType {
+    impl Into<RewardType> for FuzzRewardType {
+        fn into(self) -> RewardType {
             match self {
                 FuzzRewardType::Fee => RewardType::Fee,
                 FuzzRewardType::Rent => RewardType::Rent,
@@ -380,13 +364,13 @@ pub mod status_meta {
         pub commission: Option<u8>,
     }
 
-    impl FuzzReward {
-        pub fn into_solana(self) -> Reward {
+    impl Into<Reward> for FuzzReward {
+        fn into(self) -> Reward {
             Reward {
                 pubkey: self.pubkey,
                 lamports: self.lamports,
                 post_balance: self.post_balance,
-                reward_type: self.reward_type.map(FuzzRewardType::into_solana),
+                reward_type: self.reward_type.map(Into::into),
                 commission: self.commission,
             }
         }
@@ -398,8 +382,8 @@ pub mod status_meta {
         pub data: Vec<u8>,
     }
 
-    impl FuzzTransactionReturnData {
-        pub fn into_solana(self) -> TransactionReturnData {
+    impl Into<TransactionReturnData> for FuzzTransactionReturnData {
+        fn into(self) -> TransactionReturnData {
             TransactionReturnData {
                 program_id: Pubkey::new_from_array(self.program_id),
                 data: self.data,
@@ -441,7 +425,7 @@ pub struct FuzzTransactionMessage<'a> {
 
 fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
     let mut buf = Vec::new();
-    let versioned_message = fuzz_message.transaction.transaction.message.into_solana();
+    let versioned_message = fuzz_message.transaction.transaction.message.into();
     let versioned_transaction = VersionedTransaction::try_new(versioned_message, &FuzzSigner)
         .expect("failed to define `VersionedTransaction`");
     let sanitized_versioned_transaction =
@@ -460,52 +444,32 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         .transaction
         .transaction_status_meta
         .inner_instructions
-        .map(|inner_instructions| {
-            inner_instructions
-                .into_iter()
-                .map(FuzzInnerInstructions::into_solana)
-                .collect()
-        });
+        .map(|inner_instructions| inner_instructions.into_iter().map(Into::into).collect());
     let pre_token_balances = fuzz_message
         .transaction
         .transaction_status_meta
         .pre_token_balances
-        .map(|pre_token_balances| {
-            pre_token_balances
-                .into_iter()
-                .map(FuzzTransactionTokenBalance::into_solana)
-                .collect()
-        });
+        .map(|pre_token_balances| pre_token_balances.into_iter().map(Into::into).collect());
     let post_token_balances = fuzz_message
         .transaction
         .transaction_status_meta
         .post_token_balances
-        .map(|post_token_balances| {
-            post_token_balances
-                .into_iter()
-                .map(FuzzTransactionTokenBalance::into_solana)
-                .collect()
-        });
+        .map(|post_token_balances| post_token_balances.into_iter().map(Into::into).collect());
     let rewards = fuzz_message
         .transaction
         .transaction_status_meta
         .rewards
-        .map(|rewards| {
-            rewards
-                .into_iter()
-                .map(FuzzReward::into_solana)
-                .collect::<Vec<_>>()
-        });
+        .map(|rewards| rewards.into_iter().map(Into::into).collect::<Vec<_>>());
     let loaded_addresses = fuzz_message
         .transaction
         .transaction_status_meta
         .loaded_addresses
-        .into_solana();
+        .into();
     let return_data = fuzz_message
         .transaction
         .transaction_status_meta
         .return_data
-        .map(FuzzTransactionReturnData::into_solana);
+        .map(Into::into);
     let transaction_status_meta = TransactionStatusMeta {
         status: Ok(()), // TODO
         fee: fuzz_message.transaction.transaction_status_meta.fee,
