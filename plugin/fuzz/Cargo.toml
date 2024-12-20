@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 solana-sdk = { workspace = true }
+prost = { workspace = true }
 prost_011 = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 solana-storage-proto = { workspace = true }
