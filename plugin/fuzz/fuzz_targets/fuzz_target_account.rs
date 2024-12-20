@@ -2,30 +2,26 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
-    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    libfuzzer_sys::fuzz_target, prost::Message, richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::pubkey::PUBKEY_BYTES,
 };
 
-pub mod decode {
-    use prost::Message;
-
-    #[derive(Message)]
-    pub struct FuzzAccount {
-        #[prost(bytes = "vec", tag = "1")]
-        pubkey: Vec<u8>,
-        #[prost(uint64, tag = "2")]
-        lamports: u64,
-        #[prost(bytes = "vec", tag = "3")]
-        owner: Vec<u8>,
-        #[prost(bool, tag = "4")]
-        executable: bool,
-        #[prost(uint64, tag = "5")]
-        rent_epoch: u64,
-        #[prost(bytes = "vec", tag = "6")]
-        data: Vec<u8>,
-        #[prost(uint64, tag = "7")]
-        write_version: u64,
-    }
+#[derive(Message)]
+pub struct Account {
+    #[prost(bytes = "vec", tag = "1")]
+    pubkey: Vec<u8>,
+    #[prost(uint64, tag = "2")]
+    lamports: u64,
+    #[prost(bytes = "vec", tag = "3")]
+    owner: Vec<u8>,
+    #[prost(bool, tag = "4")]
+    executable: bool,
+    #[prost(uint64, tag = "5")]
+    rent_epoch: u64,
+    #[prost(bytes = "vec", tag = "6")]
+    data: Vec<u8>,
+    #[prost(uint64, tag = "7")]
+    write_version: u64,
 }
 
 #[derive(arbitrary::Arbitrary, Debug)]
@@ -61,5 +57,12 @@ fuzz_target!(|fuzz_message: FuzzAccountMessage| {
         },
     };
     message.encode(&mut buf);
-    assert!(!buf.is_empty())
+    assert!(!buf.is_empty());
+    let decoded = Account::decode(buf.as_slice()).expect("failed to decode `Account` from buf");
+    assert_eq!(&decoded.pubkey, &fuzz_message.account.pubkey);
+    assert_eq!(decoded.lamports, fuzz_message.account.lamports);
+    assert_eq!(&decoded.owner, &fuzz_message.account.owner);
+    assert_eq!(decoded.executable, fuzz_message.account.executable);
+    assert_eq!(decoded.rent_epoch, fuzz_message.account.rent_epoch);
+    assert_eq!(decoded.write_version, fuzz_message.account.write_version)
 });
