@@ -6,7 +6,7 @@ use {
     prost_types::Timestamp,
     richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::pubkey::Pubkey,
-    std::{ops::Range, sync::Arc, time::SystemTime},
+    std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::{
             message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -58,32 +58,6 @@ pub fn generate_accounts() -> Vec<Account> {
     accounts
 }
 
-pub fn generate_data_slice() -> Vec<FilterAccountsDataSlice> {
-    [
-        vec![],
-        vec![Range { start: 0, end: 0 }],
-        vec![Range { start: 2, end: 3 }],
-        vec![Range { start: 1, end: 3 }, Range { start: 5, end: 10 }],
-    ]
-    .into_iter()
-    .map(Arc::new)
-    .map(FilterAccountsDataSlice::new_unchecked)
-    .collect()
-}
-
-pub fn generate_data_slices<'a>(
-    replicas: &'a [ReplicaAccountInfoV3<'a>],
-) -> Vec<(&'a ReplicaAccountInfoV3<'a>, FilterAccountsDataSlice)> {
-    let mut accounts_and_data_slice = Vec::new();
-    for replica in replicas {
-        let data_slices = generate_data_slice();
-        for data_slice in data_slices {
-            accounts_and_data_slice.push((replica, data_slice))
-        }
-    }
-    accounts_and_data_slice
-}
-
 pub fn bench_encode_accounts(criterion: &mut Criterion) {
     let accounts_data = generate_accounts();
     let accounts = accounts_data
@@ -103,13 +77,22 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         .iter()
         .map(|account| ProtobufMessage::Account { slot: 0, account })
         .collect::<Vec<_>>();
-    let replica_accounts_and_data_slices = generate_data_slices(&accounts);
-    let message_accounts_and_data_slices = replica_accounts_and_data_slices
+    let grpc_replicas = accounts
+        .iter()
+        .cloned()
+        .map(|account| {
+            (
+                account,
+                FilterAccountsDataSlice::new(&[], usize::MAX).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let grpc_messages = grpc_replicas
         .iter()
         .map(|(replica, data_slice)| {
             (
                 MessageAccount::from_geyser(replica, 0, false),
-                data_slice.to_owned(),
+                data_slice.clone(),
             )
         })
         .collect::<Vec<_>>();
@@ -143,15 +126,15 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         })
         .bench_with_input(
             "dragons-mouth/encoding-only",
-            &message_accounts_and_data_slices,
-            |criterion, message_accounts_and_data_slices| {
+            &grpc_messages,
+            |criterion, grpc_messages| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter_batched(
-                    || message_accounts_and_data_slices.to_owned(),
-                    |message_accounts_and_data_slices| {
+                    || grpc_messages.to_owned(),
+                    |grpc_messages| {
                         #[allow(clippy::unit_arg)]
                         black_box({
-                            for (message, data_slice) in message_accounts_and_data_slices {
+                            for (message, data_slice) in grpc_messages {
                                 let update = FilteredUpdate {
                                     filters: FilteredUpdateFilters::new(),
                                     message: FilteredUpdateOneof::account(&message, data_slice),
@@ -167,24 +150,22 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         )
         .bench_with_input(
             "dragons-mouth/full-pipeline",
-            &replica_accounts_and_data_slices,
-            |criterion, replica_accounts_and_data_slices| {
+            &grpc_replicas,
+            |criterion, grpc_replicas| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter_batched(
-                    || replica_accounts_and_data_slices.to_owned(),
-                    |replica_accounts_and_data_slices| {
+                    || grpc_replicas.to_owned(),
+                    |grpc_replicas| {
                         #[allow(clippy::unit_arg)]
-                        black_box(
-                            for (replica, data_slice) in replica_accounts_and_data_slices {
-                                let message = MessageAccount::from_geyser(replica, 0, false);
-                                let update = FilteredUpdate {
-                                    filters: FilteredUpdateFilters::new(),
-                                    message: FilteredUpdateOneof::account(&message, data_slice),
-                                    created_at,
-                                };
-                                update.encode_to_vec();
-                            },
-                        )
+                        black_box(for (replica, data_slice) in grpc_replicas {
+                            let message = MessageAccount::from_geyser(&replica, 0, false);
+                            let update = FilteredUpdate {
+                                filters: FilteredUpdateFilters::new(),
+                                message: FilteredUpdateOneof::account(&message, data_slice),
+                                created_at,
+                            };
+                            update.encode_to_vec();
+                        })
                     },
                     BatchSize::LargeInput,
                 );
