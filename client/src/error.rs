@@ -60,6 +60,8 @@ pub enum ReceiveError {
     Io(#[from] io::Error),
     #[error("failed to decode response: {0}")]
     Decode(#[from] DecodeError),
+    #[error("stream failed: {0}")]
+    Status(#[from] tonic::Status),
     #[error("unknown close error: {0}")]
     Unknown(i32),
     #[error("stream lagged")]

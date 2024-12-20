@@ -26,12 +26,16 @@ use {
 
 #[derive(Debug, Default)]
 pub struct TcpClientBuilder {
-    keepalive: Option<bool>,
-    nodelay: Option<bool>,
-    recv_buffer_size: Option<u32>,
+    pub keepalive: Option<bool>,
+    pub nodelay: Option<bool>,
+    pub recv_buffer_size: Option<u32>,
 }
 
 impl TcpClientBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub async fn connect(self, endpoint: SocketAddr) -> io::Result<TcpClient> {
         let socket = match endpoint {
             SocketAddr::V4(_) => TcpSocket::new_v4(),
@@ -85,7 +89,7 @@ pub struct TcpClient {
 
 impl TcpClient {
     pub fn build() -> TcpClientBuilder {
-        TcpClientBuilder::default()
+        TcpClientBuilder::new()
     }
 
     pub async fn subscribe(

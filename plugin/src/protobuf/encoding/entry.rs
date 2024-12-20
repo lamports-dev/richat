@@ -10,7 +10,7 @@ pub struct Entry<'a> {
 }
 
 impl<'a> prost::Message for Entry<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
 

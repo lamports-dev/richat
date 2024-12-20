@@ -24,7 +24,8 @@ richat-shared = { workspace = true }
 serde_json = { workspace = true }
 solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tonic = { workspace = true, features = ["tls-native-roots"] }
 tracing = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
 

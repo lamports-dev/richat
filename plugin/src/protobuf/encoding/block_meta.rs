@@ -16,7 +16,7 @@ pub struct BlockMeta<'a> {
 }
 
 impl<'a> prost::Message for BlockMeta<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         encoding::uint64::encode(1, &self.blockinfo.slot, buf);
         bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
         encode_rewards_and_num_partitions(3, self.blockinfo.rewards, buf);

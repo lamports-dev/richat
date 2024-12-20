@@ -34,7 +34,7 @@ pub struct Transaction<'a> {
 }
 
 impl<'a> prost::Message for Transaction<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(
             replica_transaction_info_encoded_len(self.transaction) as u64,
