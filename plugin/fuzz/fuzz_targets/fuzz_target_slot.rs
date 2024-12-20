@@ -18,7 +18,7 @@ pub struct Slot {
     status: i32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Enumeration)]
+#[derive(Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Enumeration)]
 #[repr(i32)]
 pub enum FuzzSlotStatus {
     Processed = 0,
