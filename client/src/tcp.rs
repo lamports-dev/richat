@@ -19,7 +19,7 @@ use {
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        net::{TcpSocket, TcpStream},
+        net::{lookup_host, TcpSocket, TcpStream, ToSocketAddrs},
     },
     yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
@@ -36,8 +36,13 @@ impl TcpClientBuilder {
         Self::default()
     }
 
-    pub async fn connect(self, endpoint: SocketAddr) -> io::Result<TcpClient> {
-        let socket = match endpoint {
+    pub async fn connect<T: ToSocketAddrs>(self, endpoint: T) -> io::Result<TcpClient> {
+        let addr = lookup_host(endpoint).await?.next().ok_or(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "failed to resolve",
+        ))?;
+
+        let socket = match addr {
             SocketAddr::V4(_) => TcpSocket::new_v4(),
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }?;
@@ -52,7 +57,7 @@ impl TcpClientBuilder {
             socket.set_recv_buffer_size(recv_buffer_size)?;
         }
 
-        let stream = socket.connect(endpoint).await?;
+        let stream = socket.connect(addr).await?;
         Ok(TcpClient {
             stream,
             buffer: Vec::new(),

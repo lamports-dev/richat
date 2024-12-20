@@ -14,7 +14,6 @@ use {
     solana_transaction_status::UiTransactionEncoding,
     std::{
         env,
-        net::SocketAddr,
         path::PathBuf,
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
@@ -82,14 +81,14 @@ enum ArgsAppStreamSelect {
 #[derive(Debug, Clone, clap::Args)]
 struct ArgsAppStreamTcp {
     /// Richat Geyser plugin Tcp Server endpoint
-    #[clap(default_value_t = ConfigTcpServer::default().endpoint)]
-    endpoint: SocketAddr,
+    #[clap(default_value_t = ConfigTcpServer::default().endpoint.to_string())]
+    endpoint: String,
 }
 
 impl ArgsAppStreamTcp {
     async fn subscribe(&self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
         TcpClient::build()
-            .connect(self.endpoint)
+            .connect(&self.endpoint)
             .inspect_ok(|_| info!("connected to {} over Tcp", self.endpoint))
             .await
             .context("failed to connect")?
