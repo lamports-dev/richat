@@ -10,7 +10,7 @@ use {
     quinn::{
         crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
         ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, RecvStream,
-        TransportConfig,
+        TransportConfig, VarInt,
     },
     richat_shared::transports::{
         grpc::GrpcSubscribeRequest,
@@ -126,6 +126,7 @@ pub struct QuicClientBuilder {
     pub local_addr: SocketAddr,
     pub expected_rtt: u32,
     pub max_stream_bandwidth: u32,
+    pub max_idle_timeout: Option<u32>,
     pub server_name: Option<String>,
     pub recv_streams: u32,
     pub max_backlog: Option<u32>,
@@ -137,6 +138,7 @@ impl Default for QuicClientBuilder {
             local_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
             expected_rtt: 100,
             max_stream_bandwidth: 12_500 * 1_000,
+            max_idle_timeout: Some(30_000),
             server_name: None,
             recv_streams: 1,
             max_backlog: None,
@@ -166,6 +168,13 @@ impl QuicClientBuilder {
     pub fn set_max_stream_bandwidth(self, max_stream_bandwidth: u32) -> Self {
         Self {
             max_stream_bandwidth,
+            ..self
+        }
+    }
+
+    pub fn set_max_idle_timeout(self, max_idle_timeout: Option<u32>) -> Self {
+        Self {
+            max_idle_timeout,
             ..self
         }
     }
@@ -225,6 +234,8 @@ impl QuicClientBuilder {
         transport_config.stream_receive_window(stream_rwnd.into());
         transport_config.send_window(8 * stream_rwnd as u64);
         transport_config.datagram_receive_buffer_size(Some(stream_rwnd as usize));
+        transport_config
+            .max_idle_timeout(self.max_idle_timeout.map(|ms| VarInt::from_u32(ms).into()));
 
         let crypto_config = Arc::new(QuicClientConfig::try_from(client_config)?);
         let mut client_config = ClientConfig::new(crypto_config);
