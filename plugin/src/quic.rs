@@ -40,7 +40,7 @@ impl QuicServer {
                 tokio::select! {
                     incoming = endpoint.accept() => {
                         let Some(incoming) = incoming else {
-                            error!("QUIC server closed");
+                            error!("quic connection closed");
                             break;
                         };
 

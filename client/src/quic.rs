@@ -340,6 +340,7 @@ impl QuicClient {
         .encode_to_vec();
 
         let (mut send, mut recv) = self.conn.open_bi().await?;
+        send.write_u64(message.len() as u64).await?;
         send.write_all(&message).await?;
         send.flush().await?;
 
@@ -447,20 +448,22 @@ impl Stream for QuicClientStreamReaders {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut me = self.project();
-        let initial = *me.index;
+        let mut polled = 0;
         loop {
+            // try to get value and increment index
             let value = Pin::new(&mut me.readers[*me.index]).poll_next(cx);
-
             *me.index += 1;
             if *me.index == me.readers.len() {
                 *me.index = 0;
             }
-            if *me.index == initial {
-                return Poll::Pending;
-            }
-
             if value.is_ready() {
                 return value;
+            }
+
+            // return pending if already polled all streams
+            polled += 1;
+            if polled == me.readers.len() {
+                return Poll::Pending;
             }
         }
     }
