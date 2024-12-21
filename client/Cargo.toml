@@ -22,7 +22,7 @@ rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
