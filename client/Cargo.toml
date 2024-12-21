@@ -15,12 +15,17 @@ bytes = { workspace = true }
 futures = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
+quinn = { workspace = true }
 richat-shared = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pemfile = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
+webpki-roots = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
 
 [lints]

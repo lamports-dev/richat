@@ -220,7 +220,11 @@ impl QuicServer {
                     info!("#{id}: subscribed from {pos}");
                     (
                         QuicSubscribeResponse::default(),
-                        Some((recv_streams, max_backlog.unwrap_or(u64::MAX), rx)),
+                        Some((
+                            recv_streams,
+                            max_backlog.map(|x| x as u64).unwrap_or(u64::MAX),
+                            rx,
+                        )),
                     )
                 }
                 Err(SubscribeError::NotInitialized) => {
@@ -244,6 +248,7 @@ impl QuicServer {
         let buf = msg.encode_to_vec();
         send.write_u64(buf.len() as u64).await?;
         send.write_all(&buf).await?;
+        send.flush().await?;
 
         Ok(result)
     }

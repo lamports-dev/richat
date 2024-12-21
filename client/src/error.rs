@@ -13,6 +13,10 @@ use {
 pub enum SubscribeError {
     #[error("failed to send/recv data: {0}")]
     Io(#[from] io::Error),
+    #[error("failed to send data: {0}")]
+    QuicWrite(#[from] quinn::WriteError),
+    #[error("connection lost: {0}")]
+    QuicConnection(#[from] quinn::ConnectionError),
     #[error("failed to decode response: {0}")]
     Decode(#[from] DecodeError),
     #[error("unknown subscribe response error: {0}")]
@@ -58,6 +62,8 @@ impl SubscribeError {
 pub enum ReceiveError {
     #[error("failed to recv data: {0}")]
     Io(#[from] io::Error),
+    #[error("failed to recv data: {0}")]
+    QuicRecv(#[from] quinn::ReadExactError),
     #[error("failed to decode response: {0}")]
     Decode(#[from] DecodeError),
     #[error("stream failed: {0}")]

@@ -110,13 +110,14 @@ impl TcpClient {
     }
 
     async fn recv(mut self) -> Result<(Self, SubscribeUpdate), ReceiveError> {
-        let mut size = self.stream.read_u64().await? as usize;
-        let error = if size == 0 {
-            size = self.stream.read_u64().await? as usize;
+        let mut size = self.stream.read_u64().await?;
+        let error = if size == u64::MAX {
+            size = self.stream.read_u64().await?;
             true
         } else {
             false
         };
+        let size = size as usize;
         if size > self.buffer.len() {
             self.buffer.resize(size, 0);
         }

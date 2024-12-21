@@ -40,7 +40,7 @@ pub struct ConfigQuicServer {
 }
 
 impl ConfigQuicServer {
-    const fn default_endpoint() -> SocketAddr {
+    pub const fn default_endpoint() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10100)
     }
 

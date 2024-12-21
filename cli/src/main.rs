@@ -7,13 +7,21 @@ use {
     },
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     prost::Message,
-    richat_client::{error::ReceiveError, grpc::GrpcClient, tcp::TcpClient},
-    richat_shared::transports::{grpc::ConfigGrpcServer, tcp::ConfigTcpServer},
+    richat_client::{
+        error::ReceiveError,
+        grpc::GrpcClient,
+        quic::{QuicClient, QuicClientBuilder},
+        tcp::TcpClient,
+    },
+    richat_shared::transports::{
+        grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
+    },
     serde_json::{json, Value},
     solana_sdk::{clock::Slot, hash::Hash, pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
     std::{
         env,
+        net::SocketAddr,
         path::PathBuf,
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
@@ -34,7 +42,7 @@ use {
 
 type SubscribeStream = BoxStream<'static, Result<SubscribeUpdate, ReceiveError>>;
 
-#[derive(Debug, Clone, Parser)]
+#[derive(Debug, Parser)]
 #[clap(author, version, about = "Richat Cli Tool")]
 struct Args {
     #[command(subcommand)]
@@ -49,13 +57,13 @@ struct Args {
     stats: bool,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Subcommand)]
 enum ArgsAppSelect {
     /// Stream data directly from the plugin
     Stream(ArgsAppStream),
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, clap::Args)]
 struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
@@ -64,21 +72,73 @@ struct ArgsAppStream {
 impl ArgsAppStream {
     async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
         match self.action {
+            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot).await,
             ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
             ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot).await,
         }
     }
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Subcommand)]
 enum ArgsAppStreamSelect {
+    /// Stream over Quic
+    Quic(ArgsAppStreamQuic),
     /// Stream over Tcp
     Tcp(ArgsAppStreamTcp),
     /// Stream over gRPC
     Grpc(ArgsAppStreamGrpc),
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, clap::Args)]
+struct ArgsAppStreamQuic {
+    /// Richat Geyser plugin Quic Server endpoint
+    #[clap(default_value_t = ConfigQuicServer::default_endpoint().to_string())]
+    endpoint: String,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().local_addr)]
+    local_addr: SocketAddr,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().expected_rtt)]
+    expected_rtt: u32,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().max_stream_bandwidth)]
+    max_stream_bandwidth: u32,
+
+    #[clap(long)]
+    server_name: Option<String>,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().recv_streams)]
+    recv_streams: u32,
+
+    #[clap(long)]
+    max_backlog: Option<u32>,
+
+    #[clap(long)]
+    insecure: bool,
+
+    #[clap(long)]
+    cert: Option<PathBuf>,
+}
+
+impl ArgsAppStreamQuic {
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+        let builder = QuicClient::builder()
+            .set_local_addr(Some(self.local_addr))
+            .set_expected_rtt(self.expected_rtt)
+            .set_max_stream_bandwidth(self.max_stream_bandwidth)
+            .set_server_name(self.server_name.clone())
+            .set_recv_streams(self.recv_streams)
+            .set_max_backlog(self.max_backlog);
+        let client = if self.insecure {
+            builder.insecure().connect(self.endpoint).await
+        } else {
+            builder.secure(self.cert).connect(self.endpoint).await
+        }?;
+        Ok(client.subscribe(replay_from_slot).await?.boxed())
+    }
+}
+
+#[derive(Debug, clap::Args)]
 struct ArgsAppStreamTcp {
     /// Richat Geyser plugin Tcp Server endpoint
     #[clap(default_value_t = ConfigTcpServer::default().endpoint.to_string())]
@@ -86,7 +146,7 @@ struct ArgsAppStreamTcp {
 }
 
 impl ArgsAppStreamTcp {
-    async fn subscribe(&self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
         TcpClient::build()
             .connect(&self.endpoint)
             .inspect_ok(|_| info!("connected to {} over Tcp", self.endpoint))
@@ -100,7 +160,7 @@ impl ArgsAppStreamTcp {
     }
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, clap::Args)]
 struct ArgsAppStreamGrpc {
     /// Richat Geyser plugin gRPC Server endpoint
     #[clap(default_value_t = format!("http://{}", ConfigGrpcServer::default().endpoint))]
@@ -163,14 +223,14 @@ struct ArgsAppStreamGrpc {
 }
 
 impl ArgsAppStreamGrpc {
-    async fn connect(&self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
+    async fn connect(self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
         let mut tls_config = ClientTlsConfig::new().with_native_roots();
         if let Some(path) = &self.ca_certificate {
             let bytes = fs::read(path).await?;
             tls_config = tls_config.ca_certificate(Certificate::from_pem(bytes));
         }
-        let mut builder = GrpcClient::build_from_shared(self.endpoint.clone())?
-            .x_token(self.x_token.clone())?
+        let mut builder = GrpcClient::build_from_shared(self.endpoint)?
+            .x_token(self.x_token)?
             .tls_config(tls_config)?
             .max_decoding_message_size(self.max_decoding_message_size);
 
@@ -211,9 +271,10 @@ impl ArgsAppStreamGrpc {
         builder.connect().await.map_err(Into::into)
     }
 
-    async fn subscribe(&self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+        let endpoint = self.endpoint.clone();
         let mut client = self.connect().await.context("failed to connect")?;
-        info!("connected to {} over gRPC", self.endpoint);
+        info!("connected to {endpoint} over gRPC");
         let stream = client
             .subscribe_once(SubscribeRequest {
                 from_slot: replay_from_slot,
