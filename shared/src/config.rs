@@ -87,7 +87,7 @@ pub struct ConfigPrometheus {
 impl Default for ConfigPrometheus {
     fn default() -> Self {
         Self {
-            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10123),
+            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10123),
         }
     }
 }
