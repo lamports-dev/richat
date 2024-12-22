@@ -98,7 +98,7 @@ where
         }
 
         loop {
-            if *me.max_backlog < me.set.len() + me.messages.len() {
+            if me.messages.len() < *me.max_backlog {
                 match Pin::new(&mut me.stream).poll_next(cx) {
                     Poll::Ready(Some(Ok((msg_id, slice)))) => {
                         me.set.spawn(
@@ -112,6 +112,10 @@ where
                     Poll::Ready(None) => return Poll::Ready(None),
                     Poll::Pending => {}
                 }
+            }
+
+            if me.set.is_empty() {
+                return Poll::Pending;
             }
 
             match ready!(me.set.poll_join_next(cx)) {
