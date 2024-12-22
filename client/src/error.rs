@@ -1,4 +1,5 @@
 use {
+    crate::stream::ReadBufferError,
     prost::{DecodeError, Message},
     richat_shared::transports::quic::{
         QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeResponse,
@@ -65,6 +66,8 @@ impl SubscribeError {
 pub enum ReceiveError {
     #[error("failed to recv data: {0}")]
     Io(#[from] io::Error),
+    #[error("read buffer error: {0}")]
+    ReadBuffer(#[from] ReadBufferError),
     #[error("failed to recv data: {0}")]
     QuicRecv(#[from] quinn::ReadExactError),
     #[error("failed to decode response: {0}")]

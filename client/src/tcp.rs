@@ -1,7 +1,7 @@
 use {
     crate::{
         error::{ReceiveError, SubscribeError},
-        stream::SubscribeStream,
+        stream::{ReadBuffer, SubscribeStream},
     },
     futures::{
         future::{BoxFuture, FutureExt},
@@ -13,7 +13,6 @@ use {
     richat_shared::transports::{grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose},
     solana_sdk::clock::Slot,
     std::{
-        borrow::Cow,
         fmt,
         future::Future,
         io,
@@ -100,6 +99,7 @@ impl TcpClient {
     pub async fn subscribe<'a>(
         mut self,
         replay_from_slot: Option<Slot>,
+        buffer_size: Option<usize>,
     ) -> Result<TcpClientBinaryRecv<'a>, SubscribeError> {
         let message = GrpcSubscribeRequest { replay_from_slot }.encode_to_vec();
         self.stream.write_u64(message.len() as u64).await?;
@@ -108,8 +108,7 @@ impl TcpClient {
 
         Ok(TcpClientBinaryRecv {
             stream: self.stream,
-            buffer: Vec::new(),
-            size: 0,
+            buffer: ReadBuffer::new(buffer_size.unwrap_or(16 * 1024 * 1024)),
             _ph: PhantomData,
         })
     }
@@ -118,8 +117,7 @@ impl TcpClient {
 #[derive(Debug)]
 pub struct TcpClientBinaryRecv<'a> {
     stream: TcpStream,
-    buffer: Vec<u8>,
-    size: usize,
+    buffer: ReadBuffer,
     _ph: PhantomData<&'a ()>,
 }
 
@@ -135,20 +133,14 @@ impl<'a> TcpClientBinaryRecv<'a> {
         };
 
         // set size
-        let size = size as usize;
-        if self.buffer.len() < size {
-            self.buffer.resize(size, 0);
-        }
-        self.size = size;
+        self.buffer.set_len(size as usize)?;
 
         // read
-        self.stream
-            .read_exact(&mut self.buffer.as_mut_slice()[0..size])
-            .await?;
+        self.stream.read_exact(self.buffer.as_mut_slice()).await?;
 
         // parse message if error
         if is_error {
-            let close = QuicSubscribeClose::decode(&self.buffer.as_slice()[0..size])?;
+            let close = QuicSubscribeClose::decode(self.buffer.as_slice())?;
             Err(close.into())
         } else {
             Ok(self)
@@ -156,7 +148,7 @@ impl<'a> TcpClientBinaryRecv<'a> {
     }
 
     pub fn get_message(&'a self) -> &'a [u8] {
-        &self.buffer.as_slice()[0..self.size]
+        self.buffer.as_slice()
     }
 
     pub const fn into_stream(self) -> TcpClientStream<'a> {
@@ -189,7 +181,7 @@ impl<'a> fmt::Debug for TcpClientStream<'a> {
 }
 
 impl<'a> Stream for TcpClientStream<'a> {
-    type Item = Result<Cow<'a, [u8]>, ReceiveError>;
+    type Item = Result<&'a [u8], ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -201,12 +193,11 @@ impl<'a> Stream for TcpClientStream<'a> {
                 TcpClientStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
                         Ok(stream) => {
-                            let data: *const u8 = stream.buffer.as_ptr();
-                            let slice = unsafe { std::slice::from_raw_parts(data, stream.size) };
+                            let slice = stream.buffer.as_unsafe_slice();
                             self.set(Self::Init {
                                 stream: Some(stream),
                             });
-                            Some(Ok(Cow::Borrowed(slice)))
+                            Some(Ok(slice))
                         }
                         Err(error) => {
                             if error.is_eof() {
