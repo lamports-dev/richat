@@ -109,6 +109,7 @@ impl TcpClient {
             stream: self.stream,
             buffer: Vec::new(),
             size: 0,
+            msg_id: 0,
             _ph: PhantomData,
         })
     }
@@ -119,6 +120,7 @@ pub struct TcpClientBinaryRecv<'a> {
     stream: TcpStream,
     buffer: Vec<u8>,
     size: usize,
+    msg_id: u64,
     _ph: PhantomData<&'a ()>,
 }
 
@@ -154,6 +156,12 @@ impl<'a> TcpClientBinaryRecv<'a> {
         }
     }
 
+    pub fn get_msg_id(&mut self) -> u64 {
+        let msg_id = self.msg_id;
+        self.msg_id += 1;
+        msg_id
+    }
+
     pub fn get_message(&'a self) -> &'a [u8] {
         &self.buffer.as_slice()[0..self.size]
     }
@@ -182,7 +190,7 @@ impl<'a> fmt::Debug for TcpClientBinaryStream<'a> {
 }
 
 impl<'a> Stream for TcpClientBinaryStream<'a> {
-    type Item = Result<&'a [u8], ReceiveError>;
+    type Item = Result<(u64, &'a [u8]), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -193,13 +201,15 @@ impl<'a> Stream for TcpClientBinaryStream<'a> {
                 }
                 TcpClientBinaryStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
-                        Ok(stream) => {
+                        Ok(mut stream) => {
+                            let msg_id = stream.msg_id;
+                            stream.msg_id += 1;
                             let data: *const u8 = stream.buffer.as_ptr();
                             let slice = unsafe { std::slice::from_raw_parts(data, stream.size) };
                             self.set(Self::Init {
                                 stream: Some(stream),
                             });
-                            Some(Ok(slice))
+                            Some(Ok((msg_id, slice)))
                         }
                         Err(error) => {
                             if error.is_eof() {
@@ -227,7 +237,6 @@ impl<'a> TcpClientBinaryStream<'a> {
     ) -> TcpClientStreamPar<'a, F> {
         TcpClientStreamPar {
             stream: self,
-            stream_msg_id: 0,
             decode,
             set: JoinSet::new(),
             msg_id: 0,
@@ -255,7 +264,7 @@ impl<'a> Stream for TcpClientStream<'a> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut me = self.project();
         Poll::Ready(match ready!(Pin::new(&mut me.stream).poll_next(cx)) {
-            Some(Ok(slice)) => Some(SubscribeUpdate::decode(slice).map_err(Into::into)),
+            Some(Ok((_msg_id, slice))) => Some(SubscribeUpdate::decode(slice).map_err(Into::into)),
             Some(Err(error)) => Some(Err(error)),
             None => None,
         })
@@ -265,7 +274,6 @@ impl<'a> Stream for TcpClientStream<'a> {
 pin_project! {
     pub struct TcpClientStreamPar<'a, F> {
         stream: TcpClientBinaryStream<'a>,
-        stream_msg_id: u64,
         decode: F,
         set: JoinSet<Result<(u64, SubscribeUpdate), ReceiveError>>,
         msg_id: u64,
@@ -277,7 +285,6 @@ pin_project! {
 impl<'a, F> fmt::Debug for TcpClientStreamPar<'a, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TcpClientStream")
-            .field("stream_msg_id", &self.stream_msg_id)
             .field("msg_id", &self.msg_id)
             .field("max_backlog", &self.max_backlog)
             .finish()
@@ -301,11 +308,9 @@ where
         loop {
             if *me.max_backlog < me.set.len() + me.messages.len() {
                 match Pin::new(&mut me.stream).poll_next(cx) {
-                    Poll::Ready(Some(Ok(value))) => {
-                        let msg_id = *me.stream_msg_id;
-                        *me.stream_msg_id += 1;
+                    Poll::Ready(Some(Ok((msg_id, slice)))) => {
                         me.set.spawn(
-                            (me.decode)(value.to_vec())
+                            (me.decode)(slice.to_vec())
                                 .map_ok(move |msg| (msg_id, msg))
                                 .map_err(Into::into)
                                 .boxed(),
