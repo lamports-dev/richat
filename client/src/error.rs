@@ -6,7 +6,10 @@ use {
     },
     std::io,
     thiserror::Error,
-    tokio::io::{AsyncRead, AsyncReadExt},
+    tokio::{
+        io::{AsyncRead, AsyncReadExt},
+        task::JoinError,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -66,6 +69,8 @@ pub enum ReceiveError {
     QuicRecv(#[from] quinn::ReadExactError),
     #[error("failed to decode response: {0}")]
     Decode(#[from] DecodeError),
+    #[error("failed to join spawned task: {0}")]
+    Join(#[from] JoinError),
     #[error("stream failed: {0}")]
     Status(#[from] tonic::Status),
     #[error("unknown close error: {0}")]

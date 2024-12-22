@@ -159,7 +159,7 @@ impl ArgsAppStreamTcp {
             .subscribe(replay_from_slot)
             .inspect_ok(|_| info!("subscribed"))
             .await
-            .map(|s| s.boxed())
+            .map(|s| s.into_binary_stream().into_parsable_stream().boxed())
             .context("failed to subscribe")
     }
 }
