@@ -110,7 +110,6 @@ impl TcpClient {
             stream: self.stream,
             buffer: Vec::new(),
             size: 0,
-            msg_id: 0,
             _ph: PhantomData,
         })
     }
@@ -121,7 +120,6 @@ pub struct TcpClientBinaryRecv<'a> {
     stream: TcpStream,
     buffer: Vec<u8>,
     size: usize,
-    msg_id: u64,
     _ph: PhantomData<&'a ()>,
 }
 
@@ -155,12 +153,6 @@ impl<'a> TcpClientBinaryRecv<'a> {
         } else {
             Ok(self)
         }
-    }
-
-    pub fn get_msg_id(&mut self) -> u64 {
-        let msg_id = self.msg_id;
-        self.msg_id += 1;
-        msg_id
     }
 
     pub fn get_message(&'a self) -> &'a [u8] {
@@ -197,7 +189,7 @@ impl<'a> fmt::Debug for TcpClientStream<'a> {
 }
 
 impl<'a> Stream for TcpClientStream<'a> {
-    type Item = Result<(u64, Cow<'a, [u8]>), ReceiveError>;
+    type Item = Result<Cow<'a, [u8]>, ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -208,15 +200,13 @@ impl<'a> Stream for TcpClientStream<'a> {
                 }
                 TcpClientStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
-                        Ok(mut stream) => {
-                            let msg_id = stream.msg_id;
-                            stream.msg_id += 1;
+                        Ok(stream) => {
                             let data: *const u8 = stream.buffer.as_ptr();
                             let slice = unsafe { std::slice::from_raw_parts(data, stream.size) };
                             self.set(Self::Init {
                                 stream: Some(stream),
                             });
-                            Some(Ok((msg_id, Cow::Borrowed(slice))))
+                            Some(Ok(Cow::Borrowed(slice)))
                         }
                         Err(error) => {
                             if error.is_eof() {

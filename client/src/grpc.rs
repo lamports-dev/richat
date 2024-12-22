@@ -285,7 +285,6 @@ impl<F: Interceptor> GrpcClient<F> {
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe(subscribe_rx).await?;
         let stream = GrpcClientStream {
             stream: response.into_inner().boxed(),
-            msg_id: 0,
         };
         Ok((subscribe_tx, stream))
     }
@@ -450,7 +449,6 @@ pin_project! {
     pub struct GrpcClientStream {
         #[pin]
         stream: BoxStream<'static, Result<Vec<u8>, Status>>,
-        msg_id: u64,
     }
 }
 
@@ -467,16 +465,12 @@ impl fmt::Debug for GrpcClientStream {
 }
 
 impl Stream for GrpcClientStream {
-    type Item = Result<(u64, Cow<'static, [u8]>), ReceiveError>;
+    type Item = Result<Cow<'static, [u8]>, ReceiveError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let me = self.project();
         Poll::Ready(match ready!(me.stream.poll_next(cx)) {
-            Some(Ok(value)) => {
-                let msg_id = *me.msg_id;
-                *me.msg_id += 1;
-                Some(Ok((msg_id, Cow::Owned(value))))
-            }
+            Some(Ok(value)) => Some(Ok(Cow::Owned(value))),
             Some(Err(error)) => Some(Err(error.into())),
             None => None,
         })
