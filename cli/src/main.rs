@@ -287,7 +287,7 @@ impl ArgsAppStreamGrpc {
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
-        Ok(stream.into_parsable_stream().map_err(Into::into).boxed())
+        Ok(stream.into_parsed().map_err(Into::into).boxed())
     }
 }
 
