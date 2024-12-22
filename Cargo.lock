@@ -3320,6 +3320,7 @@ dependencies = [
 name = "richat-client"
 version = "2.0.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "futures",
  "pin-project-lite",
@@ -3333,6 +3334,7 @@ dependencies = [
  "thiserror 2.0.7",
  "tokio",
  "tonic",
+ "tonic-build 0.12.3",
  "tracing",
  "webpki-roots 0.26.7",
  "yellowstone-grpc-proto",

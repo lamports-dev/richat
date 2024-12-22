@@ -28,5 +28,9 @@ tracing = { workspace = true }
 webpki-roots = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
 
+[build-dependencies]
+anyhow = { workspace = true }
+tonic-build = { workspace = true }
+
 [lints]
 workspace = true

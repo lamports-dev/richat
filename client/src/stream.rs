@@ -8,6 +8,7 @@ use {
     pin_project_lite::pin_project,
     prost::Message,
     std::{
+        borrow::Cow,
         collections::HashMap,
         fmt,
         pin::Pin,
@@ -17,7 +18,7 @@ use {
     yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
 
-type InputStream<'a> = BoxStream<'a, Result<(u64, &'a [u8]), ReceiveError>>;
+type InputStream<'a> = BoxStream<'a, Result<(u64, Cow<'a, [u8]>), ReceiveError>>;
 
 pin_project! {
     pub struct SubscribeStream<'a> {
@@ -43,7 +44,9 @@ impl<'a> Stream for SubscribeStream<'a> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut me = self.project();
         Poll::Ready(match ready!(Pin::new(&mut me.stream).poll_next(cx)) {
-            Some(Ok((_msg_id, slice))) => Some(SubscribeUpdate::decode(slice).map_err(Into::into)),
+            Some(Ok((_msg_id, slice))) => {
+                Some(SubscribeUpdate::decode(slice.as_ref()).map_err(Into::into))
+            }
             Some(Err(error)) => Some(Err(error)),
             None => None,
         })

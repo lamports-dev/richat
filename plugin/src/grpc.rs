@@ -22,7 +22,7 @@ use {
     tokio::task::JoinHandle,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        Code, Request, Response, Status, Streaming,
+        Request, Response, Status, Streaming,
     },
     yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse},
 };
@@ -241,5 +241,5 @@ impl<U: Message + Default> Decoder for ProstDecoder<U> {
 fn from_decode_error(error: prost::DecodeError) -> Status {
     // Map Protobuf parse errors to an INTERNAL status code, as per
     // https://github.com/grpc/grpc/blob/master/doc/statuscodes.md
-    Status::new(Code::Internal, error.to_string())
+    Status::new(tonic::Code::Internal, error.to_string())
 }

@@ -13,6 +13,7 @@ use {
     richat_shared::transports::{grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose},
     solana_sdk::clock::Slot,
     std::{
+        borrow::Cow,
         fmt,
         future::Future,
         io,
@@ -166,7 +167,7 @@ impl<'a> TcpClientBinaryRecv<'a> {
         &self.buffer.as_slice()[0..self.size]
     }
 
-    pub const fn into_binary_stream(self) -> TcpClientStream<'a> {
+    pub const fn into_stream(self) -> TcpClientStream<'a> {
         TcpClientStream::Init { stream: Some(self) }
     }
 }
@@ -204,7 +205,7 @@ impl<'a> fmt::Debug for TcpClientStream<'a> {
 }
 
 impl<'a> Stream for TcpClientStream<'a> {
-    type Item = Result<(u64, &'a [u8]), ReceiveError>;
+    type Item = Result<(u64, Cow<'a, [u8]>), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -223,7 +224,7 @@ impl<'a> Stream for TcpClientStream<'a> {
                             self.set(Self::Init {
                                 stream: Some(stream),
                             });
-                            Some(Ok((msg_id, slice)))
+                            Some(Ok((msg_id, Cow::Borrowed(slice))))
                         }
                         Err(error) => {
                             if error.is_eof() {

@@ -6,8 +6,7 @@ use {
 
 fn main() -> anyhow::Result<()> {
     emit_version()?;
-    generate_grpc_geyser()?;
-    Ok(())
+    generate_grpc_geyser()
 }
 
 fn emit_version() -> anyhow::Result<()> {
