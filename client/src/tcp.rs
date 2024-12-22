@@ -1,16 +1,18 @@
 use {
-    crate::error::{ReceiveError, SubscribeError},
+    crate::{
+        error::{ReceiveError, SubscribeError},
+        stream::{SubscribeStream, SubscribeStreamAsyncPar},
+    },
     futures::{
-        future::{BoxFuture, FutureExt, TryFutureExt},
+        future::{BoxFuture, FutureExt},
         ready,
-        stream::Stream,
+        stream::{Stream, StreamExt},
     },
     pin_project_lite::pin_project,
     prost::Message,
     richat_shared::transports::{grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose},
     solana_sdk::clock::Slot,
     std::{
-        collections::HashMap,
         fmt,
         future::Future,
         io,
@@ -22,9 +24,7 @@ use {
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{lookup_host, TcpSocket, TcpStream, ToSocketAddrs},
-        task::JoinSet,
     },
-    yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
 
 #[derive(Debug, Default)]
@@ -166,14 +166,14 @@ impl<'a> TcpClientBinaryRecv<'a> {
         &self.buffer.as_slice()[0..self.size]
     }
 
-    pub const fn into_binary_stream(self) -> TcpClientBinaryStream<'a> {
-        TcpClientBinaryStream::Init { stream: Some(self) }
+    pub const fn into_binary_stream(self) -> TcpClientStream<'a> {
+        TcpClientStream::Init { stream: Some(self) }
     }
 }
 
 pin_project! {
-    #[project = TcpClientBinaryStreamProj]
-    pub enum TcpClientBinaryStream<'a> {
+    #[project = TcpClientStreamProj]
+    pub enum TcpClientStream<'a> {
         Init {
             stream: Option<TcpClientBinaryRecv<'a>>,
         },
@@ -183,23 +183,37 @@ pin_project! {
     }
 }
 
-impl<'a> fmt::Debug for TcpClientBinaryStream<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TcpClientBinaryStream").finish()
+impl<'a> TcpClientStream<'a> {
+    pub fn into_parsable_stream(self) -> SubscribeStream<'a> {
+        SubscribeStream::new(self.boxed())
+    }
+
+    pub fn into_parsable_stream_async_par<D>(
+        self,
+        decode: D,
+        max_backlog: usize,
+    ) -> SubscribeStreamAsyncPar<'a, D> {
+        SubscribeStreamAsyncPar::new(self.boxed(), decode, max_backlog)
     }
 }
 
-impl<'a> Stream for TcpClientBinaryStream<'a> {
+impl<'a> fmt::Debug for TcpClientStream<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TcpClientStream").finish()
+    }
+}
+
+impl<'a> Stream for TcpClientStream<'a> {
     type Item = Result<(u64, &'a [u8]), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.as_mut().project() {
-                TcpClientBinaryStreamProj::Init { stream } => {
+                TcpClientStreamProj::Init { stream } => {
                     let future = stream.take().unwrap().read().boxed();
                     self.set(Self::Read { future })
                 }
-                TcpClientBinaryStreamProj::Read { mut future } => {
+                TcpClientStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
                         Ok(mut stream) => {
                             let msg_id = stream.msg_id;
@@ -220,120 +234,6 @@ impl<'a> Stream for TcpClientBinaryStream<'a> {
                         }
                     });
                 }
-            }
-        }
-    }
-}
-
-impl<'a> TcpClientBinaryStream<'a> {
-    pub const fn into_parsable_stream(self) -> TcpClientStream<'a> {
-        TcpClientStream { stream: self }
-    }
-
-    pub fn into_parsable_stream_par<F>(
-        self,
-        decode: F,
-        max_backlog: usize,
-    ) -> TcpClientStreamPar<'a, F> {
-        TcpClientStreamPar {
-            stream: self,
-            decode,
-            set: JoinSet::new(),
-            msg_id: 0,
-            messages: HashMap::new(),
-            max_backlog,
-        }
-    }
-}
-
-pin_project! {
-    pub struct TcpClientStream<'a> {
-        stream: TcpClientBinaryStream<'a>,
-    }
-}
-
-impl<'a> fmt::Debug for TcpClientStream<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TcpClientStream").finish()
-    }
-}
-
-impl<'a> Stream for TcpClientStream<'a> {
-    type Item = Result<SubscribeUpdate, ReceiveError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut me = self.project();
-        Poll::Ready(match ready!(Pin::new(&mut me.stream).poll_next(cx)) {
-            Some(Ok((_msg_id, slice))) => Some(SubscribeUpdate::decode(slice).map_err(Into::into)),
-            Some(Err(error)) => Some(Err(error)),
-            None => None,
-        })
-    }
-}
-
-pin_project! {
-    pub struct TcpClientStreamPar<'a, F> {
-        stream: TcpClientBinaryStream<'a>,
-        decode: F,
-        set: JoinSet<Result<(u64, SubscribeUpdate), ReceiveError>>,
-        msg_id: u64,
-        messages: HashMap<u64, SubscribeUpdate>,
-        max_backlog: usize,
-    }
-}
-
-impl<'a, F> fmt::Debug for TcpClientStreamPar<'a, F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TcpClientStream")
-            .field("msg_id", &self.msg_id)
-            .field("max_backlog", &self.max_backlog)
-            .finish()
-    }
-}
-
-impl<'a, F> Stream for TcpClientStreamPar<'a, F>
-where
-    F: Fn(Vec<u8>) -> BoxFuture<'static, Result<SubscribeUpdate, prost::DecodeError>>,
-{
-    type Item = Result<SubscribeUpdate, ReceiveError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut me = self.project();
-
-        if let Some(message) = me.messages.remove(me.msg_id) {
-            *me.msg_id += 1;
-            return Poll::Ready(Some(Ok(message)));
-        }
-
-        loop {
-            if *me.max_backlog < me.set.len() + me.messages.len() {
-                match Pin::new(&mut me.stream).poll_next(cx) {
-                    Poll::Ready(Some(Ok((msg_id, slice)))) => {
-                        me.set.spawn(
-                            (me.decode)(slice.to_vec())
-                                .map_ok(move |msg| (msg_id, msg))
-                                .map_err(Into::into)
-                                .boxed(),
-                        );
-                    }
-                    Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
-                    Poll::Ready(None) => return Poll::Ready(None),
-                    Poll::Pending => {}
-                }
-            }
-
-            match ready!(me.set.poll_join_next(cx)) {
-                Some(Ok(Ok((msg_id, msg)))) => {
-                    if *me.msg_id == msg_id {
-                        *me.msg_id += 1;
-                        return Poll::Ready(Some(Ok(msg)));
-                    } else {
-                        me.messages.insert(msg_id, msg);
-                    }
-                }
-                Some(Ok(Err(error))) => return Poll::Ready(Some(Err(error))),
-                Some(Err(error)) => return Poll::Ready(Some(Err(error.into()))),
-                None => return Poll::Ready(None),
             }
         }
     }
