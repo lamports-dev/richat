@@ -3,13 +3,12 @@ pub mod gen {
 }
 
 use {
-    crate::error::ReceiveError,
+    crate::{error::ReceiveError, stream::SubscribeStream},
     bytes::{Buf, Bytes},
     futures::{
         channel::mpsc,
-        ready,
         sink::{Sink, SinkExt},
-        stream::Stream,
+        stream::{Stream, StreamExt},
     },
     gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
@@ -33,7 +32,7 @@ use {
         CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeUpdate,
+        PongResponse, SubscribeRequest,
     },
 };
 
@@ -444,69 +443,30 @@ impl<U: SubscribeMessage + Default> Decoder for SubscribeDecoder<U> {
     }
 }
 
-#[derive(Debug)]
-pub struct GrpcClientStream {
-    stream: Streaming<Vec<u8>>,
-}
-
-impl GrpcClientStream {
-    pub fn into_binary(self) -> GrpcClientStreamBinary {
-        GrpcClientStreamBinary {
-            stream: self.stream,
-        }
-    }
-
-    pub fn into_parsed(self) -> GrpcClientStreamParsed {
-        GrpcClientStreamParsed {
-            stream: self.stream,
-        }
-    }
-}
-
 pin_project! {
-    pub struct GrpcClientStreamBinary {
+    pub struct GrpcClientStream {
         #[pin]
         stream: Streaming<Vec<u8>>,
     }
 }
 
-impl fmt::Debug for GrpcClientStreamBinary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GrpcClientStreamBinary").finish()
+impl GrpcClientStream {
+    pub fn into_parsed(self) -> SubscribeStream {
+        SubscribeStream::new(self.boxed())
     }
 }
 
-impl Stream for GrpcClientStreamBinary {
+impl fmt::Debug for GrpcClientStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GrpcClientStream").finish()
+    }
+}
+
+impl Stream for GrpcClientStream {
     type Item = Result<Vec<u8>, ReceiveError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let me = self.project();
         me.stream.poll_next(cx).map_err(Into::into)
-    }
-}
-
-pin_project! {
-    pub struct GrpcClientStreamParsed {
-        #[pin]
-        stream: Streaming<Vec<u8>>,
-    }
-}
-
-impl fmt::Debug for GrpcClientStreamParsed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GrpcClientStreamParsed").finish()
-    }
-}
-
-impl Stream for GrpcClientStreamParsed {
-    type Item = Result<SubscribeUpdate, ReceiveError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let me = self.project();
-        Poll::Ready(match ready!(me.stream.poll_next(cx)) {
-            Some(Ok(value)) => Some(SubscribeUpdate::decode(value.as_ref()).map_err(Into::into)),
-            Some(Err(error)) => Some(Err(error.into())),
-            None => None,
-        })
     }
 }

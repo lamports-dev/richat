@@ -1,7 +1,7 @@
 use {
     crate::{
         error::{ReceiveError, SubscribeError},
-        stream::{ReadBuffer, SubscribeStream},
+        stream::SubscribeStream,
     },
     futures::{
         future::{BoxFuture, FutureExt},
@@ -16,7 +16,6 @@ use {
         fmt,
         future::Future,
         io,
-        marker::PhantomData,
         net::SocketAddr,
         pin::Pin,
         task::{Context, Poll},
@@ -96,108 +95,94 @@ impl TcpClient {
         TcpClientBuilder::new()
     }
 
-    pub async fn subscribe<'a>(
+    pub async fn subscribe(
         mut self,
         replay_from_slot: Option<Slot>,
-        buffer_size: Option<usize>,
-    ) -> Result<TcpClientBinaryRecv<'a>, SubscribeError> {
+    ) -> Result<TcpClientStream, SubscribeError> {
         let message = GrpcSubscribeRequest { replay_from_slot }.encode_to_vec();
         self.stream.write_u64(message.len() as u64).await?;
         self.stream.write_all(&message).await?;
         SubscribeError::parse_quic_response(&mut self.stream).await?;
 
-        Ok(TcpClientBinaryRecv {
-            stream: self.stream,
-            buffer: ReadBuffer::new(buffer_size.unwrap_or(16 * 1024 * 1024)),
-            _ph: PhantomData,
+        Ok(TcpClientStream::Init {
+            stream: Some(self.stream),
         })
     }
-}
 
-#[derive(Debug)]
-pub struct TcpClientBinaryRecv<'a> {
-    stream: TcpStream,
-    buffer: ReadBuffer,
-    _ph: PhantomData<&'a ()>,
-}
-
-impl<'a> TcpClientBinaryRecv<'a> {
-    pub async fn read(mut self) -> Result<Self, ReceiveError> {
+    async fn recv(mut stream: TcpStream) -> Result<(TcpStream, Vec<u8>), ReceiveError> {
         // read size / error
-        let mut size = self.stream.read_u64().await?;
+        let mut size = stream.read_u64().await?;
         let is_error = if size == u64::MAX {
-            size = self.stream.read_u64().await?;
+            size = stream.read_u64().await?;
             true
         } else {
             false
         };
 
-        // set size
-        self.buffer.set_len(size as usize)?;
+        // create buffer
+        let size = size as usize;
+        let mut buffer = Vec::<u8>::with_capacity(size);
 
         // read
-        self.stream.read_exact(self.buffer.as_mut_slice()).await?;
+        stream
+            .read_exact(unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) })
+            .await?;
+        unsafe {
+            buffer.set_len(size);
+        }
 
         // parse message if error
         if is_error {
-            let close = QuicSubscribeClose::decode(self.buffer.as_slice())?;
+            let close = QuicSubscribeClose::decode(buffer.as_slice())?;
             Err(close.into())
         } else {
-            Ok(self)
+            Ok((stream, buffer))
         }
-    }
-
-    pub fn get_message(&'a self) -> &'a [u8] {
-        self.buffer.as_slice()
-    }
-
-    pub const fn into_stream(self) -> TcpClientStream<'a> {
-        TcpClientStream::Init { stream: Some(self) }
     }
 }
 
 pin_project! {
     #[project = TcpClientStreamProj]
-    pub enum TcpClientStream<'a> {
+    pub enum TcpClientStream {
         Init {
-            stream: Option<TcpClientBinaryRecv<'a>>,
+            stream: Option<TcpStream>,
         },
         Read {
-            #[pin] future: BoxFuture<'a, Result<TcpClientBinaryRecv<'a>, ReceiveError>>,
+            #[pin] future: BoxFuture<'static, Result<(TcpStream, Vec<u8>), ReceiveError>>,
         },
     }
 }
 
-impl<'a> TcpClientStream<'a> {
-    pub fn into_parsable_stream(self) -> SubscribeStream<'a> {
+impl TcpClientStream {
+    pub fn into_parsed(self) -> SubscribeStream {
         SubscribeStream::new(self.boxed())
     }
 }
 
-impl<'a> fmt::Debug for TcpClientStream<'a> {
+impl fmt::Debug for TcpClientStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TcpClientStream").finish()
     }
 }
 
-impl<'a> Stream for TcpClientStream<'a> {
-    type Item = Result<&'a [u8], ReceiveError>;
+impl Stream for TcpClientStream {
+    type Item = Result<Vec<u8>, ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.as_mut().project() {
                 TcpClientStreamProj::Init { stream } => {
-                    let future = stream.take().unwrap().read().boxed();
+                    let stream = stream.take().unwrap();
+                    let future = TcpClient::recv(stream).boxed();
                     self.set(Self::Read { future })
                 }
                 TcpClientStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
-                        Ok(stream) => {
-                            let slice = stream.buffer.as_unsafe_slice();
+                        Ok((stream, message)) => {
                             self.set(Self::Init {
                                 stream: Some(stream),
                             });
-                            Some(Ok(slice))
+                            Some(Ok(message))
                         }
                         Err(error) => {
                             if error.is_eof() {

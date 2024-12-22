@@ -156,10 +156,10 @@ impl ArgsAppStreamTcp {
             .inspect_ok(|_| info!("connected to {} over Tcp", self.endpoint))
             .await
             .context("failed to connect")?
-            .subscribe(replay_from_slot, None)
+            .subscribe(replay_from_slot)
             .inspect_ok(|_| info!("subscribed"))
             .await
-            .map(|s| s.into_stream().into_parsable_stream().boxed())
+            .map(|s| s.into_parsed().boxed())
             .context("failed to subscribe")
     }
 }
