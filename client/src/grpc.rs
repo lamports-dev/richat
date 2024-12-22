@@ -3,10 +3,7 @@ pub mod gen {
 }
 
 use {
-    crate::{
-        error::ReceiveError,
-        stream::{SubscribeStream, SubscribeStreamAsyncPar},
-    },
+    crate::{error::ReceiveError, stream::SubscribeStream},
     bytes::{Buf, Bytes},
     futures::{
         channel::mpsc,
@@ -460,14 +457,6 @@ pin_project! {
 impl GrpcClientStream {
     pub fn into_parsable_stream(self) -> SubscribeStream<'static> {
         SubscribeStream::new(self.boxed())
-    }
-
-    pub fn into_parsable_stream_async_par<D>(
-        self,
-        decode: D,
-        max_backlog: usize,
-    ) -> SubscribeStreamAsyncPar<'static, D> {
-        SubscribeStreamAsyncPar::new(self.boxed(), decode, max_backlog)
     }
 }
 

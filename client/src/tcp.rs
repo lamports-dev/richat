@@ -1,7 +1,7 @@
 use {
     crate::{
         error::{ReceiveError, SubscribeError},
-        stream::{SubscribeStream, SubscribeStreamAsyncPar},
+        stream::SubscribeStream,
     },
     futures::{
         future::{BoxFuture, FutureExt},
@@ -187,14 +187,6 @@ pin_project! {
 impl<'a> TcpClientStream<'a> {
     pub fn into_parsable_stream(self) -> SubscribeStream<'a> {
         SubscribeStream::new(self.boxed())
-    }
-
-    pub fn into_parsable_stream_async_par<D>(
-        self,
-        decode: D,
-        max_backlog: usize,
-    ) -> SubscribeStreamAsyncPar<'a, D> {
-        SubscribeStreamAsyncPar::new(self.boxed(), decode, max_backlog)
     }
 }
 
