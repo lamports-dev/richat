@@ -375,7 +375,12 @@ trait SubscribeMessage {
 
 impl SubscribeMessage for Vec<u8> {
     fn decode(src: &mut DecodeBuf<'_>) -> Self {
+        // TODO: use Box<[MaybeUninit<u8>]> (from rust 1.82.0)
         let mut dst = Vec::with_capacity(src.remaining());
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            dst.set_len(src.remaining());
+        }
         let mut start = 0;
         while src.remaining() > 0 {
             let chunk = src.chunk();
