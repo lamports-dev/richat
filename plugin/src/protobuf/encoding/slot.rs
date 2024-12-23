@@ -28,7 +28,7 @@ pub struct Slot<'a> {
 }
 
 impl<'a> prost::Message for Slot<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);
         if self.slot != 0 {
@@ -68,7 +68,7 @@ impl<'a> prost::Message for Slot<'a> {
         &mut self,
         _tag: u32,
         _wire_type: encoding::WireType,
-        _buf: &mut impl hyper::body::Buf,
+        _buf: &mut impl bytes::Buf,
         _ctx: encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where

@@ -6,8 +6,7 @@ use {
 
 fn main() -> anyhow::Result<()> {
     emit_version()?;
-    generate_grpc_geyser()?;
-    Ok(())
+    generate_grpc_geyser()
 }
 
 fn emit_version() -> anyhow::Result<()> {
@@ -58,7 +57,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("Subscribe")
                 .input_type("richat_shared::transports::grpc::GrpcSubscribeRequest")
                 .output_type("Arc<Vec<u8>>")
-                .codec_path("crate::grpc::SubscribeCodec")
+                .codec_path("crate::transports::grpc::SubscribeCodec")
                 .client_streaming()
                 .server_streaming()
                 .build(),

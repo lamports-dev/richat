@@ -1,9 +1,12 @@
 use {
-    crate::error::{ReceiveError, SubscribeError},
+    crate::{
+        error::{ReceiveError, SubscribeError},
+        stream::SubscribeStream,
+    },
     futures::{
         future::{BoxFuture, FutureExt},
         ready,
-        stream::Stream,
+        stream::{Stream, StreamExt},
     },
     pin_project_lite::pin_project,
     prost::Message,
@@ -19,21 +22,29 @@ use {
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        net::{TcpSocket, TcpStream},
+        net::{lookup_host, TcpSocket, TcpStream, ToSocketAddrs},
     },
-    yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
 
 #[derive(Debug, Default)]
 pub struct TcpClientBuilder {
-    keepalive: Option<bool>,
-    nodelay: Option<bool>,
-    recv_buffer_size: Option<u32>,
+    pub keepalive: Option<bool>,
+    pub nodelay: Option<bool>,
+    pub recv_buffer_size: Option<u32>,
 }
 
 impl TcpClientBuilder {
-    pub async fn connect(self, endpoint: SocketAddr) -> io::Result<TcpClient> {
-        let socket = match endpoint {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub async fn connect<T: ToSocketAddrs>(self, endpoint: T) -> io::Result<TcpClient> {
+        let addr = lookup_host(endpoint).await?.next().ok_or(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "failed to resolve",
+        ))?;
+
+        let socket = match addr {
             SocketAddr::V4(_) => TcpSocket::new_v4(),
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }?;
@@ -48,11 +59,8 @@ impl TcpClientBuilder {
             socket.set_recv_buffer_size(recv_buffer_size)?;
         }
 
-        let stream = socket.connect(endpoint).await?;
-        Ok(TcpClient {
-            stream,
-            buffer: Vec::new(),
-        })
+        let stream = socket.connect(addr).await?;
+        Ok(TcpClient { stream })
     }
 
     pub const fn set_keepalive(self, keepalive: bool) -> Self {
@@ -80,12 +88,11 @@ impl TcpClientBuilder {
 #[derive(Debug)]
 pub struct TcpClient {
     stream: TcpStream,
-    buffer: Vec<u8>,
 }
 
 impl TcpClient {
     pub fn build() -> TcpClientBuilder {
-        TcpClientBuilder::default()
+        TcpClientBuilder::new()
     }
 
     pub async fn subscribe(
@@ -95,32 +102,41 @@ impl TcpClient {
         let message = GrpcSubscribeRequest { replay_from_slot }.encode_to_vec();
         self.stream.write_u64(message.len() as u64).await?;
         self.stream.write_all(&message).await?;
-
         SubscribeError::parse_quic_response(&mut self.stream).await?;
-        Ok(TcpClientStream::Init { client: Some(self) })
+
+        Ok(TcpClientStream::Init {
+            stream: Some(self.stream),
+        })
     }
 
-    async fn recv(mut self) -> Result<(Self, SubscribeUpdate), ReceiveError> {
-        let mut size = self.stream.read_u64().await? as usize;
-        let error = if size == 0 {
-            size = self.stream.read_u64().await? as usize;
+    async fn recv(mut stream: TcpStream) -> Result<(TcpStream, Vec<u8>), ReceiveError> {
+        // read size / error
+        let mut size = stream.read_u64().await?;
+        let is_error = if size == u64::MAX {
+            size = stream.read_u64().await?;
             true
         } else {
             false
         };
-        if size > self.buffer.len() {
-            self.buffer.resize(size, 0);
-        }
-        self.stream
-            .read_exact(&mut self.buffer.as_mut_slice()[0..size])
-            .await?;
 
-        if error {
-            let close = QuicSubscribeClose::decode(&self.buffer.as_slice()[0..size])?;
+        // create buffer
+        let size = size as usize;
+        let mut buffer = Vec::<u8>::with_capacity(size);
+
+        // read
+        stream
+            .read_exact(unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) })
+            .await?;
+        unsafe {
+            buffer.set_len(size);
+        }
+
+        // parse message if error
+        if is_error {
+            let close = QuicSubscribeClose::decode(buffer.as_slice())?;
             Err(close.into())
         } else {
-            let msg = SubscribeUpdate::decode(&self.buffer.as_slice()[0..size])?;
-            Ok((self, msg))
+            Ok((stream, buffer))
         }
     }
 }
@@ -129,11 +145,17 @@ pin_project! {
     #[project = TcpClientStreamProj]
     pub enum TcpClientStream {
         Init {
-            client: Option<TcpClient>,
+            stream: Option<TcpStream>,
         },
         Read {
-            #[pin] future: BoxFuture<'static, Result<(TcpClient, SubscribeUpdate), ReceiveError>>,
+            #[pin] future: BoxFuture<'static, Result<(TcpStream, Vec<u8>), ReceiveError>>,
         },
+    }
+}
+
+impl TcpClientStream {
+    pub fn into_parsed(self) -> SubscribeStream {
+        SubscribeStream::new(self.boxed())
     }
 }
 
@@ -144,20 +166,21 @@ impl fmt::Debug for TcpClientStream {
 }
 
 impl Stream for TcpClientStream {
-    type Item = Result<SubscribeUpdate, ReceiveError>;
+    type Item = Result<Vec<u8>, ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.as_mut().project() {
-                TcpClientStreamProj::Init { client } => {
-                    let future = client.take().unwrap().recv().boxed();
+                TcpClientStreamProj::Init { stream } => {
+                    let stream = stream.take().unwrap();
+                    let future = TcpClient::recv(stream).boxed();
                     self.set(Self::Read { future })
                 }
                 TcpClientStreamProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
-                        Ok((client, message)) => {
+                        Ok((stream, message)) => {
                             self.set(Self::Init {
-                                client: Some(client),
+                                stream: Some(stream),
                             });
                             Some(Ok(message))
                         }
@@ -168,7 +191,7 @@ impl Stream for TcpClientStream {
                                 Some(Err(error))
                             }
                         }
-                    })
+                    });
                 }
             }
         }

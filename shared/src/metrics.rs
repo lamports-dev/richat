@@ -1,6 +1,6 @@
 use {
     crate::config::ConfigPrometheus,
-    http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty},
+    http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
     hyper::{
         body::{Bytes, Incoming as BodyIncoming},
         service::service_fn,
@@ -10,6 +10,7 @@ use {
         rt::tokio::{TokioExecutor, TokioIo},
         server::conn::auto::Builder as ServerBuilder,
     },
+    prometheus::{proto::MetricFamily, TextEncoder},
     std::{convert::Infallible, future::Future},
     tokio::{net::TcpListener, task::JoinHandle},
     tracing::{error, info},
@@ -17,10 +18,7 @@ use {
 
 pub async fn spawn_server(
     ConfigPrometheus { endpoint }: ConfigPrometheus,
-    metrics_handler: impl Fn() -> http::Result<Response<BoxBody<Bytes, Infallible>>>
-        + Clone
-        + Send
-        + 'static,
+    gather_metrics: impl Fn() -> Vec<MetricFamily> + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<JoinHandle<()>> {
     let listener = TcpListener::bind(endpoint).await?;
@@ -44,16 +42,16 @@ pub async fn spawn_server(
                     break
                 },
             };
-            let metrics_handler = metrics_handler.clone();
+            let gather_metrics = gather_metrics.clone();
             tokio::spawn(async move {
                 if let Err(error) = ServerBuilder::new(TokioExecutor::new())
                     .serve_connection(
                         TokioIo::new(stream),
                         service_fn(move |req: Request<BodyIncoming>| {
-                            let metrics_handler = metrics_handler.clone();
+                            let gather_metrics = gather_metrics.clone();
                             async move {
                                 match req.uri().path() {
-                                    "/metrics" => metrics_handler(),
+                                    "/metrics" => metrics_handler(&gather_metrics()),
                                     _ => not_found_handler(),
                                 }
                             }
@@ -66,6 +64,20 @@ pub async fn spawn_server(
             });
         }
     }))
+}
+
+fn metrics_handler(
+    metric_families: &[MetricFamily],
+) -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
+    let metrics = TextEncoder::new()
+        .encode_to_string(metric_families)
+        .unwrap_or_else(|error| {
+            error!("could not encode custom metrics: {}", error);
+            String::new()
+        });
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(BodyFull::new(Bytes::from(metrics)).boxed())
 }
 
 fn not_found_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
