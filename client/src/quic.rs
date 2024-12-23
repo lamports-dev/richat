@@ -1,9 +1,12 @@
 use {
-    crate::error::{ReceiveError, SubscribeError},
+    crate::{
+        error::{ReceiveError, SubscribeError},
+        stream::SubscribeStream,
+    },
     futures::{
         future::{BoxFuture, FutureExt},
         ready,
-        stream::Stream,
+        stream::{Stream, StreamExt},
     },
     pin_project_lite::pin_project,
     prost::Message,
@@ -38,7 +41,6 @@ use {
         io::{AsyncReadExt, AsyncWriteExt},
         net::{lookup_host, ToSocketAddrs},
     },
-    yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
 
 /// Dummy certificate verifier that treats any certificate as valid.
@@ -361,38 +363,37 @@ impl QuicClient {
         for _ in 0..self.recv_streams {
             let stream = self.conn.accept_uni().await?;
             readers.push(QuicClientStreamReader::Init {
-                recv: Some((stream, vec![])),
+                stream: Some(stream),
             });
         }
 
         Ok(QuicClientStream {
             conn: self.conn,
-            msg_id: 0,
             messages: HashMap::new(),
-            readers: QuicClientStreamReaders { readers, index: 0 },
+            msg_id: 0,
+            readers,
+            index: 0,
         })
     }
 
-    async fn recv(
-        mut stream: RecvStream,
-        mut buffer: Vec<u8>,
-    ) -> Result<(RecvStream, Vec<u8>, u64, SubscribeUpdate), ReceiveError> {
+    async fn recv(mut stream: RecvStream) -> Result<(RecvStream, u64, Vec<u8>), ReceiveError> {
         let msg_id = stream.read_u64().await?;
         let error = msg_id == u64::MAX;
+
         let size = stream.read_u64().await? as usize;
-        if size > buffer.len() {
-            buffer.resize(size, 0);
-        }
+        let mut buffer = Vec::<u8>::with_capacity(size);
         stream
-            .read_exact(&mut buffer.as_mut_slice()[0..size])
+            .read_exact(unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) })
             .await?;
+        unsafe {
+            buffer.set_len(size);
+        }
 
         if error {
             let close = QuicSubscribeClose::decode(&buffer.as_slice()[0..size])?;
             Err(close.into())
         } else {
-            let msg = SubscribeUpdate::decode(&buffer.as_slice()[0..size])?;
-            Ok((stream, buffer, msg_id, msg))
+            Ok((stream, msg_id, buffer))
         }
     }
 }
@@ -400,10 +401,11 @@ impl QuicClient {
 pin_project! {
     pub struct QuicClientStream {
         conn: Connection,
+        messages: HashMap<u64, Vec<u8>>,
         msg_id: u64,
-        messages: HashMap<u64, SubscribeUpdate>,
         #[pin]
-        readers: QuicClientStreamReaders,
+        readers: Vec<QuicClientStreamReader>,
+        index: usize,
     }
 }
 
@@ -413,62 +415,40 @@ impl fmt::Debug for QuicClientStream {
     }
 }
 
+impl QuicClientStream {
+    pub fn into_parsed(self) -> SubscribeStream {
+        SubscribeStream::new(self.boxed())
+    }
+}
+
 impl Stream for QuicClientStream {
-    type Item = Result<SubscribeUpdate, ReceiveError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let me = self.project();
-
-        if let Some(message) = me.messages.remove(me.msg_id) {
-            *me.msg_id += 1;
-            return Poll::Ready(Some(Ok(message)));
-        }
-
-        match ready!(me.readers.poll_next(cx)) {
-            Some(Ok((msg_id, message))) => {
-                if *me.msg_id == msg_id {
-                    *me.msg_id += 1;
-                    Poll::Ready(Some(Ok(message)))
-                } else {
-                    me.messages.insert(msg_id, message);
-                    Poll::Pending
-                }
-            }
-            Some(Err(error)) => Poll::Ready(Some(Err(error))),
-            None => Poll::Ready(None),
-        }
-    }
-}
-
-pin_project! {
-    pub struct QuicClientStreamReaders {
-        #[pin]
-        readers: Vec<QuicClientStreamReader>,
-        index: usize,
-    }
-}
-
-impl fmt::Debug for QuicClientStreamReaders {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("QuicClientStreamReaders").finish()
-    }
-}
-
-impl Stream for QuicClientStreamReaders {
-    type Item = Result<(u64, SubscribeUpdate), ReceiveError>;
+    type Item = Result<Vec<u8>, ReceiveError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut me = self.project();
+
+        if let Some(msg) = me.messages.remove(me.msg_id) {
+            *me.msg_id += 1;
+            return Poll::Ready(Some(Ok(msg)));
+        }
+
         let mut polled = 0;
         loop {
             // try to get value and increment index
             let value = Pin::new(&mut me.readers[*me.index]).poll_next(cx);
-            *me.index += 1;
-            if *me.index == me.readers.len() {
-                *me.index = 0;
-            }
-            if value.is_ready() {
-                return value;
+            *me.index = (*me.index + 1) % me.readers.len();
+            match value {
+                Poll::Ready(Some(Ok((msg_id, msg)))) => {
+                    if *me.msg_id == msg_id {
+                        *me.msg_id += 1;
+                        return Poll::Ready(Some(Ok(msg)));
+                    } else {
+                        me.messages.insert(msg_id, msg);
+                    }
+                }
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => {}
             }
 
             // return pending if already polled all streams
@@ -484,10 +464,10 @@ pin_project! {
     #[project = QuicClientStreamReaderProj]
     pub enum QuicClientStreamReader {
         Init {
-            recv: Option<(RecvStream, Vec<u8>)>,
+            stream: Option<RecvStream>,
         },
         Read {
-            #[pin] future: BoxFuture<'static, Result<(RecvStream, Vec<u8>, u64, SubscribeUpdate), ReceiveError>>,
+            #[pin] future: BoxFuture<'static, Result<(RecvStream, u64, Vec<u8>), ReceiveError>>,
         },
     }
 }
@@ -499,23 +479,23 @@ impl fmt::Debug for QuicClientStreamReader {
 }
 
 impl Stream for QuicClientStreamReader {
-    type Item = Result<(u64, SubscribeUpdate), ReceiveError>;
+    type Item = Result<(u64, Vec<u8>), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.as_mut().project() {
-                QuicClientStreamReaderProj::Init { recv } => {
-                    let (stream, buffer) = recv.take().unwrap();
-                    let future = QuicClient::recv(stream, buffer).boxed();
+                QuicClientStreamReaderProj::Init { stream } => {
+                    let stream = stream.take().unwrap();
+                    let future = QuicClient::recv(stream).boxed();
                     self.set(Self::Read { future })
                 }
                 QuicClientStreamReaderProj::Read { mut future } => {
                     return Poll::Ready(match ready!(future.as_mut().poll(cx)) {
-                        Ok((stream, buffer, msg_id, message)) => {
+                        Ok((stream, msg_id, buffer)) => {
                             self.set(Self::Init {
-                                recv: Some((stream, buffer)),
+                                stream: Some(stream),
                             });
-                            Some(Ok((msg_id, message)))
+                            Some(Ok((msg_id, buffer)))
                         }
                         Err(error) => {
                             if error.is_eof() {

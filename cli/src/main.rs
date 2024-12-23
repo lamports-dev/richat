@@ -1,10 +1,7 @@
 use {
     anyhow::Context,
     clap::{Parser, Subcommand},
-    futures::{
-        stream::{BoxStream, StreamExt, TryStreamExt},
-        TryFutureExt,
-    },
+    futures::stream::{BoxStream, StreamExt, TryStreamExt},
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     prost::Message,
     richat_client::{
@@ -133,12 +130,25 @@ impl ArgsAppStreamQuic {
             .set_server_name(self.server_name.clone())
             .set_recv_streams(self.recv_streams)
             .set_max_backlog(self.max_backlog);
+
         let client = if self.insecure {
-            builder.insecure().connect(self.endpoint).await
+            builder.insecure().connect(self.endpoint.clone()).await
         } else {
-            builder.secure(self.cert).connect(self.endpoint).await
-        }?;
-        Ok(client.subscribe(replay_from_slot).await?.boxed())
+            builder
+                .secure(self.cert)
+                .connect(self.endpoint.clone())
+                .await
+        }
+        .context("failed to connect")?;
+        info!("connected to {} over QUIC", self.endpoint);
+
+        let stream = client
+            .subscribe(replay_from_slot)
+            .await
+            .context("failed to subscribe")?;
+        info!("subscribed");
+
+        Ok(stream.into_parsed().boxed())
     }
 }
 
@@ -151,16 +161,19 @@ struct ArgsAppStreamTcp {
 
 impl ArgsAppStreamTcp {
     async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
-        TcpClient::build()
+        let client = TcpClient::build()
             .connect(&self.endpoint)
-            .inspect_ok(|_| info!("connected to {} over Tcp", self.endpoint))
             .await
-            .context("failed to connect")?
+            .context("failed to connect")?;
+        info!("connected to {} over Tcp", self.endpoint);
+
+        let stream = client
             .subscribe(replay_from_slot)
-            .inspect_ok(|_| info!("subscribed"))
             .await
-            .map(|s| s.into_parsed().boxed())
-            .context("failed to subscribe")
+            .context("failed to subscribe")?;
+        info!("subscribed");
+
+        Ok(stream.into_parsed().boxed())
     }
 }
 
@@ -279,6 +292,7 @@ impl ArgsAppStreamGrpc {
         let endpoint = self.endpoint.clone();
         let mut client = self.connect().await.context("failed to connect")?;
         info!("connected to {endpoint} over gRPC");
+
         let stream = client
             .subscribe_once(SubscribeRequest {
                 from_slot: replay_from_slot,
@@ -287,6 +301,7 @@ impl ArgsAppStreamGrpc {
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
+
         Ok(stream.into_parsed().map_err(Into::into).boxed())
     }
 }
