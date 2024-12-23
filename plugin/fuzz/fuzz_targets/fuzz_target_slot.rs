@@ -4,11 +4,11 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     arbitrary::Arbitrary,
     libfuzzer_sys::fuzz_target,
-    prost_011::{Enumeration, Message},
+    prost::{Enumeration, Message},
     richat_plugin::protobuf::ProtobufMessage,
 };
 
-#[derive(Message)] // FIXME: compile error!!!
+#[derive(Clone, PartialEq, Message)] // FIXME: compile error!!!
 pub struct Slot {
     #[prost(uint64, tag = "1")]
     slot: u64,
@@ -18,7 +18,7 @@ pub struct Slot {
     status: i32,
 }
 
-#[derive(Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Enumeration)]
+#[derive(PartialEq, Clone, Copy, Arbitrary, Debug, Enumeration)]
 #[repr(i32)]
 pub enum FuzzSlotStatus {
     Processed = 0,
@@ -59,5 +59,10 @@ fuzz_target!(|fuzz_slot: FuzzSlot| {
         status: &fuzz_slot.status.into(),
     };
     message.encode(&mut buf);
-    assert!(!buf.is_empty())
+    assert!(!buf.is_empty());
+
+    let decoded = Slot::decode(buf.as_slice()).expect("failed to decode `Slot` from buf");
+    assert_eq!(decoded.slot, fuzz_slot.slot);
+    assert_eq!(decoded.parent, fuzz_slot.parent);
+    assert_eq!(decoded.status, fuzz_slot.status)
 });

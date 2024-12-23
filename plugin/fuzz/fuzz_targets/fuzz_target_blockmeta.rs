@@ -143,8 +143,7 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
             post_balance: reward.post_balance,
             reward_type: reward
                 .reward_type
-                .as_ref()
-                .map_or(0, |reward_type| *reward_type as i32),
+                .map_or(0, |reward_type| reward_type as i32),
             commission: reward
                 .commission
                 .map_or(0u8.to_string(), |commission| commission.to_string()),
