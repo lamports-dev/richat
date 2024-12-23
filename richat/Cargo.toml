@@ -3,7 +3,7 @@ name = "richat"
 version = "2.0.0"
 authors = { workspace = true }
 edition = { workspace = true }
-description = "Richat code"
+description = "Richat App"
 homepage = { workspace = true }
 repository = { workspace = true }
 license = { workspace = true }
@@ -12,6 +12,9 @@ publish = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
