@@ -140,7 +140,7 @@ impl ArgsAppStreamQuic {
                 .await
         }
         .context("failed to connect")?;
-        info!("connected to {} over QUIC", self.endpoint);
+        info!("connected to {} over Quic", self.endpoint);
 
         let stream = client
             .subscribe(replay_from_slot)

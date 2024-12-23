@@ -376,9 +376,11 @@ trait SubscribeMessage {
 impl SubscribeMessage for Vec<u8> {
     fn decode(src: &mut DecodeBuf<'_>) -> Self {
         let mut dst = Vec::with_capacity(src.remaining());
+        let mut start = 0;
         while src.remaining() > 0 {
             let chunk = src.chunk();
-            dst.extend_from_slice(chunk);
+            dst.as_mut_slice()[start..start + chunk.len()].copy_from_slice(chunk);
+            start += chunk.len();
             src.advance(chunk.len());
         }
         dst
