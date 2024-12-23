@@ -1,7 +1,10 @@
 use {
     crate::{
-        channel::Sender, config::Config, grpc::GrpcServer, metrics, protobuf::ProtobufMessage,
-        quic::QuicServer, tcp::TcpServer,
+        channel::Sender,
+        config::Config,
+        metrics,
+        protobuf::ProtobufMessage,
+        transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -10,15 +13,8 @@ use {
     },
     log::error,
     solana_sdk::clock::Slot,
-    std::{
-        sync::atomic::{AtomicU64, Ordering},
-        time::Duration,
-    },
-    tokio::{
-        runtime::{Builder, Runtime},
-        sync::broadcast,
-        task::JoinHandle,
-    },
+    std::time::Duration,
+    tokio::{runtime::Runtime, sync::broadcast, task::JoinHandle},
 };
 
 #[derive(Debug)]
@@ -32,23 +28,9 @@ pub struct PluginInner {
 impl PluginInner {
     fn new(config: Config) -> PluginResult<Self> {
         // Create Tokio runtime
-        let mut builder = Builder::new_multi_thread();
-        if let Some(worker_threads) = config.tokio.worker_threads {
-            builder.worker_threads(worker_threads);
-        }
-        if let Some(cpus) = config.tokio.affinity.clone() {
-            builder.on_thread_start(move || {
-                affinity::set_thread_affinity(&cpus).expect("failed to set affinity")
-            });
-        }
-        let runtime = builder
-            .thread_name_fn(|| {
-                static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
-                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-                format!("richatPlugin{id:02}")
-            })
-            .enable_all()
-            .build()
+        let runtime = config
+            .tokio
+            .build_runtime("richatPlugin")
             .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
 
         // Create messages store
@@ -60,7 +42,7 @@ impl PluginInner {
             .block_on(async move {
                 let mut tasks = Vec::with_capacity(4);
 
-                let gen_shutdown = || {
+                let create_shutdown_rx = || {
                     let mut rx = tx.subscribe();
                     async move {
                         let _ = rx.recv().await;
@@ -71,14 +53,14 @@ impl PluginInner {
                 if let Some(config) = config.quic {
                     tasks.push((
                         "Quic Server",
-                        QuicServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                        QuicServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
                     ));
                 }
 
                 if let Some(config) = config.tcp {
                     tasks.push((
                         "Tcp Server",
-                        TcpServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                        TcpServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
                     ));
                 }
 
@@ -86,7 +68,7 @@ impl PluginInner {
                 if let Some(config) = config.grpc {
                     tasks.push((
                         "gRPC Server",
-                        GrpcServer::spawn(config, messages.clone(), gen_shutdown()).await?,
+                        GrpcServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
                     ));
                 }
 
@@ -94,7 +76,7 @@ impl PluginInner {
                 if let Some(config) = config.prometheus {
                     tasks.push((
                         "Prometheus Server",
-                        metrics::spawn_server(config, gen_shutdown()).await?,
+                        metrics::spawn_server(config, create_shutdown_rx()).await?,
                     ));
                 }
 

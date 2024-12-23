@@ -34,7 +34,7 @@ pub struct Transaction<'a> {
 }
 
 impl<'a> prost::Message for Transaction<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(
             replica_transaction_info_encoded_len(self.transaction) as u64,
@@ -61,7 +61,7 @@ impl<'a> prost::Message for Transaction<'a> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl hyper::body::Buf,
+        _buf: &mut impl bytes::Buf,
         _ctx: encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where

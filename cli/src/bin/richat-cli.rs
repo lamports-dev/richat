@@ -1,27 +1,37 @@
 use {
     anyhow::Context,
     clap::{Parser, Subcommand},
-    futures::{
-        stream::{BoxStream, StreamExt},
-        TryFutureExt,
-    },
+    futures::stream::{BoxStream, StreamExt, TryStreamExt},
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     prost::Message,
-    richat_client::{error::ReceiveError, tcp::TcpClient},
-    richat_shared::transports::tcp::ConfigTcpServer,
+    richat_client::{
+        error::ReceiveError,
+        grpc::GrpcClient,
+        quic::{QuicClient, QuicClientBuilder},
+        tcp::TcpClient,
+    },
+    richat_shared::transports::{
+        grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
+    },
     serde_json::{json, Value},
     solana_sdk::{clock::Slot, hash::Hash, pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
     std::{
         env,
         net::SocketAddr,
-        time::{SystemTime, UNIX_EPOCH},
+        path::PathBuf,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    },
+    tokio::fs,
+    tonic::{
+        service::Interceptor,
+        transport::{channel::ClientTlsConfig, Certificate},
     },
     tracing::{error, info},
     yellowstone_grpc_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeUpdate,
+            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeUpdate,
             SubscribeUpdateAccountInfo, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
         },
     },
@@ -29,7 +39,7 @@ use {
 
 type SubscribeStream = BoxStream<'static, Result<SubscribeUpdate, ReceiveError>>;
 
-#[derive(Debug, Clone, Parser)]
+#[derive(Debug, Parser)]
 #[clap(author, version, about = "Richat Cli Tool")]
 struct Args {
     #[command(subcommand)]
@@ -44,13 +54,13 @@ struct Args {
     stats: bool,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Subcommand)]
 enum ArgsAppSelect {
     /// Stream data directly from the plugin
     Stream(ArgsAppStream),
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, clap::Args)]
 struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
@@ -59,36 +69,240 @@ struct ArgsAppStream {
 impl ArgsAppStream {
     async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
         match self.action {
+            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot).await,
             ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
+            ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot).await,
         }
     }
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Subcommand)]
 enum ArgsAppStreamSelect {
+    /// Stream over Quic
+    Quic(ArgsAppStreamQuic),
     /// Stream over Tcp
     Tcp(ArgsAppStreamTcp),
+    /// Stream over gRPC
+    Grpc(ArgsAppStreamGrpc),
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, clap::Args)]
+struct ArgsAppStreamQuic {
+    /// Richat Geyser plugin Quic Server endpoint
+    #[clap(default_value_t = ConfigQuicServer::default_endpoint().to_string())]
+    endpoint: String,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().local_addr)]
+    local_addr: SocketAddr,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().expected_rtt)]
+    expected_rtt: u32,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().max_stream_bandwidth)]
+    max_stream_bandwidth: u32,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().max_idle_timeout.unwrap())]
+    max_idle_timeout: u32,
+
+    #[clap(long)]
+    server_name: Option<String>,
+
+    #[clap(long, default_value_t = QuicClientBuilder::default().recv_streams)]
+    recv_streams: u32,
+
+    #[clap(long)]
+    max_backlog: Option<u32>,
+
+    #[clap(long)]
+    insecure: bool,
+
+    #[clap(long)]
+    cert: Option<PathBuf>,
+}
+
+impl ArgsAppStreamQuic {
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+        let builder = QuicClient::builder()
+            .set_local_addr(Some(self.local_addr))
+            .set_expected_rtt(self.expected_rtt)
+            .set_max_stream_bandwidth(self.max_stream_bandwidth)
+            .set_max_idle_timeout(Some(self.max_idle_timeout))
+            .set_server_name(self.server_name.clone())
+            .set_recv_streams(self.recv_streams)
+            .set_max_backlog(self.max_backlog);
+
+        let client = if self.insecure {
+            builder.insecure().connect(self.endpoint.clone()).await
+        } else {
+            builder
+                .secure(self.cert)
+                .connect(self.endpoint.clone())
+                .await
+        }
+        .context("failed to connect")?;
+        info!("connected to {} over Quic", self.endpoint);
+
+        let stream = client
+            .subscribe(replay_from_slot)
+            .await
+            .context("failed to subscribe")?;
+        info!("subscribed");
+
+        Ok(stream.into_parsed().boxed())
+    }
+}
+
+#[derive(Debug, clap::Args)]
 struct ArgsAppStreamTcp {
     /// Richat Geyser plugin Tcp Server endpoint
-    #[clap(default_value_t = ConfigTcpServer::default().endpoint)]
-    endpoint: SocketAddr,
+    #[clap(default_value_t = ConfigTcpServer::default().endpoint.to_string())]
+    endpoint: String,
 }
 
 impl ArgsAppStreamTcp {
-    async fn subscribe(&self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
-        TcpClient::build()
-            .connect(self.endpoint)
-            .inspect_ok(|_| info!("connected to {} over Tcp", self.endpoint))
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+        let client = TcpClient::build()
+            .connect(&self.endpoint)
             .await
-            .context("failed to connect")?
+            .context("failed to connect")?;
+        info!("connected to {} over Tcp", self.endpoint);
+
+        let stream = client
             .subscribe(replay_from_slot)
-            .inspect_ok(|_| info!("subscribed"))
             .await
-            .map(|s| s.boxed())
-            .context("failed to subscribe")
+            .context("failed to subscribe")?;
+        info!("subscribed");
+
+        Ok(stream.into_parsed().boxed())
+    }
+}
+
+#[derive(Debug, clap::Args)]
+struct ArgsAppStreamGrpc {
+    /// Richat Geyser plugin gRPC Server endpoint
+    #[clap(default_value_t = format!("http://{}", ConfigGrpcServer::default().endpoint))]
+    endpoint: String,
+
+    /// Path of a certificate authority file
+    #[clap(long)]
+    ca_certificate: Option<PathBuf>,
+
+    /// Apply a timeout to connecting to the uri.
+    #[clap(long)]
+    connect_timeout_ms: Option<u64>,
+
+    /// Sets the tower service default internal buffer size, default is 1024
+    #[clap(long)]
+    buffer_size: Option<usize>,
+
+    /// Sets whether to use an adaptive flow control. Uses hyper’s default otherwise.
+    #[clap(long)]
+    http2_adaptive_window: Option<bool>,
+
+    /// Set http2 KEEP_ALIVE_TIMEOUT. Uses hyper’s default otherwise.
+    #[clap(long)]
+    http2_keep_alive_interval_ms: Option<u64>,
+
+    /// Sets the max connection-level flow control for HTTP2, default is 65,535
+    #[clap(long)]
+    initial_connection_window_size: Option<u32>,
+
+    ///Sets the SETTINGS_INITIAL_WINDOW_SIZE option for HTTP2 stream-level flow control, default is 65,535
+    #[clap(long)]
+    initial_stream_window_size: Option<u32>,
+
+    ///Set http2 KEEP_ALIVE_TIMEOUT. Uses hyper’s default otherwise.
+    #[clap(long)]
+    keep_alive_timeout_ms: Option<u64>,
+
+    /// Set http2 KEEP_ALIVE_WHILE_IDLE. Uses hyper’s default otherwise.
+    #[clap(long)]
+    keep_alive_while_idle: Option<bool>,
+
+    /// Set whether TCP keepalive messages are enabled on accepted connections.
+    #[clap(long)]
+    tcp_keepalive_ms: Option<u64>,
+
+    /// Set the value of TCP_NODELAY option for accepted connections. Enabled by default.
+    #[clap(long)]
+    tcp_nodelay: Option<bool>,
+
+    /// Apply a timeout to each request.
+    #[clap(long)]
+    timeout_ms: Option<u64>,
+
+    /// Max message size before decoding, full blocks can be super large, default is 1GiB
+    #[clap(long, default_value_t = 1024 * 1024 * 1024)]
+    max_decoding_message_size: usize,
+
+    #[clap(long)]
+    x_token: Option<String>,
+}
+
+impl ArgsAppStreamGrpc {
+    async fn connect(self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
+        let mut tls_config = ClientTlsConfig::new().with_native_roots();
+        if let Some(path) = &self.ca_certificate {
+            let bytes = fs::read(path).await?;
+            tls_config = tls_config.ca_certificate(Certificate::from_pem(bytes));
+        }
+        let mut builder = GrpcClient::build_from_shared(self.endpoint)?
+            .x_token(self.x_token)?
+            .tls_config(tls_config)?
+            .max_decoding_message_size(self.max_decoding_message_size);
+
+        if let Some(duration) = self.connect_timeout_ms {
+            builder = builder.connect_timeout(Duration::from_millis(duration));
+        }
+        if let Some(sz) = self.buffer_size {
+            builder = builder.buffer_size(sz);
+        }
+        if let Some(enabled) = self.http2_adaptive_window {
+            builder = builder.http2_adaptive_window(enabled);
+        }
+        if let Some(duration) = self.http2_keep_alive_interval_ms {
+            builder = builder.http2_keep_alive_interval(Duration::from_millis(duration));
+        }
+        if let Some(sz) = self.initial_connection_window_size {
+            builder = builder.initial_connection_window_size(sz);
+        }
+        if let Some(sz) = self.initial_stream_window_size {
+            builder = builder.initial_stream_window_size(sz);
+        }
+        if let Some(duration) = self.keep_alive_timeout_ms {
+            builder = builder.keep_alive_timeout(Duration::from_millis(duration));
+        }
+        if let Some(enabled) = self.keep_alive_while_idle {
+            builder = builder.keep_alive_while_idle(enabled);
+        }
+        if let Some(duration) = self.tcp_keepalive_ms {
+            builder = builder.tcp_keepalive(Some(Duration::from_millis(duration)));
+        }
+        if let Some(enabled) = self.tcp_nodelay {
+            builder = builder.tcp_nodelay(enabled);
+        }
+        if let Some(duration) = self.timeout_ms {
+            builder = builder.timeout(Duration::from_millis(duration));
+        }
+
+        builder.connect().await.map_err(Into::into)
+    }
+
+    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+        let endpoint = self.endpoint.clone();
+        let mut client = self.connect().await.context("failed to connect")?;
+        info!("connected to {endpoint} over gRPC");
+
+        let stream = client
+            .subscribe_once(SubscribeRequest {
+                from_slot: replay_from_slot,
+                ..Default::default()
+            })
+            .await
+            .context("failed to subscribe")?;
+        info!("subscribed");
+
+        Ok(stream.into_parsed().map_err(Into::into).boxed())
     }
 }
 

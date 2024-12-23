@@ -12,7 +12,7 @@ pub struct Account<'a> {
 }
 
 impl<'a> prost::Message for Account<'a> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         encode_key(1, WireType::LengthDelimited, buf);
         encode_varint(self.account_encoded_len() as u64, buf);
 
@@ -53,7 +53,7 @@ impl<'a> prost::Message for Account<'a> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl hyper::body::Buf,
+        _buf: &mut impl bytes::Buf,
         _ctx: encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
