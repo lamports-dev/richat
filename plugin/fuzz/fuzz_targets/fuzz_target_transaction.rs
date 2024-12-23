@@ -11,7 +11,6 @@ use {
         message::{v0::LoadedAddresses, SimpleAddressLoader},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
-        signers::Signers,
         transaction::{
             SanitizedTransaction, SanitizedVersionedTransaction, TransactionError,
             VersionedTransaction,
@@ -20,26 +19,30 @@ use {
     std::collections::HashSet,
 };
 
-pub struct FuzzSigner;
+pub mod signer {
+    use solana_sdk::{pubkey::Pubkey, signature::Signature, signers::Signers};
 
-impl Signers for FuzzSigner {
-    fn pubkeys(&self) -> Vec<Pubkey> {
-        vec![Pubkey::new_unique()]
-    }
-    fn try_pubkeys(&self) -> std::result::Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
-        Ok(vec![Pubkey::new_unique()])
-    }
-    fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
-        vec![Signature::new_unique()]
-    }
-    fn try_sign_message(
-        &self,
-        _message: &[u8],
-    ) -> std::result::Result<Vec<Signature>, solana_sdk::signer::SignerError> {
-        Ok(vec![Signature::new_unique()])
-    }
-    fn is_interactive(&self) -> bool {
-        false
+    pub struct SimpleSigner;
+
+    impl Signers for SimpleSigner {
+        fn pubkeys(&self) -> Vec<Pubkey> {
+            vec![Pubkey::new_unique()]
+        }
+        fn try_pubkeys(&self) -> std::result::Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
+            Ok(vec![Pubkey::new_unique()])
+        }
+        fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
+            vec![Signature::new_unique()]
+        }
+        fn try_sign_message(
+            &self,
+            _message: &[u8],
+        ) -> std::result::Result<Vec<Signature>, solana_sdk::signer::SignerError> {
+            Ok(vec![Signature::new_unique()])
+        }
+        fn is_interactive(&self) -> bool {
+            false
+        }
     }
 }
 
@@ -109,19 +112,15 @@ pub mod sanitized {
 
     impl From<FuzzLegacyMessageInner> for legacy::Message {
         fn from(value: FuzzLegacyMessageInner) -> Self {
-            let header = value.header.into();
-            let account_keys = value
-                .account_keys
-                .into_iter()
-                .map(Pubkey::new_from_array)
-                .collect();
-            let recent_blockhash = Hash::new_from_array(value.recent_blockhash);
-            let instructions = value.instructions.into_iter().map(Into::into).collect();
             legacy::Message {
-                header,
-                account_keys,
-                recent_blockhash,
-                instructions,
+                header: value.header.into(),
+                account_keys: value
+                    .account_keys
+                    .into_iter()
+                    .map(Pubkey::new_from_array)
+                    .collect(),
+                recent_blockhash: Hash::new_from_array(value.recent_blockhash),
+                instructions: value.instructions.into_iter().map(Into::into).collect(),
             }
         }
     }
@@ -171,25 +170,20 @@ pub mod sanitized {
 
     impl From<FuzzLoadedMessageInner> for v0::Message {
         fn from(value: FuzzLoadedMessageInner) -> Self {
-            let header = value.header.into();
-            let account_keys = value
-                .account_keys
-                .into_iter()
-                .map(Pubkey::new_from_array)
-                .collect();
-            let recent_blockhash = Hash::new_from_array(value.recent_blockhash);
-            let instructions = value.instructions.into_iter().map(Into::into).collect();
-            let address_table_lookups = value
-                .address_table_lookups
-                .into_iter()
-                .map(Into::into)
-                .collect();
             v0::Message {
-                header,
-                account_keys,
-                recent_blockhash,
-                instructions,
-                address_table_lookups,
+                header: value.header.into(),
+                account_keys: value
+                    .account_keys
+                    .into_iter()
+                    .map(Pubkey::new_from_array)
+                    .collect(),
+                recent_blockhash: Hash::new_from_array(value.recent_blockhash),
+                instructions: value.instructions.into_iter().map(Into::into).collect(),
+                address_table_lookups: value
+                    .address_table_lookups
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }
         }
     }
@@ -434,7 +428,8 @@ pub struct FuzzTransactionMessage<'a> {
 fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
     let mut buf = Vec::new();
     let versioned_message = fuzz_message.transaction.transaction.message.into();
-    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &FuzzSigner)
+    let simple_signer = signer::SimpleSigner;
+    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &simple_signer)
         .expect("failed to define `VersionedTransaction`");
     let sanitized_versioned_transaction =
         SanitizedVersionedTransaction::try_new(versioned_transaction)
