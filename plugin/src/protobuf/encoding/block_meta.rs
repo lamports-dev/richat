@@ -17,27 +17,61 @@ pub struct BlockMeta<'a> {
 
 impl<'a> prost::Message for BlockMeta<'a> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
-        encoding::uint64::encode(1, &self.blockinfo.slot, buf);
-        bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
+        if self.blockinfo.slot != 0 {
+            encoding::uint64::encode(1, &self.blockinfo.slot, buf)
+        }
+        if !self.blockinfo.blockhash.is_empty() {
+            bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf)
+        }
         encode_rewards_and_num_partitions(3, self.blockinfo.rewards, buf);
         encode_block_time(4, &self.blockinfo.block_time, buf);
         encode_uint64_optional_message(5, &self.blockinfo.block_height, buf);
-        encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf);
-        bytes_encode(7, self.blockinfo.parent_blockhash.as_ref(), buf);
-        encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);
-        encoding::uint64::encode(9, &self.blockinfo.entry_count, buf);
+        if self.blockinfo.parent_slot != 0 {
+            encoding::uint64::encode(7, &self.blockinfo.parent_slot, buf)
+        }
+        if !self.blockinfo.parent_blockhash.is_empty() {
+            bytes_encode(8, self.blockinfo.parent_blockhash.as_ref(), buf);
+        }
+        if self.blockinfo.executed_transaction_count != 0 {
+            encoding::uint64::encode(9, &self.blockinfo.executed_transaction_count, buf)
+        }
+        if self.blockinfo.entry_count != 0 {
+            encoding::uint64::encode(12, &self.blockinfo.entry_count, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
-        encoding::uint64::encoded_len(1, &self.blockinfo.slot)
-            + bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
-            + rewards_and_num_partitions_encoded_len(3, self.blockinfo.rewards)
+        (if self.blockinfo.slot != 0 {
+            encoding::uint64::encoded_len(1, &self.blockinfo.slot)
+        } else {
+            0
+        }) + if !self.blockinfo.blockhash.is_empty() {
+            bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
+        } else {
+            0
+        } + rewards_and_num_partitions_encoded_len(3, self.blockinfo.rewards)
             + block_time_encoded_len(4, &self.blockinfo.block_time)
             + uint64_optional_message_encoded_len(5, &self.blockinfo.block_height)
-            + encoding::uint64::encoded_len(6, &self.blockinfo.parent_slot)
-            + bytes_encoded_len(7, self.blockinfo.parent_blockhash.as_ref())
-            + encoding::uint64::encoded_len(8, &self.blockinfo.executed_transaction_count)
-            + encoding::uint64::encoded_len(9, &self.blockinfo.entry_count)
+            + if self.blockinfo.parent_slot != 0 {
+                encoding::uint64::encoded_len(7, &self.blockinfo.parent_slot)
+            } else {
+                0
+            }
+            + if !self.blockinfo.parent_blockhash.is_empty() {
+                bytes_encoded_len(8, self.blockinfo.parent_blockhash.as_ref())
+            } else {
+                0
+            }
+            + if self.blockinfo.executed_transaction_count != 0 {
+                encoding::uint64::encoded_len(9, &self.blockinfo.executed_transaction_count)
+            } else {
+                0
+            }
+            + if self.blockinfo.entry_count != 0 {
+                encoding::uint64::encoded_len(12, &self.blockinfo.entry_count)
+            } else {
+                0
+            }
     }
 
     fn merge_field(
@@ -90,7 +124,9 @@ fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufMut) 
     encode_varint(block_time_encoded_len(tag, block_time) as u64, buf);
 
     if let Some(block_time) = block_time {
-        encoding::int64::encode(1, block_time, buf)
+        if *block_time != 0 {
+            encoding::int64::encode(1, block_time, buf)
+        }
     }
 }
 
@@ -104,7 +140,9 @@ fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut impl 
     encode_varint(uint64_optional_message_encoded_len(tag, value) as u64, buf);
 
     if let Some(value) = value {
-        encoding::uint64::encode(1, value, buf)
+        if *value != 0 {
+            encoding::uint64::encode(1, value, buf)
+        }
     }
 }
 
