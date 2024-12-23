@@ -4,6 +4,7 @@ members = [
     "cli",
     "client",
     "plugin",
+    "richat",
     "shared",
 ]
 

@@ -3294,6 +3294,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "richat"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "richat-cli"
 version = "2.0.0"
 dependencies = [
