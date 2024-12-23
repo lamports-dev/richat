@@ -7,14 +7,15 @@ use {
     richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::{
         hash::Hash,
-        instruction::CompiledInstruction,
         message::{v0::LoadedAddresses, SimpleAddressLoader},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
         signers::Signers,
-        transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
+        transaction::{
+            SanitizedTransaction, SanitizedVersionedTransaction, TransactionError,
+            VersionedTransaction,
+        },
     },
-    solana_transaction_status::TransactionStatusMeta,
     std::collections::HashSet,
 };
 
@@ -24,7 +25,7 @@ impl Signers for FuzzSigner {
     fn pubkeys(&self) -> Vec<Pubkey> {
         vec![Pubkey::new_unique()]
     }
-    fn try_pubkeys(&self) -> Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
+    fn try_pubkeys(&self) -> std::result::Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
         Ok(vec![Pubkey::new_unique()])
     }
     fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
@@ -33,7 +34,7 @@ impl Signers for FuzzSigner {
     fn try_sign_message(
         &self,
         _message: &[u8],
-    ) -> Result<Vec<Signature>, solana_sdk::signer::SignerError> {
+    ) -> std::result::Result<Vec<Signature>, solana_sdk::signer::SignerError> {
         Ok(vec![Signature::new_unique()])
     }
     fn is_interactive(&self) -> bool {
@@ -48,9 +49,9 @@ pub struct FuzzCompiledInstruction {
     data: Vec<u8>,
 }
 
-impl Into<CompiledInstruction> for FuzzCompiledInstruction {
-    fn into(self) -> CompiledInstruction {
-        CompiledInstruction {
+impl Into<solana_sdk::instruction::CompiledInstruction> for FuzzCompiledInstruction {
+    fn into(self) -> solana_sdk::instruction::CompiledInstruction {
+        solana_sdk::instruction::CompiledInstruction {
             program_id_index: self.program_id_index,
             accounts: self.accounts,
             data: self.data,
@@ -107,7 +108,7 @@ pub mod sanitized {
 
     impl Into<legacy::Message> for FuzzLegacyMessageInner {
         fn into(self) -> legacy::Message {
-            let header = self.header.into_solana();
+            let header = self.header.into();
             let account_keys = self
                 .account_keys
                 .into_iter()
@@ -148,8 +149,8 @@ pub mod sanitized {
         pub num_readonly_unsigned_accounts: u8,
     }
 
-    impl FuzzMessageHeader {
-        pub fn into_solana(self) -> MessageHeader {
+    impl Into<MessageHeader> for FuzzMessageHeader {
+        fn into(self) -> MessageHeader {
             MessageHeader {
                 num_required_signatures: self.num_required_signatures,
                 num_readonly_signed_accounts: self.num_readonly_signed_accounts,
@@ -169,7 +170,7 @@ pub mod sanitized {
 
     impl Into<v0::Message> for FuzzLoadedMessageInner {
         fn into(self) -> v0::Message {
-            let header = self.header.into_solana();
+            let header = self.header.into();
             let account_keys = self
                 .account_keys
                 .into_iter()
@@ -265,7 +266,7 @@ pub mod status_meta {
 
     #[derive(Arbitrary, Debug)]
     pub enum FuzzTransactionError {
-        Err,
+        Zero,
     }
 
     #[derive(Arbitrary, Debug)]
@@ -443,7 +444,6 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         &HashSet::new(),
     )
     .expect("failed to define `SanitizedTransaction`");
-    let _status = ();
     let inner_instructions = fuzz_message
         .transaction
         .transaction_status_meta
@@ -474,8 +474,11 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         .transaction_status_meta
         .return_data
         .map(Into::into);
-    let transaction_status_meta = TransactionStatusMeta {
-        status: Ok(()), // TODO
+    let transaction_status_meta = solana_transaction_status::TransactionStatusMeta {
+        status: match fuzz_message.transaction.transaction_status_meta.status {
+            Ok(_) => Ok(()),
+            Err(_) => Err(TransactionError::UnsupportedVersion),
+        },
         fee: fuzz_message.transaction.transaction_status_meta.fee,
         pre_balances: fuzz_message
             .transaction

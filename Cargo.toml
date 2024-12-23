@@ -37,7 +37,7 @@ pin-project-lite = "0.2.15"
 prometheus = "0.13.4"
 prost = "0.13.4"
 prost-types = "0.13.4"
-prost_011 = { package = "prost", version = "0.11.9", features = ["derive"] }
+prost_011 = { package = "prost", version = "0.11.9", features = ["prost-derive"] }
 protobuf-src = "1.1.0"
 quinn = "0.11.6"
 rcgen = "0.13.1"

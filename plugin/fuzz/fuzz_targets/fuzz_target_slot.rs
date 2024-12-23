@@ -8,7 +8,7 @@ use {
     richat_plugin::protobuf::ProtobufMessage,
 };
 
-#[derive(Clone, PartialEq, Message)] // FIXME: compile error!!!
+#[derive(Message)]
 pub struct Slot {
     #[prost(uint64, tag = "1")]
     slot: u64,
@@ -18,7 +18,7 @@ pub struct Slot {
     status: i32,
 }
 
-#[derive(PartialEq, Clone, Copy, Arbitrary, Debug, Enumeration)]
+#[derive(Clone, Copy, Arbitrary, Debug, Enumeration)]
 #[repr(i32)]
 pub enum FuzzSlotStatus {
     Processed = 0,
@@ -64,5 +64,5 @@ fuzz_target!(|fuzz_slot: FuzzSlot| {
     let decoded = Slot::decode(buf.as_slice()).expect("failed to decode `Slot` from buf");
     assert_eq!(decoded.slot, fuzz_slot.slot);
     assert_eq!(decoded.parent, fuzz_slot.parent);
-    assert_eq!(decoded.status, fuzz_slot.status)
+    assert_eq!(decoded.status, fuzz_slot.status as i32)
 });

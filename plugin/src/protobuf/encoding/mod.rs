@@ -42,9 +42,11 @@ const fn u8_to_static_str(num: u8) -> &'static str {
 }
 
 pub fn encode_rewards(tag: u32, rewards: &[Reward], buf: &mut impl BufMut) {
-    encode_key(tag, WireType::Varint, buf);
+    encode_key(tag, WireType::LengthDelimited, buf);
     encode_varint(rewards_encoded_len(tag, rewards) as u64, buf);
     for reward in rewards {
+        encode_key(1, WireType::LengthDelimited, buf);
+        encode_varint(reward_encoded_len(reward) as u64, buf);
         encode_reward(reward, buf)
     }
 }
@@ -64,23 +66,43 @@ pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
 }
 
 pub fn encode_reward(reward: &Reward, buf: &mut impl BufMut) {
-    encoding::string::encode(1, &reward.pubkey, buf);
-    encoding::int64::encode(2, &reward.lamports, buf);
-    encoding::uint64::encode(3, &reward.post_balance, buf);
-    encoding::int32::encode(4, &reward_type_as_i32(reward.reward_type), buf);
+    if !reward.pubkey.is_empty() {
+        encoding::string::encode(1, &reward.pubkey, buf);
+    }
+    if reward.lamports != 0 {
+        encoding::int64::encode(2, &reward.lamports, buf)
+    }
+    if reward.post_balance != 0 {
+        encoding::uint64::encode(3, &reward.post_balance, buf);
+    }
+    if reward.reward_type.is_some() {
+        encoding::int32::encode(4, &reward_type_as_i32(reward.reward_type), buf);
+    }
     if let Some(commission) = reward.commission {
         bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
     }
 }
 
 pub fn reward_encoded_len(reward: &Reward) -> usize {
-    encoding::string::encoded_len(1, &reward.pubkey)
-        + encoding::int64::encoded_len(2, &reward.lamports)
-        + encoding::uint64::encoded_len(3, &reward.post_balance)
-        + encoding::int32::encoded_len(4, &reward_type_as_i32(reward.reward_type))
-        + reward.commission.map_or(0, |commission| {
-            bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
-        })
+    (if !reward.pubkey.is_empty() {
+        encoding::string::encoded_len(1, &reward.pubkey)
+    } else {
+        0
+    }) + if reward.lamports != 0 {
+        encoding::int64::encoded_len(2, &reward.lamports)
+    } else {
+        0
+    } + if reward.post_balance != 0 {
+        encoding::uint64::encoded_len(3, &reward.post_balance)
+    } else {
+        0
+    } + if reward.reward_type.is_some() {
+        encoding::int32::encoded_len(4, &reward_type_as_i32(reward.reward_type))
+    } else {
+        0
+    } + reward.commission.map_or(0, |commission| {
+        bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
+    })
 }
 
 pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {
