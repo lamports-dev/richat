@@ -12,7 +12,7 @@ lazy_static::lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
     static ref VERSION: IntCounterVec = IntCounterVec::new(
-        Opts::new("version", "Plugin version info"),
+        Opts::new("version", "Richat Plugin version info"),
         &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
     ).unwrap();
 

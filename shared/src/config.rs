@@ -5,7 +5,9 @@ use {
     },
     std::{
         collections::HashSet,
+        io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
+        sync::atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -28,6 +30,29 @@ impl ConfigTokio {
             Some(taskset) => parse_taskset(taskset).map(Some).map_err(de::Error::custom),
             None => Ok(None),
         }
+    }
+
+    pub fn build_runtime<T>(self, thread_name_prefix: T) -> io::Result<tokio::runtime::Runtime>
+    where
+        T: AsRef<str> + Send + Sync + 'static,
+    {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        if let Some(worker_threads) = self.worker_threads {
+            builder.worker_threads(worker_threads);
+        }
+        if let Some(cpus) = self.affinity.clone() {
+            builder.on_thread_start(move || {
+                affinity::set_thread_affinity(&cpus).expect("failed to set affinity")
+            });
+        }
+        builder
+            .thread_name_fn(move || {
+                static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
+                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
+                format!("{}{id:02}", thread_name_prefix.as_ref())
+            })
+            .enable_all()
+            .build()
     }
 }
 

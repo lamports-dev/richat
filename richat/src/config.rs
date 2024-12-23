@@ -1,5 +1,5 @@
 use {
-    richat_shared::config::ConfigPrometheus,
+    richat_shared::config::{ConfigPrometheus, ConfigTokio},
     serde::Deserialize,
     std::{fs, path::Path},
 };
@@ -8,6 +8,8 @@ use {
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub log: ConfigLog,
+    pub channel: ConfigChannel,
+    pub apps: ConfigApps,
     pub prometheus: Option<ConfigPrometheus>,
 }
 
@@ -29,4 +31,18 @@ impl Config {
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigLog {
     pub json: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigChannel {
+    // input, thead, etc
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigApps {
+    /// Runtime for incoming connections
+    pub tokio: ConfigTokio,
+    // grpc, pubsub
 }
