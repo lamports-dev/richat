@@ -2,9 +2,22 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
-    libfuzzer_sys::fuzz_target, prost_011::Message, richat_plugin::protobuf::ProtobufMessage,
-    solana_storage_proto::convert::entries::Entry,
+    libfuzzer_sys::fuzz_target, prost::Message, richat_plugin::protobuf::ProtobufMessage,
 };
+
+#[derive(Message)]
+pub struct Entry {
+    #[prost(uint32, tag = "1")]
+    pub index: u32,
+    #[prost(uint64, tag = "2")]
+    pub num_hashes: u64,
+    #[prost(bytes = "vec", tag = "3")]
+    pub hash: Vec<u8>,
+    #[prost(uint64, tag = "4")]
+    pub num_transactions: u64,
+    #[prost(uint32, tag = "5")]
+    pub starting_transaction_index: u32,
+}
 
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct FuzzEntry {
@@ -30,6 +43,7 @@ fuzz_target!(|fuzz_entry: FuzzEntry| {
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty());
+
     let decoded = Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
     assert_eq!(decoded.index as usize, fuzz_entry.index);
     assert_eq!(decoded.num_hashes, fuzz_entry.num_hashes);
