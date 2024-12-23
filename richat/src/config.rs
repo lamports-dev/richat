@@ -1,4 +1,5 @@
 use {
+    richat_shared::config::ConfigPrometheus,
     serde::Deserialize,
     std::{fs, path::Path},
 };
@@ -7,6 +8,7 @@ use {
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub log: ConfigLog,
+    pub prometheus: Option<ConfigPrometheus>,
 }
 
 impl Config {

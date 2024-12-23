@@ -16,5 +16,7 @@ fn main() -> anyhow::Result<()> {
     // Setup logs
     richat::log::setup(config.log.json)?;
 
+    // metrics: TODO
+
     Ok(())
 }

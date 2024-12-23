@@ -41,7 +41,7 @@ impl<'a> prost::Message for Slot<'a> {
         &mut self,
         _tag: u32,
         _wire_type: encoding::WireType,
-        _buf: &mut impl hyper::body::Buf,
+        _buf: &mut impl bytes::Buf,
         _ctx: encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where

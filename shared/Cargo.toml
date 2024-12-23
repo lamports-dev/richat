@@ -17,6 +17,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
+prometheus = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
 rcgen = { workspace = true }

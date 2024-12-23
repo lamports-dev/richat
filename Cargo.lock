@@ -3394,12 +3394,19 @@ name = "richat"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "cargo-lock",
  "clap",
+ "git-version",
  "json5",
+ "lazy_static",
+ "prometheus",
+ "richat-shared",
  "serde",
  "serde_yaml",
+ "tokio",
  "tracing",
  "tracing-subscriber",
+ "vergen",
 ]
 
 [[package]]
@@ -3465,8 +3472,6 @@ dependencies = [
  "git-version",
  "hostname",
  "http 1.2.0",
- "http-body-util",
- "hyper 1.5.1",
  "lazy_static",
  "log",
  "prometheus",
@@ -3501,6 +3506,7 @@ dependencies = [
  "humantime-serde",
  "hyper 1.5.1",
  "hyper-util",
+ "prometheus",
  "prost 0.13.4",
  "protobuf-src",
  "quinn",

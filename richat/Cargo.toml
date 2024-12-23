@@ -14,10 +14,21 @@ publish = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 json5 = { workspace = true }
+lazy_static = { workspace = true }
+prometheus = { workspace = true }
+richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
+
+[build-dependencies]
+anyhow = { workspace = true }
+cargo-lock = { workspace = true }
+git-version = { workspace = true }
+# tonic-build = { workspace = true }
+vergen = { workspace = true, features = ["build", "rustc"] }
 
 [lints]
 workspace = true
