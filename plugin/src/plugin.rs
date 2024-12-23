@@ -1,7 +1,10 @@
 use {
     crate::{
-        channel::Sender, config::Config, grpc::GrpcServer, metrics, protobuf::ProtobufMessage,
-        quic::QuicServer, tcp::TcpServer,
+        channel::Sender,
+        config::Config,
+        metrics,
+        protobuf::ProtobufMessage,
+        transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
