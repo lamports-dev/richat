@@ -62,9 +62,9 @@ pub enum FuzzRewardType {
     Voting = 4,
 }
 
-impl Into<RewardType> for FuzzRewardType {
-    fn into(self) -> RewardType {
-        match self {
+impl From<FuzzRewardType> for RewardType {
+    fn from(value: FuzzRewardType) -> Self {
+        match value {
             FuzzRewardType::Fee => RewardType::Fee,
             FuzzRewardType::Rent => RewardType::Rent,
             FuzzRewardType::Staking => RewardType::Staking,

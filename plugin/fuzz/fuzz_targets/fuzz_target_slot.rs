@@ -30,9 +30,9 @@ pub enum FuzzSlotStatus {
     Dead = 6,
 }
 
-impl Into<SlotStatus> for FuzzSlotStatus {
-    fn into(self) -> SlotStatus {
-        match self {
+impl From<FuzzSlotStatus> for SlotStatus {
+    fn from(value: FuzzSlotStatus) -> Self {
+        match value {
             FuzzSlotStatus::Processed => SlotStatus::Processed,
             FuzzSlotStatus::Rooted => SlotStatus::Rooted,
             FuzzSlotStatus::Confirmed => SlotStatus::Confirmed,

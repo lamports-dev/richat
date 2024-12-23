@@ -58,6 +58,7 @@ fuzz_target!(|fuzz_message: FuzzAccountMessage| {
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty());
+
     let decoded = Account::decode(buf.as_slice()).expect("failed to decode `Account` from buf");
     assert_eq!(&decoded.pubkey, &fuzz_message.account.pubkey);
     assert_eq!(decoded.lamports, fuzz_message.account.lamports);

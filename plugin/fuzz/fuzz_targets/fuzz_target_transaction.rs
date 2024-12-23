@@ -7,6 +7,7 @@ use {
     richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::{
         hash::Hash,
+        instruction::CompiledInstruction,
         message::{v0::LoadedAddresses, SimpleAddressLoader},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
@@ -49,12 +50,12 @@ pub struct FuzzCompiledInstruction {
     data: Vec<u8>,
 }
 
-impl Into<solana_sdk::instruction::CompiledInstruction> for FuzzCompiledInstruction {
-    fn into(self) -> solana_sdk::instruction::CompiledInstruction {
-        solana_sdk::instruction::CompiledInstruction {
-            program_id_index: self.program_id_index,
-            accounts: self.accounts,
-            data: self.data,
+impl From<FuzzCompiledInstruction> for CompiledInstruction {
+    fn from(value: FuzzCompiledInstruction) -> Self {
+        CompiledInstruction {
+            program_id_index: value.program_id_index,
+            accounts: value.accounts,
+            data: value.data,
         }
     }
 }
@@ -65,15 +66,15 @@ pub struct FuzzLoadedAddresses {
     readonly: Vec<[u8; PUBKEY_BYTES]>,
 }
 
-impl Into<LoadedAddresses> for FuzzLoadedAddresses {
-    fn into(self) -> LoadedAddresses {
+impl From<FuzzLoadedAddresses> for LoadedAddresses {
+    fn from(value: FuzzLoadedAddresses) -> Self {
         LoadedAddresses {
-            writable: self
+            writable: value
                 .writable
                 .into_iter()
                 .map(Pubkey::new_from_array)
                 .collect(),
-            readonly: self
+            readonly: value
                 .readonly
                 .into_iter()
                 .map(Pubkey::new_from_array)
@@ -106,16 +107,16 @@ pub mod sanitized {
         pub instructions: Vec<super::FuzzCompiledInstruction>,
     }
 
-    impl Into<legacy::Message> for FuzzLegacyMessageInner {
-        fn into(self) -> legacy::Message {
-            let header = self.header.into();
-            let account_keys = self
+    impl From<FuzzLegacyMessageInner> for legacy::Message {
+        fn from(value: FuzzLegacyMessageInner) -> Self {
+            let header = value.header.into();
+            let account_keys = value
                 .account_keys
                 .into_iter()
                 .map(Pubkey::new_from_array)
                 .collect();
-            let recent_blockhash = Hash::new_from_array(self.recent_blockhash);
-            let instructions = self.instructions.into_iter().map(Into::into).collect();
+            let recent_blockhash = Hash::new_from_array(value.recent_blockhash);
+            let instructions = value.instructions.into_iter().map(Into::into).collect();
             legacy::Message {
                 header,
                 account_keys,
@@ -132,12 +133,12 @@ pub mod sanitized {
         pub readonly_indexes: Vec<u8>,
     }
 
-    impl Into<MessageAddressTableLookup> for FuzzMessageAddressTableLookup {
-        fn into(self) -> MessageAddressTableLookup {
+    impl From<FuzzMessageAddressTableLookup> for MessageAddressTableLookup {
+        fn from(value: FuzzMessageAddressTableLookup) -> Self {
             MessageAddressTableLookup {
-                account_key: Pubkey::new_from_array(self.account_key),
-                writable_indexes: self.writable_indexes,
-                readonly_indexes: self.readonly_indexes,
+                account_key: Pubkey::new_from_array(value.account_key),
+                writable_indexes: value.writable_indexes,
+                readonly_indexes: value.readonly_indexes,
             }
         }
     }
@@ -149,12 +150,12 @@ pub mod sanitized {
         pub num_readonly_unsigned_accounts: u8,
     }
 
-    impl Into<MessageHeader> for FuzzMessageHeader {
-        fn into(self) -> MessageHeader {
+    impl From<FuzzMessageHeader> for MessageHeader {
+        fn from(value: FuzzMessageHeader) -> Self {
             MessageHeader {
-                num_required_signatures: self.num_required_signatures,
-                num_readonly_signed_accounts: self.num_readonly_signed_accounts,
-                num_readonly_unsigned_accounts: self.num_readonly_unsigned_accounts,
+                num_required_signatures: value.num_required_signatures,
+                num_readonly_signed_accounts: value.num_readonly_signed_accounts,
+                num_readonly_unsigned_accounts: value.num_readonly_unsigned_accounts,
             }
         }
     }
@@ -168,17 +169,17 @@ pub mod sanitized {
         pub address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
     }
 
-    impl Into<v0::Message> for FuzzLoadedMessageInner {
-        fn into(self) -> v0::Message {
-            let header = self.header.into();
-            let account_keys = self
+    impl From<FuzzLoadedMessageInner> for v0::Message {
+        fn from(value: FuzzLoadedMessageInner) -> Self {
+            let header = value.header.into();
+            let account_keys = value
                 .account_keys
                 .into_iter()
                 .map(Pubkey::new_from_array)
                 .collect();
-            let recent_blockhash = Hash::new_from_array(self.recent_blockhash);
-            let instructions = self.instructions.into_iter().map(Into::into).collect();
-            let address_table_lookups = self
+            let recent_blockhash = Hash::new_from_array(value.recent_blockhash);
+            let instructions = value.instructions.into_iter().map(Into::into).collect();
+            let address_table_lookups = value
                 .address_table_lookups
                 .into_iter()
                 .map(Into::into)
@@ -199,11 +200,11 @@ pub mod sanitized {
         pub is_writable_account_cache: Vec<bool>,
     }
 
-    impl<'a> Into<LegacyMessage<'static>> for FuzzLegacyMessage<'a> {
-        fn into(self) -> LegacyMessage<'static> {
+    impl<'a> From<FuzzLegacyMessage<'a>> for LegacyMessage<'static> {
+        fn from(value: FuzzLegacyMessage<'a>) -> Self {
             LegacyMessage {
-                message: Cow::Owned(self.message.into_owned().into()),
-                is_writable_account_cache: self.is_writable_account_cache,
+                message: Cow::Owned(value.message.into_owned().into()),
+                is_writable_account_cache: value.is_writable_account_cache,
             }
         }
     }
@@ -215,12 +216,12 @@ pub mod sanitized {
         pub is_writable_account_cache: Vec<bool>,
     }
 
-    impl<'a> Into<v0::LoadedMessage<'static>> for FuzzLoadedMessage<'a> {
-        fn into(self) -> v0::LoadedMessage<'static> {
+    impl<'a> From<FuzzLoadedMessage<'a>> for v0::LoadedMessage<'static> {
+        fn from(value: FuzzLoadedMessage<'a>) -> Self {
             v0::LoadedMessage {
-                message: Cow::Owned(self.message.into_owned().into()),
-                loaded_addresses: Cow::Owned(self.loaded_addresses.into_owned().into()),
-                is_writable_account_cache: self.is_writable_account_cache,
+                message: Cow::Owned(value.message.into_owned().into()),
+                loaded_addresses: Cow::Owned(value.loaded_addresses.into_owned().into()),
+                is_writable_account_cache: value.is_writable_account_cache,
             }
         }
     }
@@ -231,13 +232,15 @@ pub mod sanitized {
         V0(FuzzLoadedMessage<'a>),
     }
 
-    impl<'a> Into<VersionedMessage> for FuzzSanitizedMessage<'a> {
-        fn into(self) -> VersionedMessage {
-            match self {
-                Self::Legacy(legacy) => {
+    impl<'a> From<FuzzSanitizedMessage<'a>> for VersionedMessage {
+        fn from(value: FuzzSanitizedMessage<'a>) -> Self {
+            match value {
+                FuzzSanitizedMessage::Legacy(legacy) => {
                     VersionedMessage::Legacy(legacy.message.into_owned().into())
                 }
-                Self::V0(v0) => VersionedMessage::V0(v0.message.into_owned().into()),
+                FuzzSanitizedMessage::V0(v0) => {
+                    VersionedMessage::V0(v0.message.into_owned().into())
+                }
             }
         }
     }
@@ -275,12 +278,12 @@ pub mod status_meta {
         pub stack_height: Option<u32>,
     }
 
-    impl Into<InnerInstruction> for FuzzInnerInstruction {
-        fn into(self) -> InnerInstruction {
-            let instruction = self.instruction.into();
+    impl From<FuzzInnerInstruction> for InnerInstruction {
+        fn from(value: FuzzInnerInstruction) -> Self {
+            let instruction = value.instruction.into();
             InnerInstruction {
                 instruction,
-                stack_height: self.stack_height,
+                stack_height: value.stack_height,
             }
         }
     }
@@ -291,11 +294,11 @@ pub mod status_meta {
         pub instructions: Vec<FuzzInnerInstruction>,
     }
 
-    impl Into<InnerInstructions> for FuzzInnerInstructions {
-        fn into(self) -> InnerInstructions {
-            let instructions = self.instructions.into_iter().map(Into::into).collect();
+    impl From<FuzzInnerInstructions> for InnerInstructions {
+        fn from(value: FuzzInnerInstructions) -> Self {
+            let instructions = value.instructions.into_iter().map(Into::into).collect();
             InnerInstructions {
-                index: self.index,
+                index: value.index,
                 instructions,
             }
         }
@@ -309,13 +312,13 @@ pub mod status_meta {
         pub ui_amount_string: String,
     }
 
-    impl Into<UiTokenAmount> for FuzzUiTokenAmount {
-        fn into(self) -> UiTokenAmount {
+    impl From<FuzzUiTokenAmount> for UiTokenAmount {
+        fn from(value: FuzzUiTokenAmount) -> Self {
             UiTokenAmount {
-                ui_amount: self.ui_amount,
-                amount: self.amount,
-                decimals: self.decimals,
-                ui_amount_string: self.ui_amount_string,
+                ui_amount: value.ui_amount,
+                amount: value.amount,
+                decimals: value.decimals,
+                ui_amount_string: value.ui_amount_string,
             }
         }
     }
@@ -329,14 +332,14 @@ pub mod status_meta {
         pub program_id: String,
     }
 
-    impl Into<TransactionTokenBalance> for FuzzTransactionTokenBalance {
-        fn into(self) -> TransactionTokenBalance {
+    impl From<FuzzTransactionTokenBalance> for TransactionTokenBalance {
+        fn from(value: FuzzTransactionTokenBalance) -> Self {
             TransactionTokenBalance {
-                account_index: self.account_index,
-                mint: self.mint,
-                ui_token_amount: self.ui_token_amount.into(),
-                owner: self.owner,
-                program_id: self.program_id,
+                account_index: value.account_index,
+                mint: value.mint,
+                ui_token_amount: value.ui_token_amount.into(),
+                owner: value.owner,
+                program_id: value.program_id,
             }
         }
     }
@@ -349,9 +352,9 @@ pub mod status_meta {
         Voting,
     }
 
-    impl Into<RewardType> for FuzzRewardType {
-        fn into(self) -> RewardType {
-            match self {
+    impl From<FuzzRewardType> for RewardType {
+        fn from(value: FuzzRewardType) -> Self {
+            match value {
                 FuzzRewardType::Fee => RewardType::Fee,
                 FuzzRewardType::Rent => RewardType::Rent,
                 FuzzRewardType::Staking => RewardType::Staking,
@@ -369,14 +372,14 @@ pub mod status_meta {
         pub commission: Option<u8>,
     }
 
-    impl Into<Reward> for FuzzReward {
-        fn into(self) -> Reward {
+    impl From<FuzzReward> for Reward {
+        fn from(value: FuzzReward) -> Self {
             Reward {
-                pubkey: self.pubkey,
-                lamports: self.lamports,
-                post_balance: self.post_balance,
-                reward_type: self.reward_type.map(Into::into),
-                commission: self.commission,
+                pubkey: value.pubkey,
+                lamports: value.lamports,
+                post_balance: value.post_balance,
+                reward_type: value.reward_type.map(Into::into),
+                commission: value.commission,
             }
         }
     }
@@ -387,11 +390,11 @@ pub mod status_meta {
         pub data: Vec<u8>,
     }
 
-    impl Into<TransactionReturnData> for FuzzTransactionReturnData {
-        fn into(self) -> TransactionReturnData {
+    impl From<FuzzTransactionReturnData> for TransactionReturnData {
+        fn from(value: FuzzTransactionReturnData) -> Self {
             TransactionReturnData {
-                program_id: Pubkey::new_from_array(self.program_id),
-                data: self.data,
+                program_id: Pubkey::new_from_array(value.program_id),
+                data: value.data,
             }
         }
     }
