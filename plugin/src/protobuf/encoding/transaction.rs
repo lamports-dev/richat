@@ -43,12 +43,18 @@ impl<'a> prost::Message for Transaction<'a> {
 
         encode_replica_transaction_info(self.transaction, buf);
 
-        encoding::uint64::encode(2, &self.slot, buf)
+        if self.slot != 0 {
+            encoding::uint64::encode(2, &self.slot, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
         field_encoded_len(1, replica_transaction_info_encoded_len(self.transaction))
-            + encoding::uint64::encoded_len(2, &self.slot)
+            + if self.slot != 0 {
+                encoding::uint64::encoded_len(2, &self.slot)
+            } else {
+                0
+            }
     }
 
     fn merge_field(
@@ -82,20 +88,32 @@ fn encode_replica_transaction_info(
     let index = transaction.index as u64;
 
     bytes_encode(1, transaction.signature.as_ref(), buf);
-    encoding::bool::encode(2, &transaction.is_vote, buf);
+    if transaction.is_vote {
+        encoding::bool::encode(2, &transaction.is_vote, buf)
+    }
     encode_sanitazed_transaction(transaction.transaction, buf);
     encode_transaction_status_meta(transaction.transaction_status_meta, buf);
-    encoding::uint64::encode(5, &index, buf)
+    if index != 0 {
+        encoding::uint64::encode(5, &index, buf)
+    }
 }
 
 fn replica_transaction_info_encoded_len(transaction: &ReplicaTransactionInfoV2<'_>) -> usize {
     let index = transaction.index as u64;
 
     bytes_encoded_len(1, transaction.signature.as_ref())
-        + encoding::bool::encoded_len(2, &transaction.is_vote)
+        + if transaction.is_vote {
+            encoding::bool::encoded_len(2, &transaction.is_vote)
+        } else {
+            0
+        }
         + sanitazed_transaction_encoded_len(transaction.transaction)
         + transaction_status_meta_encoded_len(transaction.transaction_status_meta)
-        + encoding::uint64::encoded_len(5, &index)
+        + if index != 0 {
+            encoding::uint64::encoded_len(5, &index)
+        } else {
+            0
+        }
 }
 
 fn encode_sanitazed_transaction(sanitazed: &SanitizedTransaction, buf: &mut impl BufMut) {
@@ -198,15 +216,31 @@ fn encode_message_header(header: solana_sdk::message::MessageHeader, buf: &mut i
         )) as u64,
         buf,
     );
-    encoding::uint32::encode(1, &num_required_signatures, buf);
-    encoding::uint32::encode(2, &num_readonly_signed_accounts, buf);
-    encoding::uint32::encode(3, &num_readonly_unsigned_accounts, buf)
+    if num_required_signatures != 0 {
+        encoding::uint32::encode(1, &num_required_signatures, buf)
+    }
+    if num_readonly_signed_accounts != 0 {
+        encoding::uint32::encode(2, &num_readonly_signed_accounts, buf)
+    }
+    if num_readonly_unsigned_accounts != 0 {
+        encoding::uint32::encode(3, &num_readonly_unsigned_accounts, buf)
+    }
 }
 
 fn message_header_encoded_len(header: (u32, u32, u32)) -> usize {
-    let len = encoding::uint32::encoded_len(1, &header.0)
-        + encoding::uint32::encoded_len(2, &header.1)
-        + encoding::uint32::encoded_len(3, &header.2);
+    let len = if header.0 != 0 {
+        encoding::uint32::encoded_len(1, &header.0)
+    } else {
+        0
+    } + if header.1 != 0 {
+        encoding::uint32::encoded_len(2, &header.1)
+    } else {
+        0
+    } + if header.2 != 0 {
+        encoding::uint32::encoded_len(3, &header.2)
+    } else {
+        0
+    };
     field_encoded_len(1, len)
 }
 
@@ -259,24 +293,35 @@ fn compiled_instructions_encoded_len(compiled_instructions: &[CompiledInstructio
 
 fn encode_compiled_instruction(compiled_instruction: &CompiledInstruction, buf: &mut impl BufMut) {
     let program_id_index = compiled_instruction.program_id_index as u32;
-    encoding::uint32::encode(1, &program_id_index, buf);
+    if program_id_index != 0 {
+        encoding::uint32::encode(1, &program_id_index, buf)
+    }
     bytes_encode(2, &compiled_instruction.accounts, buf);
     bytes_encode(3, &compiled_instruction.data, buf)
 }
 
 fn compiled_instruction_encoded_len(compiled_instruction: &CompiledInstruction) -> usize {
     let program_id_index = compiled_instruction.program_id_index as u32;
-    encoding::uint32::encoded_len(1, &program_id_index)
-        + bytes_encoded_len(2, &compiled_instruction.accounts)
+    (if program_id_index != 0 {
+        encoding::uint32::encoded_len(1, &program_id_index)
+    } else {
+        0
+    }) + bytes_encoded_len(2, &compiled_instruction.accounts)
         + bytes_encoded_len(3, &compiled_instruction.data)
 }
 
 fn encode_versioned(versioned: bool, buf: &mut impl BufMut) {
-    encoding::bool::encode(5, &versioned, buf)
+    if versioned {
+        encoding::bool::encode(5, &versioned, buf)
+    }
 }
 
 fn versioned_encoded_len(versioned: bool) -> usize {
-    encoding::bool::encoded_len(5, &versioned)
+    if versioned {
+        encoding::bool::encoded_len(5, &versioned)
+    } else {
+        0
+    }
 }
 
 fn encode_address_table_lookups(
@@ -330,7 +375,9 @@ fn encode_transaction_status_meta(
     if let Err(ref err) = transaction_status_meta.status {
         encode_transaction_error(err, buf)
     }
-    encoding::uint64::encode(2, &transaction_status_meta.fee, buf);
+    if transaction_status_meta.fee != 0 {
+        encoding::uint64::encode(2, &transaction_status_meta.fee, buf)
+    }
     encoding::uint64::encode_repeated(3, &transaction_status_meta.pre_balances, buf);
     encoding::uint64::encode_repeated(4, &transaction_status_meta.post_balances, buf);
     if let Some(ref inner_instructions) = transaction_status_meta.inner_instructions {
@@ -348,20 +395,28 @@ fn encode_transaction_status_meta(
     if let Some(ref rewards) = transaction_status_meta.rewards {
         encode_rewards(9, rewards, buf)
     }
-    encoding::bool::encode(
-        10,
-        &transaction_status_meta.inner_instructions.is_none(),
-        buf,
-    );
-    encoding::bool::encode(11, &transaction_status_meta.log_messages.is_none(), buf);
+    if transaction_status_meta.inner_instructions.is_none() {
+        encoding::bool::encode(
+            10,
+            &transaction_status_meta.inner_instructions.is_none(),
+            buf,
+        )
+    }
+    if transaction_status_meta.log_messages.is_none() {
+        encoding::bool::encode(11, &transaction_status_meta.log_messages.is_none(), buf)
+    }
     encode_loaded_writable_addresses(&transaction_status_meta.loaded_addresses, buf);
     encode_loaded_readonly_addresses(&transaction_status_meta.loaded_addresses, buf);
     if let Some(ref return_data) = transaction_status_meta.return_data {
         encode_transaction_return_data(return_data, buf)
     }
-    encoding::bool::encode(15, &transaction_status_meta.return_data.is_none(), buf);
+    if transaction_status_meta.return_data.is_none() {
+        encoding::bool::encode(15, &transaction_status_meta.return_data.is_none(), buf)
+    }
     if let Some(ref compute_units_consumed) = transaction_status_meta.compute_units_consumed {
-        encoding::uint64::encode(16, compute_units_consumed, buf)
+        if *compute_units_consumed != 0 {
+            encoding::uint64::encode(16, compute_units_consumed, buf)
+        }
     }
 }
 
@@ -371,7 +426,11 @@ fn transaction_status_meta_encoded_len(transaction_status_meta: &TransactionStat
         .as_ref()
         .err()
         .map_or(0, transaction_error_encoded_len)
-        + encoding::uint64::encoded_len(2, &transaction_status_meta.fee)
+        + if transaction_status_meta.fee != 0 {
+            encoding::uint64::encoded_len(2, &transaction_status_meta.fee)
+        } else {
+            0
+        }
         + encoding::uint64::encoded_len_repeated(3, &transaction_status_meta.pre_balances)
         + encoding::uint64::encoded_len_repeated(4, &transaction_status_meta.post_balances)
         + transaction_status_meta
@@ -402,8 +461,16 @@ fn transaction_status_meta_encoded_len(transaction_status_meta: &TransactionStat
             .rewards
             .as_ref()
             .map_or(0, |rewards| rewards_encoded_len(9, rewards))
-        + encoding::bool::encoded_len(10, &transaction_status_meta.inner_instructions.is_none())
-        + encoding::bool::encoded_len(11, &transaction_status_meta.log_messages.is_none())
+        + if transaction_status_meta.inner_instructions.is_none() {
+            encoding::bool::encoded_len(10, &transaction_status_meta.inner_instructions.is_none())
+        } else {
+            0
+        }
+        + if transaction_status_meta.log_messages.is_none() {
+            encoding::bool::encoded_len(11, &transaction_status_meta.log_messages.is_none())
+        } else {
+            0
+        }
         + loaded_writable_addresses_encoded_len(&transaction_status_meta.loaded_addresses)
         + loaded_readonly_addresses_encoded_len(&transaction_status_meta.loaded_addresses)
         + transaction_status_meta
@@ -412,12 +479,20 @@ fn transaction_status_meta_encoded_len(transaction_status_meta: &TransactionStat
             .map_or(0, |return_data| {
                 transaction_return_data_encoded_len(return_data)
             })
-        + encoding::bool::encoded_len(15, &transaction_status_meta.return_data.is_none())
+        + if transaction_status_meta.return_data.is_none() {
+            encoding::bool::encoded_len(15, &transaction_status_meta.return_data.is_none())
+        } else {
+            0
+        }
         + transaction_status_meta
             .compute_units_consumed
             .as_ref()
             .map_or(0, |compute_units_consumed| {
-                encoding::uint64::encoded_len(16, compute_units_consumed)
+                if *compute_units_consumed != 0 {
+                    encoding::uint64::encoded_len(16, compute_units_consumed)
+                } else {
+                    0
+                }
             });
     field_encoded_len(4, len)
 }
@@ -472,15 +547,20 @@ fn inner_instructions_vec_encoded_len(inner_instructions: &[InnerInstructions]) 
 fn encode_inner_instructions(inner_instructions: &InnerInstructions, buf: &mut impl BufMut) {
     let index = inner_instructions.index as u32;
 
-    encoding::uint32::encode(1, &index, buf);
+    if index != 0 {
+        encoding::uint32::encode(1, &index, buf)
+    }
     encode_inner_instruction_vec(&inner_instructions.instructions, buf)
 }
 
 fn inner_instructions_encoded_len(inner_instructions: &InnerInstructions) -> usize {
     let index = inner_instructions.index as u32;
 
-    encoding::uint32::encoded_len(1, &index)
-        + inner_instruction_vec_encoded_len(&inner_instructions.instructions)
+    (if index != 0 {
+        encoding::uint32::encoded_len(1, &index)
+    } else {
+        0
+    }) + inner_instruction_vec_encoded_len(&inner_instructions.instructions)
 }
 
 fn encode_inner_instruction_vec(inner_instructions: &[InnerInstruction], buf: &mut impl BufMut) {
@@ -511,14 +591,20 @@ fn encode_inner_instruction(inner_instruction: &InnerInstruction, buf: &mut impl
     encode_compiled_instruction(&inner_instruction.instruction, buf);
 
     if let Some(ref stack_height) = inner_instruction.stack_height {
-        encoding::uint32::encode(2, stack_height, buf)
+        if *stack_height != 0 {
+            encoding::uint32::encode(2, stack_height, buf)
+        }
     }
 }
 
 fn inner_instruction_encoded_len(inner_instruction: &InnerInstruction) -> usize {
     compiled_instruction_encoded_len(&inner_instruction.instruction)
         + inner_instruction.stack_height.map_or(0, |stack_height| {
-            encoding::uint32::encoded_len(2, &stack_height)
+            if stack_height != 0 {
+                encoding::uint32::encoded_len(2, &stack_height)
+            } else {
+                0
+            }
         })
 }
 
@@ -556,11 +642,19 @@ fn encode_transaction_token_balance(
 ) {
     let account_index = transaction_token_balance.account_index as u32;
 
-    encoding::uint32::encode(1, &account_index, buf);
-    encoding::string::encode(2, &transaction_token_balance.mint, buf);
+    if account_index != 0 {
+        encoding::uint32::encode(1, &account_index, buf)
+    }
+    if !transaction_token_balance.mint.is_empty() {
+        encoding::string::encode(2, &transaction_token_balance.mint, buf);
+    }
     encode_ui_token_amount(&transaction_token_balance.ui_token_amount, buf);
-    encoding::string::encode(4, &transaction_token_balance.owner, buf);
-    encoding::string::encode(5, &transaction_token_balance.program_id, buf)
+    if !transaction_token_balance.owner.is_empty() {
+        encoding::string::encode(4, &transaction_token_balance.owner, buf);
+    }
+    if !transaction_token_balance.program_id.is_empty() {
+        encoding::string::encode(5, &transaction_token_balance.program_id, buf)
+    }
 }
 
 fn transaction_token_balance_encoded_len(
@@ -568,11 +662,25 @@ fn transaction_token_balance_encoded_len(
 ) -> usize {
     let account_index = transaction_token_balance.account_index as u32;
 
-    encoding::uint32::encoded_len(1, &account_index)
-        + encoding::string::encoded_len(2, &transaction_token_balance.mint)
-        + ui_token_amount_encoded_len(&transaction_token_balance.ui_token_amount)
-        + encoding::string::encoded_len(4, &transaction_token_balance.owner)
-        + encoding::string::encoded_len(5, &transaction_token_balance.program_id)
+    (if account_index != 0 {
+        encoding::uint32::encoded_len(1, &account_index)
+    } else {
+        0
+    }) + !if transaction_token_balance.mint.is_empty() {
+        encoding::string::encoded_len(2, &transaction_token_balance.mint)
+    } else {
+        0
+    } + ui_token_amount_encoded_len(&transaction_token_balance.ui_token_amount)
+        + if !transaction_token_balance.owner.is_empty() {
+            encoding::string::encoded_len(4, &transaction_token_balance.owner)
+        } else {
+            0
+        }
+        + if !transaction_token_balance.program_id.is_empty() {
+            encoding::string::encoded_len(5, &transaction_token_balance.program_id)
+        } else {
+            0
+        }
 }
 
 fn encode_ui_token_amount(ui_token_amount: &UiTokenAmount, buf: &mut impl BufMut) {
@@ -581,21 +689,42 @@ fn encode_ui_token_amount(ui_token_amount: &UiTokenAmount, buf: &mut impl BufMut
     encode_key(3, WireType::LengthDelimited, buf);
     encode_varint(ui_token_amount_encoded_len(ui_token_amount) as u64, buf);
     if let Some(ref ui_amount) = ui_token_amount.ui_amount {
-        encoding::double::encode(1, ui_amount, buf)
+        if *ui_amount != 0. {
+            encoding::double::encode(1, ui_amount, buf)
+        }
     }
-    encoding::uint32::encode(2, &decimals, buf);
-    encoding::string::encode(3, &ui_token_amount.amount, buf);
-    encoding::string::encode(4, &ui_token_amount.ui_amount_string, buf)
+    if decimals != 0 {
+        encoding::uint32::encode(2, &decimals, buf)
+    }
+    if !ui_token_amount.amount.is_empty() {
+        encoding::string::encode(3, &ui_token_amount.amount, buf)
+    }
+    if !ui_token_amount.ui_amount_string.is_empty() {
+        encoding::string::encode(4, &ui_token_amount.ui_amount_string, buf)
+    }
 }
 
 fn ui_token_amount_encoded_len(ui_token_amount: &UiTokenAmount) -> usize {
     let decimals = ui_token_amount.decimals as u32;
-    ui_token_amount
-        .ui_amount
-        .map_or(0, |ui_amount| encoding::double::encoded_len(1, &ui_amount))
-        + encoding::uint32::encoded_len(2, &decimals)
-        + encoding::string::encoded_len(3, &ui_token_amount.amount)
-        + encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
+    ui_token_amount.ui_amount.map_or(0, |ui_amount| {
+        if ui_amount != 0. {
+            encoding::double::encoded_len(1, &ui_amount)
+        } else {
+            0
+        }
+    }) + if decimals != 0 {
+        encoding::uint32::encoded_len(2, &decimals)
+    } else {
+        0
+    } + if !ui_token_amount.amount.is_empty() {
+        encoding::string::encoded_len(3, &ui_token_amount.amount)
+    } else {
+        0
+    } + if !ui_token_amount.ui_amount_string.is_empty() {
+        encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
+    } else {
+        0
+    }
 }
 
 fn encode_loaded_writable_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
