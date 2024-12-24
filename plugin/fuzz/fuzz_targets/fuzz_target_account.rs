@@ -24,6 +24,14 @@ pub struct Account {
     write_version: u64,
 }
 
+#[derive(Message)]
+pub struct AccountMessage {
+    #[prost(message, tag = "1")]
+    account: Option<Account>,
+    #[prost(uint64, tag = "2")]
+    slot: u64,
+}
+
 #[derive(arbitrary::Arbitrary, Debug)]
 pub struct FuzzAccount<'a> {
     pubkey: [u8; PUBKEY_BYTES],
@@ -44,7 +52,6 @@ pub struct FuzzAccountMessage<'a> {
 fuzz_target!(|fuzz_message: FuzzAccountMessage| {
     let mut buf = Vec::new();
     let message = ProtobufMessage::Account {
-        slot: fuzz_message.slot,
         account: &ReplicaAccountInfoV3 {
             pubkey: &fuzz_message.account.pubkey,
             lamports: fuzz_message.account.lamports,
@@ -55,15 +62,19 @@ fuzz_target!(|fuzz_message: FuzzAccountMessage| {
             write_version: fuzz_message.account.write_version,
             txn: None,
         },
+        slot: fuzz_message.slot,
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty());
 
-    let decoded = Account::decode(buf.as_slice()).expect("failed to decode `Account` from buf");
-    assert_eq!(&decoded.pubkey, &fuzz_message.account.pubkey);
-    assert_eq!(decoded.lamports, fuzz_message.account.lamports);
-    assert_eq!(&decoded.owner, &fuzz_message.account.owner);
-    assert_eq!(decoded.executable, fuzz_message.account.executable);
-    assert_eq!(decoded.rent_epoch, fuzz_message.account.rent_epoch);
-    assert_eq!(decoded.write_version, fuzz_message.account.write_version)
+    let decoded =
+        AccountMessage::decode(buf.as_slice()).expect("failed to decode `Account` from buf");
+    let account = decoded.account.expect("`decoded.account` is None");
+    assert_eq!(&account.pubkey, &fuzz_message.account.pubkey);
+    assert_eq!(account.lamports, fuzz_message.account.lamports);
+    assert_eq!(&account.owner, &fuzz_message.account.owner);
+    assert_eq!(account.executable, fuzz_message.account.executable);
+    assert_eq!(account.rent_epoch, fuzz_message.account.rent_epoch);
+    assert_eq!(account.write_version, fuzz_message.account.write_version);
+    assert_eq!(decoded.slot, fuzz_message.slot)
 });

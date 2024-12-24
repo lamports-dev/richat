@@ -7,8 +7,8 @@ use {
 
 #[derive(Debug)]
 pub struct Account<'a> {
-    slot: Slot,
     account: &'a ReplicaAccountInfoV3<'a>,
+    slot: Slot,
 }
 
 impl<'a> prost::Message for Account<'a> {
