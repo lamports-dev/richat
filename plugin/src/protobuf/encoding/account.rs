@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, field_encoded_len},
+    super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     prost::encoding::{self, WireType},
     solana_sdk::clock::Slot,
