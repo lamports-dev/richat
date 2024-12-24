@@ -663,11 +663,25 @@ fn transaction_token_balance_encoded_len(
 ) -> usize {
     let account_index = transaction_token_balance.account_index as u32;
 
-    encoding::uint32::encoded_len(1, &account_index)
-        + encoding::string::encoded_len(2, &transaction_token_balance.mint)
-        + ui_token_amount_encoded_len(&transaction_token_balance.ui_token_amount)
-        + encoding::string::encoded_len(4, &transaction_token_balance.owner)
-        + encoding::string::encoded_len(5, &transaction_token_balance.program_id)
+    (if account_index != 0 {
+        encoding::uint32::encoded_len(1, &account_index)
+    } else {
+        0
+    }) + if !transaction_token_balance.mint.is_empty() {
+        encoding::string::encoded_len(2, &transaction_token_balance.mint)
+    } else {
+        0
+    } + ui_token_amount_encoded_len(&transaction_token_balance.ui_token_amount)
+        + if !transaction_token_balance.owner.is_empty() {
+            encoding::string::encoded_len(4, &transaction_token_balance.owner)
+        } else {
+            0
+        }
+        + if !transaction_token_balance.program_id.is_empty() {
+            encoding::string::encoded_len(5, &transaction_token_balance.program_id)
+        } else {
+            0
+        }
 }
 
 fn encode_ui_token_amount(ui_token_amount: &UiTokenAmount, buf: &mut impl BufMut) {
@@ -675,22 +689,43 @@ fn encode_ui_token_amount(ui_token_amount: &UiTokenAmount, buf: &mut impl BufMut
 
     encode_key(3, WireType::LengthDelimited, buf);
     encode_varint(ui_token_amount_encoded_len(ui_token_amount) as u64, buf);
-    if let Some(ref ui_amount) = ui_token_amount.ui_amount {
-        encoding::double::encode(1, ui_amount, buf)
+    if let Some(ui_amount) = ui_token_amount.ui_amount {
+        if ui_amount != 0. {
+            encoding::double::encode(1, &ui_amount, buf)
+        }
     }
-    encoding::uint32::encode(2, &decimals, buf);
-    encoding::string::encode(3, &ui_token_amount.amount, buf);
-    encoding::string::encode(4, &ui_token_amount.ui_amount_string, buf)
+    if decimals != 0 {
+        encoding::uint32::encode(2, &decimals, buf)
+    }
+    if !ui_token_amount.amount.is_empty() {
+        encoding::string::encode(3, &ui_token_amount.amount, buf)
+    }
+    if !ui_token_amount.ui_amount_string.is_empty() {
+        encoding::string::encode(4, &ui_token_amount.ui_amount_string, buf)
+    }
 }
 
 fn ui_token_amount_encoded_len(ui_token_amount: &UiTokenAmount) -> usize {
     let decimals = ui_token_amount.decimals as u32;
-    ui_token_amount
-        .ui_amount
-        .map_or(0, |ui_amount| encoding::double::encoded_len(1, &ui_amount))
-        + encoding::uint32::encoded_len(2, &decimals)
-        + encoding::string::encoded_len(3, &ui_token_amount.amount)
-        + encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
+    ui_token_amount.ui_amount.map_or(0, |ui_amount| {
+        if ui_amount != 0. {
+            encoding::double::encoded_len(1, &ui_amount)
+        } else {
+            0
+        }
+    }) + if decimals != 0 {
+        encoding::uint32::encoded_len(2, &decimals)
+    } else {
+        0
+    } + if !ui_token_amount.amount.is_empty() {
+        encoding::string::encoded_len(3, &ui_token_amount.amount)
+    } else {
+        0
+    } + if !ui_token_amount.ui_amount_string.is_empty() {
+        encoding::string::encoded_len(4, &ui_token_amount.ui_amount_string)
+    } else {
+        0
+    }
 }
 
 fn encode_loaded_writable_addresses(loaded_addresses: &LoadedAddresses, buf: &mut impl BufMut) {
