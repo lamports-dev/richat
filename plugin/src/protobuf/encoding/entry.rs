@@ -14,24 +14,51 @@ impl<'a> prost::Message for Entry<'a> {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
 
-        encoding::uint64::encode(1, &self.entry.slot, buf);
-        encoding::uint64::encode(2, &index, buf);
-        encoding::uint64::encode(3, &self.entry.num_hashes, buf);
+        if self.entry.slot != 0 {
+            encoding::uint64::encode(1, &self.entry.slot, buf)
+        }
+        if index != 0 {
+            encoding::uint64::encode(2, &index, buf)
+        }
+        if self.entry.num_hashes != 0 {
+            encoding::uint64::encode(3, &self.entry.num_hashes, buf)
+        }
         bytes_encode(4, self.entry.hash, buf);
-        encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf);
-        encoding::uint64::encode(6, &starting_transaction_index, buf)
+        if self.entry.executed_transaction_count != 0 {
+            encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf)
+        }
+        if starting_transaction_index != 0 {
+            encoding::uint64::encode(6, &starting_transaction_index, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
 
-        encoding::uint64::encoded_len(1, &self.entry.slot)
-            + encoding::uint64::encoded_len(2, &index)
-            + encoding::uint64::encoded_len(3, &self.entry.num_hashes)
-            + bytes_encoded_len(4, self.entry.hash)
-            + encoding::uint64::encoded_len(5, &self.entry.executed_transaction_count)
-            + encoding::uint64::encoded_len(6, &starting_transaction_index)
+        (if self.entry.slot != 0 {
+            encoding::uint64::encoded_len(1, &self.entry.slot)
+        } else {
+            0
+        }) + if index != 0 {
+            encoding::uint64::encoded_len(2, &index)
+        } else {
+            0
+        } + if self.entry.num_hashes != 0 {
+            encoding::uint64::encoded_len(3, &self.entry.num_hashes)
+        } else {
+            0
+        } + bytes_encoded_len(4, self.entry.hash)
+            + if self.entry.executed_transaction_count != 0 {
+                encoding::uint64::encoded_len(5, &self.entry.executed_transaction_count)
+            } else {
+                0
+            }
+            + if starting_transaction_index != 0 {
+                encoding::uint64::encoded_len(6, &starting_transaction_index)
+            } else {
+                0
+            }
     }
 
     fn merge_field(

@@ -1,11 +1,9 @@
 use {
-    super::{
-        bytes_encode, bytes_encoded_len, encode_rewards, field_encoded_len, rewards_encoded_len,
-    },
+    super::{bytes_encode, bytes_encoded_len, encode_rewards, rewards_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::{
         bytes::BufMut,
-        encoding::{self, encode_key, encode_varint, WireType},
+        encoding::{self, WireType},
     },
     solana_transaction_status::RewardsAndNumPartitions,
 };
@@ -16,28 +14,70 @@ pub struct BlockMeta<'a> {
 }
 
 impl<'a> prost::Message for BlockMeta<'a> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
-        encoding::uint64::encode(1, &self.blockinfo.slot, buf);
-        bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
-        encode_rewards_and_num_partitions(3, self.blockinfo.rewards, buf);
-        encode_block_time(4, &self.blockinfo.block_time, buf);
-        encode_uint64_optional_message(5, &self.blockinfo.block_height, buf);
-        encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf);
-        bytes_encode(7, self.blockinfo.parent_blockhash.as_ref(), buf);
-        encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);
-        encoding::uint64::encode(9, &self.blockinfo.entry_count, buf);
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+        let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
+        let block_time = BlockTime(self.blockinfo.block_time);
+        let block_height = BlockHeight(self.blockinfo.block_height);
+
+        if self.blockinfo.slot != 0 {
+            encoding::uint64::encode(1, &self.blockinfo.slot, buf)
+        }
+        if !self.blockinfo.blockhash.is_empty() {
+            bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf)
+        }
+        encoding::message::encode(3, &rewards, buf);
+        encoding::message::encode(4, &block_time, buf);
+        encoding::message::encode(5, &block_height, buf);
+        if self.blockinfo.parent_slot != 0 {
+            encoding::uint64::encode(7, &self.blockinfo.parent_slot, buf)
+        }
+        if !self.blockinfo.parent_blockhash.is_empty() {
+            bytes_encode(8, self.blockinfo.parent_blockhash.as_ref(), buf);
+        }
+        if self.blockinfo.executed_transaction_count != 0 {
+            encoding::uint64::encode(9, &self.blockinfo.executed_transaction_count, buf)
+        }
+        if self.blockinfo.entry_count != 0 {
+            encoding::uint64::encode(12, &self.blockinfo.entry_count, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
-        encoding::uint64::encoded_len(1, &self.blockinfo.slot)
-            + bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
-            + rewards_and_num_partitions_encoded_len(3, self.blockinfo.rewards)
-            + block_time_encoded_len(4, &self.blockinfo.block_time)
-            + uint64_optional_message_encoded_len(5, &self.blockinfo.block_height)
-            + encoding::uint64::encoded_len(6, &self.blockinfo.parent_slot)
-            + bytes_encoded_len(7, self.blockinfo.parent_blockhash.as_ref())
-            + encoding::uint64::encoded_len(8, &self.blockinfo.executed_transaction_count)
-            + encoding::uint64::encoded_len(9, &self.blockinfo.entry_count)
+        let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
+        let block_time = BlockTime(self.blockinfo.block_time);
+        let block_height = BlockHeight(self.blockinfo.block_height);
+
+        (if self.blockinfo.slot != 0 {
+            encoding::uint64::encoded_len(1, &self.blockinfo.slot)
+        } else {
+            0
+        }) + if !self.blockinfo.blockhash.is_empty() {
+            bytes_encoded_len(2, self.blockinfo.blockhash.as_ref())
+        } else {
+            0
+        } + encoding::message::encoded_len(3, &rewards)
+            + encoding::message::encoded_len(4, &block_time)
+            + encoding::message::encoded_len(5, &block_height)
+            + if self.blockinfo.parent_slot != 0 {
+                encoding::uint64::encoded_len(7, &self.blockinfo.parent_slot)
+            } else {
+                0
+            }
+            + if !self.blockinfo.parent_blockhash.is_empty() {
+                bytes_encoded_len(8, self.blockinfo.parent_blockhash.as_ref())
+            } else {
+                0
+            }
+            + if self.blockinfo.executed_transaction_count != 0 {
+                encoding::uint64::encoded_len(9, &self.blockinfo.executed_transaction_count)
+            } else {
+                0
+            }
+            + if self.blockinfo.entry_count != 0 {
+                encoding::uint64::encoded_len(12, &self.blockinfo.entry_count)
+            } else {
+                0
+            }
     }
 
     fn merge_field(
@@ -64,51 +104,157 @@ impl<'a> BlockMeta<'a> {
     }
 }
 
-fn encode_rewards_and_num_partitions(
-    tag: u32,
-    rewards: &RewardsAndNumPartitions,
-    buf: &mut impl BufMut,
-) {
-    encode_key(tag, WireType::LengthDelimited, buf);
-    encode_varint(
-        rewards_and_num_partitions_encoded_len(tag, rewards) as u64,
-        buf,
-    );
+#[derive(Debug)]
+struct RewardsAndNumPartitionsWrapper<'a>(&'a RewardsAndNumPartitions);
 
-    encode_rewards(1, &rewards.rewards, buf);
-    encode_uint64_optional_message(2, &rewards.num_partitions, buf)
-}
+impl<'a> prost::Message for RewardsAndNumPartitionsWrapper<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        let num_partitions = NumPartitions(self.0.num_partitions);
 
-fn rewards_and_num_partitions_encoded_len(tag: u32, rewards: &RewardsAndNumPartitions) -> usize {
-    let len = rewards_encoded_len(1, &rewards.rewards)
-        + uint64_optional_message_encoded_len(2, &rewards.num_partitions);
-    field_encoded_len(tag, len)
-}
+        encode_rewards(1, &self.0.rewards, buf);
+        encoding::message::encode(2, &num_partitions, buf)
+    }
+    fn encoded_len(&self) -> usize {
+        let num_partitions = NumPartitions(self.0.num_partitions);
 
-fn encode_block_time(tag: u32, block_time: &Option<i64>, buf: &mut impl BufMut) {
-    encode_key(tag, WireType::LengthDelimited, buf);
-    encode_varint(block_time_encoded_len(tag, block_time) as u64, buf);
-
-    if let Some(block_time) = block_time {
-        encoding::int64::encode(1, block_time, buf)
+        rewards_encoded_len(1, &self.0.rewards) + encoding::message::encoded_len(2, &num_partitions)
+    }
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
     }
 }
 
-fn block_time_encoded_len(tag: u32, block_time: &Option<i64>) -> usize {
-    let len = block_time.map_or(0, |block_time| encoding::int64::encoded_len(1, &block_time));
-    field_encoded_len(tag, len)
-}
+#[derive(Debug)]
+struct BlockTime(Option<i64>);
 
-fn encode_uint64_optional_message(tag: u32, value: &Option<u64>, buf: &mut impl BufMut) {
-    encode_key(tag, WireType::LengthDelimited, buf);
-    encode_varint(uint64_optional_message_encoded_len(tag, value) as u64, buf);
-
-    if let Some(value) = value {
-        encoding::uint64::encode(1, value, buf)
+impl prost::Message for BlockTime {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        if let Some(block_time) = self.0 {
+            if block_time != 0 {
+                encoding::int64::encode(1, &block_time, buf)
+            }
+        }
+    }
+    fn encoded_len(&self) -> usize {
+        self.0.map_or(0, |block_time| {
+            if block_time != 0 {
+                encoding::int64::encoded_len(1, &block_time)
+            } else {
+                0
+            }
+        })
+    }
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
     }
 }
 
-fn uint64_optional_message_encoded_len(tag: u32, value: &Option<u64>) -> usize {
-    let len = value.map_or(0, |value| encoding::uint64::encoded_len(1, &value));
-    field_encoded_len(tag, len)
+#[derive(Debug)]
+struct BlockHeight(Option<u64>);
+
+impl prost::Message for BlockHeight {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        if let Some(block_height) = self.0 {
+            if block_height != 0 {
+                encoding::uint64::encode(1, &block_height, buf)
+            }
+        }
+    }
+    fn encoded_len(&self) -> usize {
+        self.0.map_or(0, |block_height| {
+            if block_height != 0 {
+                encoding::uint64::encoded_len(1, &block_height)
+            } else {
+                0
+            }
+        })
+    }
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
+struct NumPartitions(Option<u64>);
+
+impl prost::Message for NumPartitions {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        if let Some(num_partitions) = self.0 {
+            if num_partitions != 0 {
+                encoding::uint64::encode(1, &num_partitions, buf)
+            }
+        }
+    }
+    fn encoded_len(&self) -> usize {
+        self.0.map_or(0, |num_partitions| {
+            if num_partitions != 0 {
+                encoding::uint64::encoded_len(1, &num_partitions)
+            } else {
+                0
+            }
+        })
+    }
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 }
