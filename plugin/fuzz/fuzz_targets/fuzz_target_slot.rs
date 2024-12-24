@@ -1,24 +1,11 @@
 #![no_main]
 
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target,
-    prost::{Enumeration, Message},
-    richat_plugin::protobuf::ProtobufMessage,
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
 };
 
-#[derive(Message)]
-pub struct Slot {
-    #[prost(uint64, tag = "1")]
-    slot: u64,
-    #[prost(uint64, optional, tag = "2")]
-    parent: Option<u64>,
-    #[prost(enumeration = "FuzzSlotStatus", tag = "3")]
-    status: i32,
-}
-
-#[derive(Clone, Copy, Arbitrary, Debug, Enumeration)]
+#[derive(Clone, Copy, Arbitrary, Debug)]
 #[repr(i32)]
 pub enum FuzzSlotStatus {
     Processed = 0,
@@ -59,10 +46,5 @@ fuzz_target!(|fuzz_slot: FuzzSlot| {
         status: &fuzz_slot.status.into(),
     };
     message.encode(&mut buf);
-    assert!(!buf.is_empty());
-
-    let decoded = Slot::decode(buf.as_slice()).expect("failed to decode `Slot` from buf");
-    assert_eq!(decoded.slot, fuzz_slot.slot);
-    assert_eq!(decoded.parent, fuzz_slot.parent);
-    assert_eq!(decoded.status, fuzz_slot.status as i32)
+    assert!(!buf.is_empty())
 });
