@@ -35,8 +35,11 @@ impl<'a> prost::Message for Account<'a> {
             bytes_encode(8, txn.signature().as_ref(), buf);
         }
 
+        encode_key(2, WireType::LengthDelimited, buf);
+        encode_varint(encoding::uint64::encoded_len(1, &self.slot) as u64, buf);
+
         if self.slot != 0 {
-            encoding::uint64::encode(2, &self.slot, buf)
+            encoding::uint64::encode(1, &self.slot, buf)
         }
     }
 
