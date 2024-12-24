@@ -1,5 +1,13 @@
 ---
 log:
   json: false
+channel:
+  tokio:
+    worker_threads: 4
+    affinity: 0-3
+apps:
+  tokio:
+    worker_threads: 4
+    affinity: 0-3
 prometheus:
   endpoint: 127.0.0.1:10123

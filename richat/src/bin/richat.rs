@@ -3,14 +3,16 @@ use {
     clap::Parser,
     futures::future::{pending, try_join_all, FutureExt, TryFutureExt},
     richat::config::Config,
-    std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+    signal_hook::{consts::SIGINT, iterator::Signals},
+    std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        thread::sleep,
+        time::Duration,
     },
-    tokio::{
-        signal::unix::{signal, SignalKind},
-        sync::broadcast,
-    },
+    tokio::sync::broadcast,
     tracing::{info, warn},
 };
 
@@ -43,43 +45,75 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    // TODO: create channel
+    // Create channel runtime (receive messages from solana node / richat)
+    let mut chan_jh = std::thread::Builder::new()
+        .name("richatChan".to_owned())
+        .spawn(|| {
+            let runtime = config.channel.tokio.build_runtime("richatChan")?;
+            runtime.block_on(async move {
+                //
+                Ok::<(), anyhow::Error>(())
+            })
+        })
+        .map(Some)?;
 
     // Create runtime for incoming connections
-    let runtime = config.apps.tokio.build_runtime("richatApp")?;
-    runtime.block_on(async move {
-        let prometheus_fut = if let Some(config) = config.prometheus {
-            richat::metrics::spawn_server(config, create_shutdown_rx())
-                .await?
-                .map_err(anyhow::Error::from)
-                .boxed()
-        } else {
-            pending().boxed()
-        };
+    let mut app_jh = std::thread::Builder::new()
+        .name("richatApp".to_owned())
+        .spawn(move || {
+            let runtime = config.apps.tokio.build_runtime("richatApp")?;
+            runtime.block_on(async move {
+                let prometheus_fut = if let Some(config) = config.prometheus {
+                    richat::metrics::spawn_server(config, create_shutdown_rx())
+                        .await?
+                        .map_err(anyhow::Error::from)
+                        .boxed()
+                } else {
+                    pending().boxed()
+                };
 
-        let tasks = try_join_all(vec![prometheus_fut]);
-        tokio::pin!(tasks);
+                try_join_all(vec![prometheus_fut]).await.map(|_| ())
+            })
+        })
+        .map(Some)?;
 
-        let mut sigint = signal(SignalKind::interrupt())?;
-        tokio::select! {
-            result = &mut tasks => {
-                result?;
-            }
-            _ = sigint.recv() => {
-                info!("SIGINT received...");
-                shutdown_flag.store(true, Ordering::Relaxed);
-                let _ = shutdown_tx.send(());
-
-                tokio::select! {
-                    result = &mut tasks => {
-                        result?;
+    let mut signals = Signals::new([SIGINT])?;
+    let mut shutdown_inprogress = false;
+    'outer: while chan_jh.is_some() || app_jh.is_some() {
+        for signal in signals.pending() {
+            match signal {
+                SIGINT => {
+                    if shutdown_inprogress {
+                        warn!("SIGINT received again, shutdown now");
+                        break 'outer;
                     }
-                    _ = sigint.recv() => {
-                        warn!("SIGINT received again, shutdown");
-                    }
+                    shutdown_inprogress = true;
+                    info!("SIGINT received...");
+                    shutdown_flag.store(true, Ordering::Relaxed);
+                    let _ = shutdown_tx.send(());
                 }
+                _ => unreachable!(),
             }
         }
-        Ok(())
-    })
+
+        if let Some(jh) = chan_jh.take() {
+            if jh.is_finished() {
+                jh.join().expect("chan thread join failed")?;
+            } else {
+                chan_jh = Some(jh);
+            }
+        }
+
+        if let Some(jh) = app_jh.take() {
+            if jh.is_finished() {
+                jh.join().expect("app thread join failed")?;
+            } else {
+                app_jh = Some(jh);
+            }
+        }
+
+        sleep(Duration::from_millis(10));
+    }
+
+    Ok(())
 }

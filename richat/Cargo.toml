@@ -20,7 +20,8 @@ prometheus = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
+signal-hook = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
 

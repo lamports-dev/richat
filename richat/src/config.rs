@@ -36,6 +36,8 @@ pub struct ConfigLog {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigChannel {
+    /// Runtime for receiving plugin messages
+    pub tokio: ConfigTokio,
     // input, thead, etc
 }
 
