@@ -230,7 +230,7 @@ pub mod sanitazed_message {
                         message.recent_blockhash.as_ref(),
                         buf,
                     );
-                    super::compiled_instruction::encode_compiled_instructions(
+                    super::compiled_instructions::encode_compiled_instructions(
                         4,
                         &message.instructions,
                         buf,
@@ -246,7 +246,7 @@ pub mod sanitazed_message {
                         message.recent_blockhash.as_ref(),
                         buf,
                     );
-                    super::compiled_instruction::encode_compiled_instructions(
+                    super::compiled_instructions::encode_compiled_instructions(
                         4,
                         &message.instructions,
                         buf,
@@ -269,7 +269,7 @@ pub mod sanitazed_message {
                             3,
                             message.recent_blockhash.as_ref(),
                         )
-                        + super::compiled_instruction::compiled_instructions_encoded_len(
+                        + super::compiled_instructions::compiled_instructions_encoded_len(
                             4,
                             &message.instructions,
                         )
@@ -283,7 +283,7 @@ pub mod sanitazed_message {
                             3,
                             message.recent_blockhash.as_ref(),
                         )
-                        + super::compiled_instruction::compiled_instructions_encoded_len(
+                        + super::compiled_instructions::compiled_instructions_encoded_len(
                             4,
                             &message.instructions,
                         )
@@ -455,10 +455,12 @@ pub mod address_table_lookups {
         bytes::BufMut,
         prost::encoding,
         solana_sdk::message::v0::MessageAddressTableLookup,
+        std::marker::PhantomData,
     };
 
+    #[repr(transparent)]
     #[derive(Debug)]
-    struct Wrapper<'a>(&'a MessageAddressTableLookup);
+    struct Wrapper<'a>(MessageAddressTableLookup, PhantomData<&'a ()>);
 
     impl<'a> prost::Message for Wrapper<'a> {
         fn encode_raw(&self, buf: &mut impl bytes::BufMut)
@@ -506,11 +508,13 @@ pub mod address_table_lookups {
         encoding::message::encoded_len_repeated(tag, to_wrapper(address_table_lookups))
     }
 
-    const fn to_wrapper(address_table_lookups: &[MessageAddressTableLookup]) -> &[Wrapper] {
-        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&MessageAddressTableLookup>()`, `size_of::<Wrapper>() == size_of::<&MessageAddressTableLookup>()`, the alignment of `Wrapper` and `&MessageAddressTableLookup` are identical.
+    const fn to_wrapper<'a>(
+        address_table_lookups: &'a [MessageAddressTableLookup],
+    ) -> &'a [Wrapper<'a>] {
+        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<MessageAddressTableLookup>()`, `size_of::<Wrapper>() == size_of::<MessageAddressTableLookup>()`, the alignment of `Wrapper` and `MessageAddressTableLookup` are identical.
         unsafe {
             std::slice::from_raw_parts(
-                address_table_lookups.as_ptr() as *const Wrapper,
+                address_table_lookups.as_ptr() as *const Wrapper<'a>,
                 address_table_lookups.len(),
             )
         }
@@ -783,10 +787,14 @@ pub mod transaction_error {
 }
 
 pub mod inner_instructions {
-    use {bytes::BufMut, prost::encoding, solana_transaction_status::InnerInstructions};
+    use {
+        bytes::BufMut, prost::encoding, solana_transaction_status::InnerInstructions,
+        std::marker::PhantomData,
+    };
 
+    #[repr(transparent)]
     #[derive(Debug)]
-    struct Wrapper<'a>(&'a InnerInstructions);
+    struct Wrapper<'a>(InnerInstructions, PhantomData<&'a ()>);
 
     impl<'a> prost::Message for Wrapper<'a> {
         fn encode_raw(&self, buf: &mut impl BufMut)
@@ -844,11 +852,11 @@ pub mod inner_instructions {
         encoding::message::encoded_len_repeated(tag, to_wrapper(inner_instructions))
     }
 
-    const fn to_wrapper(inner_instructions: &[InnerInstructions]) -> &[Wrapper] {
-        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&InnerInstructions>()`, `size_of::<Wrapper>() == size_of::<&InnerInstructions>()`, the alignment of `Wrapper` and `&InnerInstructions` are identical.
+    const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstructions]) -> &'a [Wrapper<'a>] {
+        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstructions>()`, `size_of::<Wrapper>() == size_of::<InnerInstructions>()`, the alignment of `Wrapper` and `InnerInstructions` are identical.
         unsafe {
             std::slice::from_raw_parts(
-                inner_instructions.as_ptr() as *const Wrapper,
+                inner_instructions.as_ptr() as *const Wrapper<'a>,
                 inner_instructions.len(),
             )
         }
@@ -856,10 +864,14 @@ pub mod inner_instructions {
 }
 
 pub mod inner_instruction {
-    use {bytes::BufMut, prost::encoding, solana_transaction_status::InnerInstruction};
+    use {
+        bytes::BufMut, prost::encoding, solana_transaction_status::InnerInstruction,
+        std::marker::PhantomData,
+    };
 
+    #[repr(transparent)]
     #[derive(Debug)]
-    struct Wrapper<'a>(&'a InnerInstruction);
+    struct Wrapper<'a>(InnerInstruction, PhantomData<&'a ()>);
 
     impl<'a> prost::Message for Wrapper<'a> {
         fn encode_raw(&self, buf: &mut impl BufMut)
@@ -915,27 +927,29 @@ pub mod inner_instruction {
         encoding::message::encoded_len_repeated(tag, to_wrapper(inner_instructions))
     }
 
-    const fn to_wrapper(inner_instructions: &[InnerInstruction]) -> &[Wrapper] {
-        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&InnerInstruction>()`, `size_of::<Wrapper>() == size_of::<&InnerInstruction>()`, the alignment of `Wrapper` and `&InnerInstruction` are identical.
+    const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstruction]) -> &'a [Wrapper<'a>] {
+        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstruction>()`, `size_of::<Wrapper>() == size_of::<InnerInstruction>()`, the alignment of `Wrapper` and `InnerInstruction` are identical.
         unsafe {
             std::slice::from_raw_parts(
-                inner_instructions.as_ptr() as *const Wrapper,
+                inner_instructions.as_ptr() as *const Wrapper<'a>,
                 inner_instructions.len(),
             )
         }
     }
 }
 
-pub mod compiled_instruction {
+pub mod compiled_instructions {
     use {
         super::super::{bytes_encode, bytes_encoded_len},
         bytes::BufMut,
         prost::encoding,
         solana_sdk::instruction::CompiledInstruction,
+        std::marker::PhantomData,
     };
 
+    #[repr(transparent)]
     #[derive(Debug)]
-    struct Wrapper<'a>(&'a CompiledInstruction);
+    struct Wrapper<'a>(CompiledInstruction, PhantomData<&'a ()>);
 
     impl<'a> prost::Message for Wrapper<'a> {
         fn encode_raw(&self, buf: &mut impl BufMut)
@@ -990,6 +1004,66 @@ pub mod compiled_instruction {
         encoding::message::encoded_len_repeated(tag, to_wrapper(compiled_instructions))
     }
 
+    const fn to_wrapper<'a>(compiled_instructions: &'a [CompiledInstruction]) -> &'a [Wrapper<'a>] {
+        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<CompiledInstruction>()`, `size_of::<Wrapper>() == size_of::<CompiledInstruction>()`, the alignment of `Wrapper` and `CompiledInstruction` are identical.
+        unsafe {
+            std::slice::from_raw_parts(
+                compiled_instructions.as_ptr() as *const Wrapper<'a>,
+                compiled_instructions.len(),
+            )
+        }
+    }
+}
+
+pub mod compiled_instruction {
+    use {
+        super::super::{bytes_encode, bytes_encoded_len},
+        bytes::BufMut,
+        prost::encoding,
+        solana_sdk::instruction::CompiledInstruction,
+    };
+
+    #[derive(Debug)]
+    struct Wrapper<'a>(&'a CompiledInstruction);
+
+    impl<'a> prost::Message for Wrapper<'a> {
+        fn encode_raw(&self, buf: &mut impl BufMut)
+        where
+            Self: Sized,
+        {
+            let program_id_index = self.0.program_id_index as u32;
+            if program_id_index != 0 {
+                encoding::uint32::encode(1, &program_id_index, buf)
+            }
+            bytes_encode(2, &self.0.accounts, buf);
+            bytes_encode(3, &self.0.data, buf)
+        }
+        fn encoded_len(&self) -> usize {
+            let program_id_index = self.0.program_id_index as u32;
+            (if program_id_index != 0 {
+                encoding::uint32::encoded_len(1, &program_id_index)
+            } else {
+                0
+            }) + bytes_encoded_len(2, &self.0.accounts)
+                + bytes_encoded_len(3, &self.0.data)
+        }
+        fn clear(&mut self) {
+            unimplemented!()
+        }
+        fn merge_field(
+            &mut self,
+            _tag: u32,
+            _wire_type: encoding::WireType,
+            _buf: &mut impl bytes::Buf,
+            _ctx: encoding::DecodeContext,
+        ) -> Result<(), prost::DecodeError>
+        where
+            Self: Sized,
+        {
+            unimplemented!()
+        }
+    }
+
     pub fn encode_compiled_instruction(
         tag: u32,
         compiled_instruction: &CompiledInstruction,
@@ -1006,23 +1080,17 @@ pub mod compiled_instruction {
         let wrapper = Wrapper(compiled_instruction);
         encoding::message::encoded_len(tag, &wrapper)
     }
-
-    const fn to_wrapper(compiled_instructions: &[CompiledInstruction]) -> &[Wrapper] {
-        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&CompiledInstruction>()`, `size_of::<Wrapper>() == size_of::<&CompiledInstruction>()`, the alignment of `Wrapper` and `&CompiledInstruction` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                compiled_instructions.as_ptr() as *const Wrapper,
-                compiled_instructions.len(),
-            )
-        }
-    }
 }
 
 pub mod transaction_token_balance {
-    use {bytes::BufMut, prost::encoding, solana_transaction_status::TransactionTokenBalance};
+    use {
+        bytes::BufMut, prost::encoding, solana_transaction_status::TransactionTokenBalance,
+        std::marker::PhantomData,
+    };
 
+    #[repr(transparent)]
     #[derive(Debug)]
-    struct Wrapper<'a>(&'a TransactionTokenBalance);
+    struct Wrapper<'a>(TransactionTokenBalance, PhantomData<&'a ()>);
 
     impl<'a> prost::Message for Wrapper<'a> {
         fn encode_raw(&self, buf: &mut impl bytes::BufMut)
@@ -1100,11 +1168,13 @@ pub mod transaction_token_balance {
         encoding::message::encoded_len_repeated(tag, to_wrapper(transaction_token_balances))
     }
 
-    const fn to_wrapper(transaction_token_balances: &[TransactionTokenBalance]) -> &[Wrapper] {
-        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&TransactionTokenBalance>()`, `size_of::<Wrapper>() == size_of::<&TransactionTokenBalance>()`, the alignment of `Wrapper` and `&TransactionTokenBalance` are identical.
+    const fn to_wrapper<'a>(
+        transaction_token_balances: &'a [TransactionTokenBalance],
+    ) -> &'a [Wrapper<'a>] {
+        // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<TransactionTokenBalance>()`, `size_of::<Wrapper>() == size_of::<TransactionTokenBalance>()`, the alignment of `Wrapper` and `TransactionTokenBalance` are identical.
         unsafe {
             std::slice::from_raw_parts(
-                transaction_token_balances.as_ptr() as *const Wrapper,
+                transaction_token_balances.as_ptr() as *const Wrapper<'a>,
                 transaction_token_balances.len(),
             )
         }

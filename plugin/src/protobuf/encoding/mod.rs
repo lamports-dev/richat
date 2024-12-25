@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 pub use self::{
     account::Account, block_meta::BlockMeta, entry::Entry, slot::Slot, transaction::Transaction,
 };
@@ -41,8 +43,9 @@ const fn u8_to_static_str(num: u8) -> &'static str {
     NUM_STRINGS[num as usize]
 }
 
+#[repr(transparent)]
 #[derive(Debug)]
-struct Wrapper<'a>(&'a Reward);
+struct Wrapper<'a>(Reward, PhantomData<&'a ()>);
 
 impl<'a> prost::Message for Wrapper<'a> {
     fn encode_raw(&self, buf: &mut impl BufMut)
@@ -121,9 +124,9 @@ pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
     encoding::message::encoded_len_repeated(tag, to_wrapper(rewards))
 }
 
-const fn to_wrapper(rewards: &[Reward]) -> &[Wrapper] {
-    // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<&Reward>()`, `size_of::<Wrapper>() == size_of::<&Reward>()`, the alignment of `Wrapper` and `&Reward` are identical.
-    unsafe { std::slice::from_raw_parts(rewards.as_ptr() as *const Wrapper, rewards.len()) }
+const fn to_wrapper<'a>(rewards: &'a [Reward]) -> &'a [Wrapper<'a>] {
+    // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<Reward>()`, `size_of::<Wrapper>() == size_of::<Reward>()`, the alignment of `Wrapper` and `Reward` are identical.
+    unsafe { std::slice::from_raw_parts(rewards.as_ptr() as *const Wrapper<'a>, rewards.len()) }
 }
 
 pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {
