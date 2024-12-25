@@ -34,30 +34,44 @@ impl<'a> prost::Message for Slot<'a> {
         if self.slot != 0 {
             encoding::uint64::encode(1, &self.slot, buf)
         }
-        if let Some(ref value) = self.parent {
-            encoding::uint64::encode(2, value, buf)
+        if let Some(value) = self.parent {
+            if value != 0 {
+                encoding::uint64::encode(2, &value, buf)
+            }
         }
-        if status != slot_status_as_i32(&SlotStatus::Processed) {
+        if status != 0 {
             encoding::int32::encode(3, &status, buf)
         }
         if let Some(value) = dead {
-            encoding::string::encode(4, value, buf)
+            if !value.is_empty() {
+                encoding::string::encode(4, value, buf)
+            }
         }
     }
 
     fn encoded_len(&self) -> usize {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);
-        (if self.slot != 0 {
-            encoding::uint64::encoded_len(1, &self.slot)
-        } else {
-            0
-        }) + self
-            .parent
-            .as_ref()
-            .map_or(0, |value| encoding::uint64::encoded_len(2, value))
-            + if status != slot_status_as_i32(&SlotStatus::Processed) {
+      
+        encoding::uint64::encoded_len(1, &self.slot)
+            + self.parent.map_or(0, |value| {
+                if value != 0 {
+                    encoding::uint64::encoded_len(2, &value)
+                } else {
+                    0
+                }
+            })
+            + if status != 0 {
                 encoding::int32::encoded_len(3, &status)
+            } else {
+                0
+            }
+            + if let Some(value) = dead {
+                if !value.is_empty() {
+                    encoding::string::encoded_len(4, value)
+                } else {
+                    0
+                }
             } else {
                 0
             }

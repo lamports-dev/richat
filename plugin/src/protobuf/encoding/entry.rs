@@ -27,7 +27,7 @@ impl<'a> prost::Message for Entry<'a> {
         if self.entry.executed_transaction_count != 0 {
             encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf)
         }
-        if self.entry.starting_transaction_index != 0 {
+        if starting_transaction_index != 0 {
             encoding::uint64::encode(6, &starting_transaction_index, buf)
         }
     }
@@ -54,7 +54,7 @@ impl<'a> prost::Message for Entry<'a> {
             } else {
                 0
             }
-            + if self.entry.starting_transaction_index != 0 {
+            + if starting_transaction_index != 0 {
                 encoding::uint64::encoded_len(6, &starting_transaction_index)
             } else {
                 0
