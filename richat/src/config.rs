@@ -1,15 +1,19 @@
 use {
+    richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_shared::config::{ConfigPrometheus, ConfigTokio},
     serde::Deserialize,
     std::{fs, path::Path},
 };
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
     pub log: ConfigLog,
     pub channel: ConfigChannel,
+    #[serde(default)]
     pub apps: ConfigApps,
+    #[serde(default)]
     pub prometheus: Option<ConfigPrometheus>,
 }
 
@@ -33,12 +37,24 @@ pub struct ConfigLog {
     pub json: bool,
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigChannel {
     /// Runtime for receiving plugin messages
+    #[serde(default)]
     pub tokio: ConfigTokio,
-    // input, thead, etc
+    pub source: ConfigChannelSource,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "transport")]
+pub enum ConfigChannelSource {
+    #[serde(rename = "quic")]
+    Quic(ConfigQuicClient),
+    #[serde(rename = "tcp")]
+    Tcp(ConfigTcpClient),
+    #[serde(rename = "grpc")]
+    Grpc(ConfigGrpcClient),
 }
 
 #[derive(Debug, Default, Deserialize)]

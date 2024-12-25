@@ -22,9 +22,9 @@ impl Default for ConfigTcpServer {
         Self {
             endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10101),
             backlog: 1024,
-            keepalive: None,
-            nodelay: None,
-            send_buffer_size: None,
+            keepalive: Default::default(),
+            nodelay: Default::default(),
+            send_buffer_size: Default::default(),
         }
     }
 }

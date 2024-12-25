@@ -1,6 +1,6 @@
 pub use crate::transports::proto::GrpcSubscribeRequest;
 use {
-    crate::config::deserialize_usize_str,
+    crate::config::deserialize_num_str,
     serde::{
         de::{self, Deserializer},
         Deserialize,
@@ -57,8 +57,8 @@ impl ConfigGrpcCompression {
             .collect::<Result<_, _>>()
     }
 
-    fn default_compression() -> Vec<CompressionEncoding> {
-        vec![CompressionEncoding::Gzip, CompressionEncoding::Zstd]
+    const fn default_compression() -> Vec<CompressionEncoding> {
+        vec![]
     }
 }
 
@@ -70,7 +70,7 @@ pub struct ConfigGrpcServer {
     pub tls_config: Option<ServerTlsConfig>,
     pub compression: ConfigGrpcCompression,
     /// Limits the maximum size of a decoded message, default is 4MiB
-    #[serde(deserialize_with = "deserialize_usize_str")]
+    #[serde(deserialize_with = "deserialize_num_str")]
     pub max_decoding_message_size: usize,
     #[serde(with = "humantime_serde")]
     pub server_tcp_keepalive: Option<Duration>,
@@ -88,16 +88,16 @@ impl Default for ConfigGrpcServer {
     fn default() -> Self {
         Self {
             endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10102),
-            tls_config: Default::default(),
-            compression: Default::default(),
+            tls_config: None,
+            compression: ConfigGrpcCompression::default(),
             max_decoding_message_size: 4 * 1024 * 1024, // 4MiB
             server_tcp_keepalive: Some(Duration::from_secs(15)),
             server_tcp_nodelay: true,
-            server_http2_adaptive_window: Default::default(),
-            server_http2_keepalive_interval: Default::default(),
-            server_http2_keepalive_timeout: Default::default(),
-            server_initial_connection_window_size: Default::default(),
-            server_initial_stream_window_size: Default::default(),
+            server_http2_adaptive_window: None,
+            server_http2_keepalive_interval: None,
+            server_http2_keepalive_timeout: None,
+            server_initial_connection_window_size: None,
+            server_initial_stream_window_size: None,
         }
     }
 }

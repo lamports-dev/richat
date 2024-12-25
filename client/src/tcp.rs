@@ -10,7 +10,10 @@ use {
     },
     pin_project_lite::pin_project,
     prost::Message,
-    richat_shared::transports::{grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose},
+    richat_shared::transports::{
+        grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose, tcp::ConfigTcpServer,
+    },
+    serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
         fmt,
@@ -25,6 +28,26 @@ use {
         net::{lookup_host, TcpSocket, TcpStream, ToSocketAddrs},
     },
 };
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfigTcpClient {
+    pub endpoint: String,
+    pub keepalive: Option<bool>,
+    pub nodelay: Option<bool>,
+    pub send_buffer_size: Option<u32>,
+}
+
+impl Default for ConfigTcpClient {
+    fn default() -> Self {
+        Self {
+            endpoint: ConfigTcpServer::default().endpoint.to_string(),
+            keepalive: None,
+            nodelay: None,
+            send_buffer_size: None,
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct TcpClientBuilder {

@@ -13,10 +13,16 @@ use {
     gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
     prost::Message,
+    richat_shared::{
+        config::deserialize_num_str,
+        transports::grpc::{ConfigGrpcCompression, ConfigGrpcServer},
+    },
+    serde::Deserialize,
     std::{
         collections::HashMap,
         fmt,
         marker::PhantomData,
+        path::PathBuf,
         pin::Pin,
         task::{Context, Poll},
         time::Duration,
@@ -35,6 +41,56 @@ use {
         PongResponse, SubscribeRequest,
     },
 };
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ConfigGrpcClient {
+    pub endpoint: String,
+    pub ca_certificate: Option<PathBuf>,
+    #[serde(with = "humantime_serde")]
+    pub connect_timeout: Option<Duration>,
+    pub buffer_size: Option<usize>,
+    pub http2_adaptive_window: Option<bool>,
+    #[serde(with = "humantime_serde")]
+    pub http2_keep_alive_interval_ms: Option<Duration>,
+    pub initial_connection_window_size: Option<u32>,
+    pub initial_stream_window_size: Option<u32>,
+    #[serde(with = "humantime_serde")]
+    pub keep_alive_timeout: Option<Duration>,
+    pub keep_alive_while_idle: bool,
+    #[serde(with = "humantime_serde")]
+    pub tcp_keepalive: Option<Duration>,
+    pub tcp_nodelay: bool,
+    #[serde(with = "humantime_serde")]
+    pub timeout: Option<Duration>,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub max_decoding_message_size: usize,
+    pub compression: ConfigGrpcCompression,
+    pub x_token: Option<String>,
+}
+
+impl Default for ConfigGrpcClient {
+    fn default() -> Self {
+        Self {
+            endpoint: format!("http://{}", ConfigGrpcServer::default().endpoint),
+            ca_certificate: None,
+            connect_timeout: None,
+            buffer_size: None,
+            http2_adaptive_window: None,
+            http2_keep_alive_interval_ms: None,
+            initial_connection_window_size: None,
+            initial_stream_window_size: None,
+            keep_alive_timeout: None,
+            keep_alive_while_idle: false,
+            tcp_keepalive: Some(Duration::from_secs(15)),
+            tcp_nodelay: true,
+            timeout: None,
+            max_decoding_message_size: 4 * 1024 * 1024, // 4MiB
+            compression: ConfigGrpcCompression::default(),
+            x_token: None,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct GrpcClientBuilder {

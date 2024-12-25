@@ -5,8 +5,10 @@ use {
     },
     std::{
         collections::HashSet,
+        fmt::Display,
         io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
+        str::FromStr,
         sync::atomic::{AtomicU64, Ordering},
     },
 };
@@ -119,20 +121,39 @@ impl Default for ConfigPrometheus {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum ValueIntStr<'a> {
-    Int(usize),
+enum ValueNumStr<'a, T> {
+    Num(T),
     Str(&'a str),
 }
 
-pub fn deserialize_usize_str<'de, D>(deserializer: D) -> Result<usize, D::Error>
+pub fn deserialize_num_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de> + FromStr,
+    <T as FromStr>::Err: Display,
 {
-    match ValueIntStr::deserialize(deserializer)? {
-        ValueIntStr::Int(value) => Ok(value),
-        ValueIntStr::Str(value) => value
+    match ValueNumStr::deserialize(deserializer)? {
+        ValueNumStr::Num(value) => Ok(value),
+        ValueNumStr::Str(value) => value
             .replace('_', "")
-            .parse::<usize>()
+            .parse::<T>()
             .map_err(de::Error::custom),
+    }
+}
+
+pub fn deserialize_maybe_num_str<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + FromStr,
+    <T as FromStr>::Err: Display,
+{
+    match Option::<ValueNumStr<T>>::deserialize(deserializer)? {
+        Some(ValueNumStr::Num(value)) => Ok(Some(value)),
+        Some(ValueNumStr::Str(value)) => value
+            .replace('_', "")
+            .parse::<T>()
+            .map_err(de::Error::custom)
+            .map(Some),
+        None => Ok(None),
     }
 }
