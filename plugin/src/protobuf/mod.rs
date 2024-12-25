@@ -8,10 +8,12 @@ mod tests {
     use {
         super::ProtobufMessage,
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaAccountInfoV3, ReplicaEntryInfoV2,
+            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2,
         },
+        predefined::load_predefined_blocks,
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, pubkey::Pubkey},
+        yellowstone_grpc_proto::prelude::NumPartitions,
     };
 
     mod predefined {
@@ -154,8 +156,126 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Enumeration)]
+    #[repr(i32)]
+    pub enum RewardType {
+        Fee = 1,
+        Rent = 2,
+        Staking = 3,
+        Voting = 4,
+    }
+
+    #[derive(Message)]
+    pub struct Reward {
+        #[prost(string, tag = "1")]
+        pub pubkey: String,
+        #[prost(int64, tag = "2")]
+        pub lamports: i64,
+        #[prost(uint64, tag = "3")]
+        pub post_balance: u64,
+        #[prost(enumeration = "RewardType", tag = "4")]
+        pub reward_type: i32,
+        #[prost(uint32, optional, tag = "5")]
+        pub commission: Option<u32>,
+    }
+
+    #[derive(Message)]
+    pub struct RewardsAndNumPartitions {
+        #[prost(message, repeated, tag = "1")]
+        rewards: Vec<Reward>,
+        #[prost(message, tag = "2")]
+        num_partitions: Option<NumPartitions>,
+    }
+
+    #[derive(Message)]
+    pub struct UnixTimestamp {
+        #[prost(int64, tag = "1")]
+        timestamp: i64,
+    }
+
+    #[derive(Message)]
+    pub struct BlockHeight {
+        #[prost(uint64, tag = "1")]
+        block_height: u64,
+    }
+
+    #[derive(Message)]
+    pub struct BlockMeta {
+        #[prost(uint64, tag = "1")]
+        slot: u64,
+        #[prost(string, tag = "2")]
+        blockhash: String,
+        #[prost(message, tag = "3")]
+        rewards: Option<RewardsAndNumPartitions>,
+        #[prost(message, tag = "4")]
+        block_time: Option<UnixTimestamp>,
+        #[prost(message, tag = "5")]
+        block_height: Option<BlockHeight>,
+        #[prost(uint64, tag = "6")]
+        parent_slot: u64,
+        #[prost(string, tag = "7")]
+        parent_blockhash: String,
+        #[prost(uint64, tag = "8")]
+        executed_transaction_count: u64,
+        #[prost(uint64, tag = "9")]
+        entry_count: u64,
+    }
+
     #[test]
-    pub fn test_decode_block_meta() {}
+    pub fn test_decode_block_meta() {
+        let blocks = load_predefined_blocks();
+
+        let rewards_and_num_partitions = blocks
+            .iter()
+            .map(
+                |(_slot, block)| solana_transaction_status::RewardsAndNumPartitions {
+                    rewards: block.rewards.to_owned(),
+                    num_partitions: block.num_partitions,
+                },
+            )
+            .collect::<Vec<_>>();
+        let block_metas = blocks
+            .iter()
+            .zip(rewards_and_num_partitions.iter())
+            .map(
+                |((slot, block), rewards_and_num_partitions)| ReplicaBlockInfoV4 {
+                    parent_slot: block.parent_slot,
+                    slot: *slot,
+                    parent_blockhash: &block.previous_blockhash,
+                    blockhash: &block.blockhash,
+                    rewards: rewards_and_num_partitions,
+                    block_time: block.block_time,
+                    block_height: block.block_height,
+                    executed_transaction_count: 0,
+                    entry_count: 0,
+                },
+            )
+            .collect::<Vec<_>>();
+        let protobuf_messages = block_metas
+            .iter()
+            .map(|blockinfo| ProtobufMessage::BlockMeta { blockinfo })
+            .collect::<Vec<_>>();
+        for protobuf_message in protobuf_messages {
+            let mut buf = Vec::new();
+            protobuf_message.encode(&mut buf);
+            if let ProtobufMessage::BlockMeta { blockinfo } = protobuf_message {
+                let decoded = BlockMeta::decode(buf.as_slice())
+                    .expect("failed to decode `BlockMeta` from buf");
+                assert_eq!(decoded.slot, blockinfo.slot);
+                assert_eq!(&decoded.blockhash, blockinfo.blockhash);
+                assert_eq!(0, 0); // TODO: rewards
+                assert_eq!(0, 0); // TODO: block_time
+                assert_eq!(0, 0); // TODO: block_height
+                assert_eq!(decoded.parent_slot, blockinfo.parent_slot);
+                assert_eq!(&decoded.parent_blockhash, blockinfo.parent_blockhash);
+                assert_eq!(
+                    decoded.executed_transaction_count,
+                    blockinfo.executed_transaction_count
+                );
+                assert_eq!(decoded.entry_count, blockinfo.entry_count)
+            }
+        }
+    }
 
     #[derive(Message)]
     pub struct Entry {
@@ -249,12 +369,12 @@ mod tests {
 
     #[test]
     pub fn test_decode_slot() {
-        let mut buf = Vec::new();
         let message = ProtobufMessage::Slot {
             slot: 0,
             parent: Some(1),
             status: &agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus::Processed,
         };
+        let mut buf = Vec::new();
         message.encode(&mut buf);
         let decoded = Slot::decode(buf.as_slice()).expect("failed to decode `Slot` from buf");
         assert_eq!(decoded.slot, 0);
