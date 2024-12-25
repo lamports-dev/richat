@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 pub use self::{
     account::Account, block_meta::BlockMeta, entry::Entry, slot::Slot, transaction::Transaction,
 };
@@ -9,6 +7,7 @@ use {
         encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
     },
     solana_transaction_status::{Reward, RewardType},
+    std::marker::PhantomData,
 };
 
 mod account;
