@@ -7,8 +7,11 @@ pub use message::ProtobufMessage;
 mod tests {
     use {
         super::ProtobufMessage,
-        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
-        prost::Message, solana_sdk::pubkey::Pubkey,
+        agave_geyser_plugin_interface::geyser_plugin_interface::{
+            ReplicaAccountInfoV3, ReplicaEntryInfoV2,
+        },
+        prost::Message,
+        solana_sdk::{hash::Hash, pubkey::Pubkey},
     };
 
     mod predefined {
@@ -108,7 +111,6 @@ mod tests {
 
     #[test]
     pub fn test_decode_account() {
-        let mut buf = Vec::new();
         let accounts_data = generate_accounts();
         let accounts = accounts_data
             .iter()
@@ -132,6 +134,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         for protobuf_message in protobuf_messages {
+            let mut buf = Vec::new();
             protobuf_message.encode(&mut buf);
             let decoded = AccountMessage::decode(buf.as_slice())
                 .expect("failed to decode `AccountMessage` from buf");
@@ -156,16 +159,83 @@ mod tests {
             assert_eq!(
                 decoded_account.write_version,
                 protobuf_account.write_version
-            );
-            buf.clear();
+            )
         }
     }
 
     #[test]
     pub fn test_decode_block_meta() {}
 
+    #[derive(Message)]
+    pub struct Entry {
+        #[prost(uint64, tag = "1")]
+        pub slot: u64,
+        #[prost(uint64, tag = "2")]
+        pub index: u64,
+        #[prost(uint64, tag = "3")]
+        pub num_hashes: u64,
+        #[prost(bytes = "vec", tag = "4")]
+        pub hash: Vec<u8>,
+        #[prost(uint64, tag = "5")]
+        pub executed_transaction_count: u64,
+        #[prost(uint64, tag = "6")]
+        pub starting_transaction_index: u64,
+    }
+
+    pub fn generate_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
+        const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
+        const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
+        [
+            ReplicaEntryInfoV2 {
+                slot: 299888121,
+                index: 42,
+                num_hashes: 128,
+                hash: FIRST_ENTRY_HASH.as_ref(),
+                executed_transaction_count: 32,
+                starting_transaction_index: 1000,
+            },
+            ReplicaEntryInfoV2 {
+                slot: 299888121,
+                index: 0,
+                num_hashes: 16,
+                hash: SECOND_ENTRY_HASH.as_ref(),
+                executed_transaction_count: 32,
+                starting_transaction_index: 1000,
+            },
+        ]
+    }
+
     #[test]
-    pub fn test_decode_entry() {}
+    pub fn test_decode_entry() {
+        let mut buf = Vec::new();
+        let entries = generate_entries();
+        let protobuf_messages = entries
+            .iter()
+            .map(|entry| ProtobufMessage::Entry { entry })
+            .collect::<Vec<_>>();
+        for protobuf_message in protobuf_messages {
+            protobuf_message.encode(&mut buf);
+            let decoded = Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
+            let ProtobufMessage::Entry {
+                entry: protobuf_entry,
+            } = protobuf_message
+            else {
+                panic!("failed to get `::Account` from ProtobufMessage")
+            };
+            assert_eq!(decoded.slot, protobuf_entry.slot);
+            assert_eq!(decoded.index, protobuf_entry.index as u64);
+            assert_eq!(decoded.num_hashes, protobuf_entry.num_hashes);
+            assert_eq!(decoded.hash.as_slice(), protobuf_entry.hash);
+            assert_eq!(
+                decoded.executed_transaction_count,
+                protobuf_entry.executed_transaction_count
+            );
+            assert_eq!(
+                decoded.starting_transaction_index,
+                protobuf_entry.starting_transaction_index as u64
+            )
+        }
+    }
 
     #[test]
     pub fn test_decode_slot() {}
