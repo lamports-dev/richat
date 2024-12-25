@@ -52,7 +52,7 @@ impl<'a> prost::Message for Slot<'a> {
     fn encoded_len(&self) -> usize {
         let status = slot_status_as_i32(self.status);
         let dead = is_slot_status_dead(self.status);
-      
+
         encoding::uint64::encoded_len(1, &self.slot)
             + self.parent.map_or(0, |value| {
                 if value != 0 {

@@ -311,7 +311,7 @@ pub mod sanitazed_message {
             unimplemented!()
         }
     }
-  
+
     pub fn encode_sanitized_message(tag: u32, sanitized: &SanitizedMessage, buf: &mut impl BufMut) {
         let wrapper = Wrapper(sanitized);
         encoding::message::encode(tag, &wrapper, buf)
@@ -836,7 +836,7 @@ pub mod inner_instructions {
             unimplemented!()
         }
     }
-  
+
     pub fn encode_inner_instructions_vec(
         tag: u32,
         inner_instructions: &[InnerInstructions],
@@ -851,7 +851,7 @@ pub mod inner_instructions {
     ) -> usize {
         encoding::message::encoded_len_repeated(tag, to_wrapper(inner_instructions))
     }
-  
+
     const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstructions]) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstructions>()`, `size_of::<Wrapper>() == size_of::<InnerInstructions>()`, the alignment of `Wrapper` and `InnerInstructions` are identical.
         unsafe {
@@ -1022,7 +1022,7 @@ pub mod compiled_instruction {
         prost::encoding,
         solana_sdk::instruction::CompiledInstruction,
     };
-  
+
     #[derive(Debug)]
     struct Wrapper<'a>(&'a CompiledInstruction);
 
@@ -1072,7 +1072,7 @@ pub mod compiled_instruction {
         let wrapper = Wrapper(compiled_instruction);
         encoding::message::encode(tag, &wrapper, buf)
     }
-  
+
     pub fn compiled_instruction_encoded_len(
         tag: u32,
         compiled_instruction: &CompiledInstruction,

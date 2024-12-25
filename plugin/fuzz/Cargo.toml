@@ -23,34 +23,34 @@ path = ".."
 [[bin]]
 name = "fuzz_target_account"
 path = "fuzz_targets/fuzz_target_account.rs"
-test = false
+test = true
 doc = false
 bench = false
 
 [[bin]]
 name = "fuzz_target_slot"
 path = "fuzz_targets/fuzz_target_slot.rs"
-test = false
+test = true
 doc = false
 bench = false
 
 [[bin]]
 name = "fuzz_target_transaction"
 path = "fuzz_targets/fuzz_target_transaction.rs"
-test = false
+test = true
 doc = false
 bench = false
 
 [[bin]]
 name = "fuzz_target_entry"
 path = "fuzz_targets/fuzz_target_entry.rs"
-test = false
+test = true
 doc = false
 bench = false
 
 [[bin]]
 name = "fuzz_target_blockmeta"
 path = "fuzz_targets/fuzz_target_blockmeta.rs"
-test = false
+test = true
 doc = false
 bench = false
