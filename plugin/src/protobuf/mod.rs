@@ -206,25 +206,22 @@ mod tests {
         for protobuf_message in protobuf_messages {
             let mut buf = Vec::new();
             protobuf_message.encode(&mut buf);
-            let decoded = Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
-            let ProtobufMessage::Entry {
-                entry: protobuf_entry,
-            } = protobuf_message
-            else {
-                panic!("failed to get `::Account` from ProtobufMessage")
-            };
-            assert_eq!(decoded.slot, protobuf_entry.slot);
-            assert_eq!(decoded.index, protobuf_entry.index as u64);
-            assert_eq!(decoded.num_hashes, protobuf_entry.num_hashes);
-            assert_eq!(decoded.hash.as_slice(), protobuf_entry.hash);
-            assert_eq!(
-                decoded.executed_transaction_count,
-                protobuf_entry.executed_transaction_count
-            );
-            assert_eq!(
-                decoded.starting_transaction_index,
-                protobuf_entry.starting_transaction_index as u64
-            )
+            if let ProtobufMessage::Entry { entry } = protobuf_message {
+                let decoded =
+                    Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
+                assert_eq!(decoded.slot, entry.slot);
+                assert_eq!(decoded.index, entry.index as u64);
+                assert_eq!(decoded.num_hashes, entry.num_hashes);
+                assert_eq!(decoded.hash.as_slice(), entry.hash);
+                assert_eq!(
+                    decoded.executed_transaction_count,
+                    entry.executed_transaction_count
+                );
+                assert_eq!(
+                    decoded.starting_transaction_index,
+                    entry.starting_transaction_index as u64
+                )
+            }
         }
     }
 
