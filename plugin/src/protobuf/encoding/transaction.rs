@@ -512,12 +512,7 @@ pub mod address_table_lookups {
         address_table_lookups: &'a [MessageAddressTableLookup],
     ) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<MessageAddressTableLookup>()`, `size_of::<Wrapper>() == size_of::<MessageAddressTableLookup>()`, the alignment of `Wrapper` and `MessageAddressTableLookup` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                address_table_lookups.as_ptr() as *const Wrapper<'a>,
-                address_table_lookups.len(),
-            )
-        }
+        unsafe { std::mem::transmute(address_table_lookups) }
     }
 }
 
@@ -854,12 +849,7 @@ pub mod inner_instructions {
 
     const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstructions]) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstructions>()`, `size_of::<Wrapper>() == size_of::<InnerInstructions>()`, the alignment of `Wrapper` and `InnerInstructions` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                inner_instructions.as_ptr() as *const Wrapper<'a>,
-                inner_instructions.len(),
-            )
-        }
+        unsafe { std::mem::transmute(inner_instructions) }
     }
 }
 
@@ -929,12 +919,7 @@ pub mod inner_instruction {
 
     const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstruction]) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstruction>()`, `size_of::<Wrapper>() == size_of::<InnerInstruction>()`, the alignment of `Wrapper` and `InnerInstruction` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                inner_instructions.as_ptr() as *const Wrapper<'a>,
-                inner_instructions.len(),
-            )
-        }
+        unsafe { std::mem::transmute(inner_instructions) }
     }
 }
 
@@ -1006,12 +991,7 @@ pub mod compiled_instructions {
 
     const fn to_wrapper<'a>(compiled_instructions: &'a [CompiledInstruction]) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<CompiledInstruction>()`, `size_of::<Wrapper>() == size_of::<CompiledInstruction>()`, the alignment of `Wrapper` and `CompiledInstruction` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                compiled_instructions.as_ptr() as *const Wrapper<'a>,
-                compiled_instructions.len(),
-            )
-        }
+        unsafe { std::mem::transmute(compiled_instructions) }
     }
 }
 
@@ -1172,12 +1152,7 @@ pub mod transaction_token_balance {
         transaction_token_balances: &'a [TransactionTokenBalance],
     ) -> &'a [Wrapper<'a>] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<TransactionTokenBalance>()`, `size_of::<Wrapper>() == size_of::<TransactionTokenBalance>()`, the alignment of `Wrapper` and `TransactionTokenBalance` are identical.
-        unsafe {
-            std::slice::from_raw_parts(
-                transaction_token_balances.as_ptr() as *const Wrapper<'a>,
-                transaction_token_balances.len(),
-            )
-        }
+        unsafe { std::mem::transmute(transaction_token_balances) }
     }
 }
 
