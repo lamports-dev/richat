@@ -18,7 +18,7 @@ impl<'a> prost::Message for BlockMeta<'a> {
         let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
         let block_time = BlockTime(self.blockinfo.block_time);
         let block_height = BlockHeight(self.blockinfo.block_height);
-      
+
         if self.blockinfo.slot != 0 {
             encoding::uint64::encode(1, &self.blockinfo.slot, buf)
         }
@@ -119,7 +119,7 @@ impl<'a> prost::Message for RewardsAndNumPartitionsWrapper<'a> {
     }
     fn encoded_len(&self) -> usize {
         let num_partitions = NumPartitions(self.0.num_partitions);
-      
+
         rewards_encoded_len(1, &self.0.rewards) + encoding::message::encoded_len(2, &num_partitions)
     }
     fn clear(&mut self) {
