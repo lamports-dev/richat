@@ -130,36 +130,27 @@ mod tests {
             .enumerate()
             .map(|(slot, account)| {
                 let slot = slot as u64;
-                super::ProtobufMessage::Account { slot, account }
+                ProtobufMessage::Account { slot, account }
             })
             .collect::<Vec<_>>();
         for protobuf_message in protobuf_messages {
             let mut buf = Vec::new();
             protobuf_message.encode(&mut buf);
-            let decoded = AccountMessage::decode(buf.as_slice())
-                .expect("failed to decode `AccountMessage` from buf");
-            let ProtobufMessage::Account {
-                slot: protobuf_slot,
-                account: protobuf_account,
-            } = protobuf_message
-            else {
-                panic!("failed to get `::Account` from ProtobufMessage")
-            };
-            let decoded_slot = decoded.slot;
-            let decoded_account = decoded
-                .account
-                .expect("failed to get `Account` from `AccountMessage`");
-            assert_eq!(decoded_slot, protobuf_slot);
-            assert_eq!(decoded_account.pubkey.as_slice(), protobuf_account.pubkey);
-            assert_eq!(decoded_account.lamports, protobuf_account.lamports);
-            assert_eq!(decoded_account.owner.as_slice(), protobuf_account.owner);
-            assert_eq!(decoded_account.executable, protobuf_account.executable);
-            assert_eq!(decoded_account.rent_epoch, protobuf_account.rent_epoch);
-            assert_eq!(decoded_account.data.as_slice(), protobuf_account.data);
-            assert_eq!(
-                decoded_account.write_version,
-                protobuf_account.write_version
-            )
+            if let ProtobufMessage::Account { slot, account } = protobuf_message {
+                let decoded = AccountMessage::decode(buf.as_slice())
+                    .expect("failed to decode `AccountMessage` from buf");
+                let decoded_account = decoded
+                    .account
+                    .expect("failed to get `Account` from `AccountMessage`");
+                assert_eq!(decoded.slot, slot);
+                assert_eq!(decoded_account.pubkey.as_slice(), account.pubkey);
+                assert_eq!(decoded_account.lamports, account.lamports);
+                assert_eq!(decoded_account.owner.as_slice(), account.owner);
+                assert_eq!(decoded_account.executable, account.executable);
+                assert_eq!(decoded_account.rent_epoch, account.rent_epoch);
+                assert_eq!(decoded_account.data.as_slice(), account.data);
+                assert_eq!(decoded_account.write_version, account.write_version)
+            }
         }
     }
 
