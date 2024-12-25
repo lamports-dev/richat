@@ -10,7 +10,7 @@ mod tests {
         agave_geyser_plugin_interface::geyser_plugin_interface::{
             ReplicaAccountInfoV3, ReplicaEntryInfoV2,
         },
-        prost::Message,
+        prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, pubkey::Pubkey},
     };
 
@@ -207,13 +207,13 @@ mod tests {
 
     #[test]
     pub fn test_decode_entry() {
-        let mut buf = Vec::new();
         let entries = generate_entries();
         let protobuf_messages = entries
             .iter()
             .map(|entry| ProtobufMessage::Entry { entry })
             .collect::<Vec<_>>();
         for protobuf_message in protobuf_messages {
+            let mut buf = Vec::new();
             protobuf_message.encode(&mut buf);
             let decoded = Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
             let ProtobufMessage::Entry {
@@ -237,8 +237,42 @@ mod tests {
         }
     }
 
+    #[derive(Message)]
+    pub struct Slot {
+        #[prost(uint64, tag = "1")]
+        slot: u64,
+        #[prost(uint64, optional, tag = "2")]
+        parent: Option<u64>,
+        #[prost(enumeration = "SlotStatus", tag = "3")]
+        status: i32,
+    }
+
+    #[derive(Debug, Enumeration)]
+    #[repr(i32)]
+    pub enum SlotStatus {
+        Processed = 0,
+        Rooted = 1,
+        Confirmed = 2,
+        FirstShredReceived = 3,
+        Completed = 4,
+        CreatedBank = 5,
+        Dead = 6,
+    }
+
     #[test]
-    pub fn test_decode_slot() {}
+    pub fn test_decode_slot() {
+        let mut buf = Vec::new();
+        let message = ProtobufMessage::Slot {
+            slot: 0,
+            parent: Some(1),
+            status: &agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus::Processed,
+        };
+        message.encode(&mut buf);
+        let decoded = Slot::decode(buf.as_slice()).expect("failed to decode `Slot` from buf");
+        assert_eq!(decoded.slot, 0);
+        assert_eq!(decoded.parent, Some(1));
+        assert_eq!(decoded.status, 0)
+    }
 
     #[test]
     pub fn test_decode_transaction() {}
