@@ -40,8 +40,11 @@ jobs:
       - name: check features in `richat-client`
         run: cargo check -p richat-client --all-targets
 
-      - name: check features in `richat`
+      - name: check features in `richat-plugin`
         run: cargo check -p richat-plugin --all-targets
+
+      - name: check features in `richat`
+        run: cargo check -p richat --all-targets
 
       - name: check features in `richat-shared`
         run: cargo check -p richat-shared --all-targets

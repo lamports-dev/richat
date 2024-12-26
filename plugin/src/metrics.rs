@@ -1,13 +1,10 @@
 use {
     crate::version::VERSION as VERSION_INFO,
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    http_body_util::{combinators::BoxBody, BodyExt, Full as BodyFull},
-    hyper::{body::Bytes, Response, StatusCode},
-    log::error,
-    prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder},
+    prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
-    std::{convert::Infallible, future::Future, sync::Once},
+    std::{future::Future, sync::Once},
     tokio::task::JoinHandle,
 };
 
@@ -15,7 +12,7 @@ lazy_static::lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
     static ref VERSION: IntCounterVec = IntCounterVec::new(
-        Opts::new("version", "Plugin version info"),
+        Opts::new("version", "Richat Plugin version info"),
         &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
     ).unwrap();
 
@@ -77,21 +74,9 @@ pub async fn spawn_server(
             .inc();
     });
 
-    richat_shared::metrics::spawn_server(config, metrics_handler, shutdown)
+    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), shutdown)
         .await
         .map_err(Into::into)
-}
-
-fn metrics_handler() -> http::Result<Response<BoxBody<Bytes, Infallible>>> {
-    let metrics = TextEncoder::new()
-        .encode_to_string(&REGISTRY.gather())
-        .unwrap_or_else(|error| {
-            error!("could not encode custom metrics: {}", error);
-            String::new()
-        });
-    Response::builder()
-        .status(StatusCode::OK)
-        .body(BodyFull::new(Bytes::from(metrics)).boxed())
 }
 
 pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {

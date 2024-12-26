@@ -7,6 +7,7 @@ use {
         encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
     },
     solana_transaction_status::{Reward, RewardType},
+    std::marker::PhantomData,
 };
 
 mod account;
@@ -41,16 +42,67 @@ const fn u8_to_static_str(num: u8) -> &'static str {
     NUM_STRINGS[num as usize]
 }
 
-pub fn encode_rewards(tag: u32, rewards: &[Reward], buf: &mut impl BufMut) {
-    encode_key(tag, WireType::Varint, buf);
-    encode_varint(rewards_encoded_len(tag, rewards) as u64, buf);
-    for reward in rewards {
-        encode_reward(reward, buf)
-    }
-}
+#[repr(transparent)]
+#[derive(Debug)]
+struct Wrapper<'a>(Reward, PhantomData<&'a ()>);
 
-pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
-    iter_encoded_len(tag, rewards.iter().map(reward_encoded_len), rewards.len())
+impl<'a> prost::Message for Wrapper<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        if !self.0.pubkey.is_empty() {
+            encoding::string::encode(1, &self.0.pubkey, buf);
+        }
+        if self.0.lamports != 0 {
+            encoding::int64::encode(2, &self.0.lamports, buf)
+        }
+        if self.0.post_balance != 0 {
+            encoding::uint64::encode(3, &self.0.post_balance, buf);
+        }
+        if self.0.reward_type.is_some() {
+            encoding::int32::encode(4, &reward_type_as_i32(self.0.reward_type), buf);
+        }
+        if let Some(commission) = self.0.commission {
+            bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
+        }
+    }
+    fn encoded_len(&self) -> usize {
+        (if !self.0.pubkey.is_empty() {
+            encoding::string::encoded_len(1, &self.0.pubkey)
+        } else {
+            0
+        }) + if self.0.lamports != 0 {
+            encoding::int64::encoded_len(2, &self.0.lamports)
+        } else {
+            0
+        } + if self.0.post_balance != 0 {
+            encoding::uint64::encoded_len(3, &self.0.post_balance)
+        } else {
+            0
+        } + if self.0.reward_type.is_some() {
+            encoding::int32::encoded_len(4, &reward_type_as_i32(self.0.reward_type))
+        } else {
+            0
+        } + self.0.commission.map_or(0, |commission| {
+            bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
+        })
+    }
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 }
 
 pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
@@ -63,24 +115,17 @@ pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
     }
 }
 
-pub fn encode_reward(reward: &Reward, buf: &mut impl BufMut) {
-    encoding::string::encode(1, &reward.pubkey, buf);
-    encoding::int64::encode(2, &reward.lamports, buf);
-    encoding::uint64::encode(3, &reward.post_balance, buf);
-    encoding::int32::encode(4, &reward_type_as_i32(reward.reward_type), buf);
-    if let Some(commission) = reward.commission {
-        bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
-    }
+pub fn encode_rewards(tag: u32, rewards: &[Reward], buf: &mut impl BufMut) {
+    encoding::message::encode_repeated(tag, to_wrapper(rewards), buf)
 }
 
-pub fn reward_encoded_len(reward: &Reward) -> usize {
-    encoding::string::encoded_len(1, &reward.pubkey)
-        + encoding::int64::encoded_len(2, &reward.lamports)
-        + encoding::uint64::encoded_len(3, &reward.post_balance)
-        + encoding::int32::encoded_len(4, &reward_type_as_i32(reward.reward_type))
-        + reward.commission.map_or(0, |commission| {
-            bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
-        })
+pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
+    encoding::message::encoded_len_repeated(tag, to_wrapper(rewards))
+}
+
+const fn to_wrapper<'a>(rewards: &'a [Reward]) -> &'a [Wrapper<'a>] {
+    // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<Reward>()`, `size_of::<Wrapper>() == size_of::<Reward>()`, the alignment of `Wrapper` and `Reward` are identical.
+    unsafe { std::slice::from_raw_parts(rewards.as_ptr() as *const Wrapper<'a>, rewards.len()) }
 }
 
 pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {

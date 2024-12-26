@@ -26,12 +26,11 @@ affinity = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
 bincode = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 hostname = { workspace = true }
 http = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 prometheus = { workspace = true }

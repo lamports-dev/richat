@@ -5,7 +5,7 @@ pub use crate::transports::proto::{
 use {
     quinn::{
         crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
-        Endpoint,
+        Endpoint, VarInt,
     },
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
@@ -34,14 +34,17 @@ pub struct ConfigQuicServer {
     /// Value in bytes/s, default with expected rtt 100 is 100Mbps
     #[serde(default = "ConfigQuicServer::default_max_stream_bandwidth")]
     pub max_stream_bandwidth: u32,
+    /// Maximum duration of inactivity to accept before timing out the connection
+    #[serde(default = "ConfigQuicServer::default_max_idle_timeout")]
+    pub max_idle_timeout: Option<u32>,
     /// Max number of outgoing streams
     #[serde(default = "ConfigQuicServer::default_max_recv_streams")]
     pub max_recv_streams: u32,
 }
 
 impl ConfigQuicServer {
-    const fn default_endpoint() -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10100)
+    pub const fn default_endpoint() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10100)
     }
 
     fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<rustls::ServerConfig, D::Error>
@@ -114,6 +117,10 @@ impl ConfigQuicServer {
         12_500 * 1000
     }
 
+    const fn default_max_idle_timeout() -> Option<u32> {
+        Some(30_000)
+    }
+
     const fn default_max_recv_streams() -> u32 {
         16
     }
@@ -134,6 +141,10 @@ impl ConfigQuicServer {
         transport_config.stream_receive_window(stream_rwnd.into());
         transport_config.send_window(8 * stream_rwnd as u64);
         transport_config.datagram_receive_buffer_size(Some(stream_rwnd as usize));
+
+        // set idle timeout
+        transport_config
+            .max_idle_timeout(self.max_idle_timeout.map(|ms| VarInt::from_u32(ms).into()));
 
         Endpoint::server(server_config, self.endpoint).map_err(|error| CreateServerError::Bind {
             error,

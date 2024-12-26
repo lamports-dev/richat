@@ -20,7 +20,7 @@ pub struct ConfigTcpServer {
 impl Default for ConfigTcpServer {
     fn default() -> Self {
         Self {
-            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 10101),
+            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10101),
             backlog: 1024,
             keepalive: None,
             nodelay: None,

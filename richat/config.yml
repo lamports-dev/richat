@@ -1,0 +1,5 @@
+---
+log:
+  json: false
+prometheus:
+  endpoint: 127.0.0.1:10123

@@ -7,8 +7,7 @@ use {
 };
 
 pub mod decode {
-    use prost::Message;
-    use prost_011 as prost;
+    use {prost::Message, prost_011 as prost};
 
     #[derive(Message)]
     pub struct FuzzAccount {
