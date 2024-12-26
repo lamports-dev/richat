@@ -4,7 +4,6 @@ members = [
     "cli",
     "client",
     "plugin",
-    "plugin/fuzz",
     "richat",
     "shared",
 ]
@@ -22,7 +21,6 @@ publish = false
 affinity = "0.1.2"
 agave-geyser-plugin-interface = "~2.1.1"
 anyhow = "1.0.62"
-arbitrary = "1.4.1"
 bincode = "1.3.3"
 bs58 = "0.5.1"
 bytes = "1.9.0"
@@ -42,7 +40,6 @@ hyper-util = "0.1.7"
 indicatif = "0.17.9"
 json5 = "0.4.1"
 lazy_static = "1.4.0"
-libfuzzer-sys = "0.4"
 log = "0.4.22"
 pin-project-lite = "0.2.15"
 prometheus = "0.13.4"

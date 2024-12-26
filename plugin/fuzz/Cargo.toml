@@ -1,28 +1,27 @@
 [package]
 name = "richat-plugin-fuzz"
-version = "2.0.0"
-authors = { workspace = true }
-edition = { workspace = true }
+version = "0.0.0"
+authors = ["Lamports Dev"]
+edition = "2021"
 description = "Richat Agave Geyser Plugin Fuzz Tests"
-homepage = { workspace = true }
-repository = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-publish = { workspace = true }
+publish = false
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-agave-geyser-plugin-interface = { workspace = true }
-arbitrary = { workspace = true, features = ["derive"] }
-libfuzzer-sys = { workspace = true }
-prost = "0.11.9" # shitty solution, but we need `prost` because `prost::Message`
-richat-plugin = { workspace = true }
-solana-account-decoder = { workspace = true }
-solana-sdk = { workspace = true }
-solana-storage-proto = { workspace = true }
-solana-transaction-status = { workspace = true }
+agave-geyser-plugin-interface = "~2.1.1"
+arbitrary = { version = "1.4.1", features = ["derive"] }
+libfuzzer-sys = "0.4.8"
+prost = "0.11.9"
+richat-plugin = { path = ".." }
+solana-account-decoder = "~2.1.1"
+solana-sdk = "~2.1.1"
+solana-storage-proto = "~2.1.1"
+solana-transaction-status = "~2.1.1"
+
+[workspace]
+members = ["."]
 
 [[bin]]
 name = "fuzz_target_account"
