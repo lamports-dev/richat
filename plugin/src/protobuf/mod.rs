@@ -13,6 +13,7 @@ mod tests {
         predefined::load_predefined_blocks,
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, pubkey::Pubkey},
+        solana_transaction_status::RewardType,
         yellowstone_grpc_proto::prelude::NumPartitions,
     };
 
@@ -179,6 +180,24 @@ mod tests {
         pub commission: Option<u32>,
     }
 
+    impl From<Reward> for solana_transaction_status::Reward {
+        fn from(reward: Reward) -> Self {
+            solana_transaction_status::Reward {
+                pubkey: reward.pubkey,
+                lamports: reward.lamports,
+                post_balance: reward.post_balance,
+                reward_type: match reward.reward_type {
+                    1 => Some(RewardType::Fee),
+                    2 => Some(RewardType::Rent),
+                    3 => Some(RewardType::Staking),
+                    4 => Some(RewardType::Voting),
+                    _ => None,
+                },
+                commission: reward.commission.map(|commission| commission as u8),
+            }
+        }
+    }
+
     #[derive(Message)]
     pub struct RewardsAndNumPartitions {
         #[prost(message, repeated, tag = "1")]
@@ -263,7 +282,14 @@ mod tests {
                     .expect("failed to decode `BlockMeta` from buf");
                 assert_eq!(decoded.slot, blockinfo.slot);
                 assert_eq!(&decoded.blockhash, blockinfo.blockhash);
-                assert_eq!(0, 0); // TODO: rewards
+                assert_eq!(
+                    decoded.rewards.map(|rewards| rewards
+                        .rewards
+                        .into_iter()
+                        .map(Into::into)
+                        .collect()),
+                    Some(blockinfo.rewards.rewards)
+                ); // TODO: rewards
                 assert_eq!(0, 0); // TODO: block_time
                 assert_eq!(0, 0); // TODO: block_height
                 assert_eq!(decoded.parent_slot, blockinfo.parent_slot);

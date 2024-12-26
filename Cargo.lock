@@ -3534,10 +3534,10 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "prost 0.11.9",
- "prost 0.13.4",
  "richat-plugin",
  "solana-account-decoder",
  "solana-sdk",
+ "solana-storage-proto",
  "solana-transaction-status",
 ]
 
