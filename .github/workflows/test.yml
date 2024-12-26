@@ -34,6 +34,9 @@ jobs:
       - name: run clippy
         run: cargo clippy --workspace --all-targets -- -Dwarnings
 
+      - name: run clippy in plugin-fuzz
+        run: cd plugin/fuzz && cargo clippy --workspace --all-targets -- -Dwarnings
+
       - name: check features in `richat-cli`
         run: cargo check -p richat-cli --all-targets
 

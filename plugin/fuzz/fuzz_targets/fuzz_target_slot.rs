@@ -18,8 +18,8 @@ pub enum FuzzSlotStatus {
 }
 
 impl From<FuzzSlotStatus> for SlotStatus {
-    fn from(value: FuzzSlotStatus) -> Self {
-        match value {
+    fn from(fuzz: FuzzSlotStatus) -> Self {
+        match fuzz {
             FuzzSlotStatus::Processed => SlotStatus::Processed,
             FuzzSlotStatus::Rooted => SlotStatus::Rooted,
             FuzzSlotStatus::Confirmed => SlotStatus::Confirmed,

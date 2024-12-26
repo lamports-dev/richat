@@ -54,11 +54,11 @@ pub struct FuzzCompiledInstruction {
 }
 
 impl From<FuzzCompiledInstruction> for CompiledInstruction {
-    fn from(value: FuzzCompiledInstruction) -> Self {
-        CompiledInstruction {
-            program_id_index: value.program_id_index,
-            accounts: value.accounts,
-            data: value.data,
+    fn from(fuzz: FuzzCompiledInstruction) -> Self {
+        Self {
+            program_id_index: fuzz.program_id_index,
+            accounts: fuzz.accounts,
+            data: fuzz.data,
         }
     }
 }
@@ -70,14 +70,14 @@ pub struct FuzzLoadedAddresses {
 }
 
 impl From<FuzzLoadedAddresses> for LoadedAddresses {
-    fn from(value: FuzzLoadedAddresses) -> Self {
-        LoadedAddresses {
-            writable: value
+    fn from(fuzz: FuzzLoadedAddresses) -> Self {
+        Self {
+            writable: fuzz
                 .writable
                 .into_iter()
                 .map(Pubkey::new_from_array)
                 .collect(),
-            readonly: value
+            readonly: fuzz
                 .readonly
                 .into_iter()
                 .map(Pubkey::new_from_array)
@@ -111,16 +111,16 @@ pub mod sanitized {
     }
 
     impl From<FuzzLegacyMessageInner> for legacy::Message {
-        fn from(value: FuzzLegacyMessageInner) -> Self {
-            legacy::Message {
-                header: value.header.into(),
-                account_keys: value
+        fn from(fuzz: FuzzLegacyMessageInner) -> Self {
+            Self {
+                header: fuzz.header.into(),
+                account_keys: fuzz
                     .account_keys
                     .into_iter()
                     .map(Pubkey::new_from_array)
                     .collect(),
-                recent_blockhash: Hash::new_from_array(value.recent_blockhash),
-                instructions: value.instructions.into_iter().map(Into::into).collect(),
+                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
             }
         }
     }
@@ -133,11 +133,11 @@ pub mod sanitized {
     }
 
     impl From<FuzzMessageAddressTableLookup> for MessageAddressTableLookup {
-        fn from(value: FuzzMessageAddressTableLookup) -> Self {
-            MessageAddressTableLookup {
-                account_key: Pubkey::new_from_array(value.account_key),
-                writable_indexes: value.writable_indexes,
-                readonly_indexes: value.readonly_indexes,
+        fn from(fuzz: FuzzMessageAddressTableLookup) -> Self {
+            Self {
+                account_key: Pubkey::new_from_array(fuzz.account_key),
+                writable_indexes: fuzz.writable_indexes,
+                readonly_indexes: fuzz.readonly_indexes,
             }
         }
     }
@@ -169,17 +169,17 @@ pub mod sanitized {
     }
 
     impl From<FuzzLoadedMessageInner> for v0::Message {
-        fn from(value: FuzzLoadedMessageInner) -> Self {
-            v0::Message {
-                header: value.header.into(),
-                account_keys: value
+        fn from(fuzz: FuzzLoadedMessageInner) -> Self {
+            Self {
+                header: fuzz.header.into(),
+                account_keys: fuzz
                     .account_keys
                     .into_iter()
                     .map(Pubkey::new_from_array)
                     .collect(),
-                recent_blockhash: Hash::new_from_array(value.recent_blockhash),
-                instructions: value.instructions.into_iter().map(Into::into).collect(),
-                address_table_lookups: value
+                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
+                address_table_lookups: fuzz
                     .address_table_lookups
                     .into_iter()
                     .map(Into::into)
@@ -195,10 +195,10 @@ pub mod sanitized {
     }
 
     impl<'a> From<FuzzLegacyMessage<'a>> for LegacyMessage<'static> {
-        fn from(value: FuzzLegacyMessage<'a>) -> Self {
-            LegacyMessage {
-                message: Cow::Owned(value.message.into_owned().into()),
-                is_writable_account_cache: value.is_writable_account_cache,
+        fn from(fuzz: FuzzLegacyMessage<'a>) -> Self {
+            Self {
+                message: Cow::Owned(fuzz.message.into_owned().into()),
+                is_writable_account_cache: fuzz.is_writable_account_cache,
             }
         }
     }
@@ -211,11 +211,11 @@ pub mod sanitized {
     }
 
     impl<'a> From<FuzzLoadedMessage<'a>> for v0::LoadedMessage<'static> {
-        fn from(value: FuzzLoadedMessage<'a>) -> Self {
+        fn from(fuzz: FuzzLoadedMessage<'a>) -> v0::LoadedMessage<'static> {
             v0::LoadedMessage {
-                message: Cow::Owned(value.message.into_owned().into()),
-                loaded_addresses: Cow::Owned(value.loaded_addresses.into_owned().into()),
-                is_writable_account_cache: value.is_writable_account_cache,
+                message: Cow::Owned(fuzz.message.into_owned().into()),
+                loaded_addresses: Cow::Owned(fuzz.loaded_addresses.into_owned().into()),
+                is_writable_account_cache: fuzz.is_writable_account_cache,
             }
         }
     }
@@ -227,14 +227,12 @@ pub mod sanitized {
     }
 
     impl<'a> From<FuzzSanitizedMessage<'a>> for VersionedMessage {
-        fn from(value: FuzzSanitizedMessage<'a>) -> Self {
-            match value {
+        fn from(fuzz: FuzzSanitizedMessage<'a>) -> Self {
+            match fuzz {
                 FuzzSanitizedMessage::Legacy(legacy) => {
-                    VersionedMessage::Legacy(legacy.message.into_owned().into())
+                    Self::Legacy(legacy.message.into_owned().into())
                 }
-                FuzzSanitizedMessage::V0(v0) => {
-                    VersionedMessage::V0(v0.message.into_owned().into())
-                }
+                FuzzSanitizedMessage::V0(v0) => Self::V0(v0.message.into_owned().into()),
             }
         }
     }
@@ -273,11 +271,10 @@ pub mod status_meta {
     }
 
     impl From<FuzzInnerInstruction> for InnerInstruction {
-        fn from(value: FuzzInnerInstruction) -> Self {
-            let instruction = value.instruction.into();
-            InnerInstruction {
-                instruction,
-                stack_height: value.stack_height,
+        fn from(fuzz: FuzzInnerInstruction) -> Self {
+            Self {
+                instruction: fuzz.instruction.into(),
+                stack_height: fuzz.stack_height,
             }
         }
     }
@@ -289,11 +286,10 @@ pub mod status_meta {
     }
 
     impl From<FuzzInnerInstructions> for InnerInstructions {
-        fn from(value: FuzzInnerInstructions) -> Self {
-            let instructions = value.instructions.into_iter().map(Into::into).collect();
-            InnerInstructions {
-                index: value.index,
-                instructions,
+        fn from(fuzz: FuzzInnerInstructions) -> Self {
+            Self {
+                index: fuzz.index,
+                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
             }
         }
     }
@@ -307,12 +303,12 @@ pub mod status_meta {
     }
 
     impl From<FuzzUiTokenAmount> for UiTokenAmount {
-        fn from(value: FuzzUiTokenAmount) -> Self {
-            UiTokenAmount {
-                ui_amount: value.ui_amount,
-                amount: value.amount,
-                decimals: value.decimals,
-                ui_amount_string: value.ui_amount_string,
+        fn from(fuzz: FuzzUiTokenAmount) -> Self {
+            Self {
+                ui_amount: fuzz.ui_amount,
+                amount: fuzz.amount,
+                decimals: fuzz.decimals,
+                ui_amount_string: fuzz.ui_amount_string,
             }
         }
     }
@@ -327,13 +323,13 @@ pub mod status_meta {
     }
 
     impl From<FuzzTransactionTokenBalance> for TransactionTokenBalance {
-        fn from(value: FuzzTransactionTokenBalance) -> Self {
-            TransactionTokenBalance {
-                account_index: value.account_index,
-                mint: value.mint,
-                ui_token_amount: value.ui_token_amount.into(),
-                owner: value.owner,
-                program_id: value.program_id,
+        fn from(fuzz: FuzzTransactionTokenBalance) -> Self {
+            Self {
+                account_index: fuzz.account_index,
+                mint: fuzz.mint,
+                ui_token_amount: fuzz.ui_token_amount.into(),
+                owner: fuzz.owner,
+                program_id: fuzz.program_id,
             }
         }
     }
@@ -347,8 +343,8 @@ pub mod status_meta {
     }
 
     impl From<FuzzRewardType> for RewardType {
-        fn from(value: FuzzRewardType) -> Self {
-            match value {
+        fn from(fuzz: FuzzRewardType) -> Self {
+            match fuzz {
                 FuzzRewardType::Fee => RewardType::Fee,
                 FuzzRewardType::Rent => RewardType::Rent,
                 FuzzRewardType::Staking => RewardType::Staking,
@@ -367,13 +363,13 @@ pub mod status_meta {
     }
 
     impl From<FuzzReward> for Reward {
-        fn from(value: FuzzReward) -> Self {
-            Reward {
-                pubkey: value.pubkey,
-                lamports: value.lamports,
-                post_balance: value.post_balance,
-                reward_type: value.reward_type.map(Into::into),
-                commission: value.commission,
+        fn from(fuzz: FuzzReward) -> Self {
+            Self {
+                pubkey: fuzz.pubkey,
+                lamports: fuzz.lamports,
+                post_balance: fuzz.post_balance,
+                reward_type: fuzz.reward_type.map(Into::into),
+                commission: fuzz.commission,
             }
         }
     }
@@ -385,10 +381,10 @@ pub mod status_meta {
     }
 
     impl From<FuzzTransactionReturnData> for TransactionReturnData {
-        fn from(value: FuzzTransactionReturnData) -> Self {
+        fn from(fuzz: FuzzTransactionReturnData) -> Self {
             TransactionReturnData {
-                program_id: Pubkey::new_from_array(value.program_id),
-                data: value.data,
+                program_id: Pubkey::new_from_array(fuzz.program_id),
+                data: fuzz.data,
             }
         }
     }
