@@ -3528,7 +3528,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-fuzz"
-version = "0.0.0"
+version = "2.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "arbitrary",

@@ -1,28 +1,46 @@
 [package]
 name = "richat-plugin-fuzz"
-version = "0.0.0"
-publish = false
-edition = "2021"
+version = "2.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+description = "Richat Agave Geyser Plugin Fuzz Tests"
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+publish = { workspace = true }
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-arbitrary = { version = "1", features = ["derive"] }
-solana-sdk = { workspace = true }
-prost_011 = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
+arbitrary = { workspace = true, features = ["derive"] }
+libfuzzer-sys = { workspace = true }
+prost_011 = { workspace = true }
+richat-plugin = { workspace = true }
+solana-account-decoder = { workspace = true }
+solana-sdk = { workspace = true }
 solana-storage-proto = { workspace = true }
 solana-transaction-status = { workspace = true }
-solana-account-decoder = { workspace = true }
-
-[dependencies.richat-plugin]
-path = ".."
 
 [[bin]]
 name = "fuzz_target_account"
 path = "fuzz_targets/fuzz_target_account.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_blockmeta"
+path = "fuzz_targets/fuzz_target_blockmeta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_target_entry"
+path = "fuzz_targets/fuzz_target_entry.rs"
 test = false
 doc = false
 bench = false
@@ -37,20 +55,6 @@ bench = false
 [[bin]]
 name = "fuzz_target_transaction"
 path = "fuzz_targets/fuzz_target_transaction.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "fuzz_target_entry"
-path = "fuzz_targets/fuzz_target_entry.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "fuzz_target_blockmeta"
-path = "fuzz_targets/fuzz_target_blockmeta.rs"
 test = false
 doc = false
 bench = false
