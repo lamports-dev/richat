@@ -167,6 +167,28 @@ impl Default for ConfigQuicClient {
     }
 }
 
+impl ConfigQuicClient {
+    pub async fn connect(self) -> Result<QuicClient, QuicConnectError> {
+        let builder = QuicClient::builder()
+            .set_local_addr(Some(self.local_addr))
+            .set_expected_rtt(self.expected_rtt)
+            .set_max_stream_bandwidth(self.max_stream_bandwidth)
+            .set_max_idle_timeout(self.max_idle_timeout)
+            .set_server_name(self.server_name.clone())
+            .set_recv_streams(self.recv_streams)
+            .set_max_backlog(self.max_backlog);
+
+        if self.insecure {
+            builder.insecure().connect(self.endpoint.clone()).await
+        } else {
+            builder
+                .secure(self.cert)
+                .connect(self.endpoint.clone())
+                .await
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct QuicClientBuilder {
     pub local_addr: SocketAddr,

@@ -22,11 +22,7 @@ use {
         path::PathBuf,
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
-    tokio::fs,
-    tonic::{
-        service::Interceptor,
-        transport::{channel::ClientTlsConfig, Certificate},
-    },
+    tonic::service::Interceptor,
     tracing::{error, info},
     yellowstone_grpc_proto::{
         convert_from,
@@ -241,14 +237,10 @@ struct ArgsAppStreamGrpc {
 
 impl ArgsAppStreamGrpc {
     async fn connect(self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
-        let mut tls_config = ClientTlsConfig::new().with_native_roots();
-        if let Some(path) = &self.ca_certificate {
-            let bytes = fs::read(path).await?;
-            tls_config = tls_config.ca_certificate(Certificate::from_pem(bytes));
-        }
         let mut builder = GrpcClient::build_from_shared(self.endpoint)?
             .x_token(self.x_token)?
-            .tls_config(tls_config)?
+            .tls_config_native_roots(self.ca_certificate.as_ref())
+            .await?
             .max_decoding_message_size(self.max_decoding_message_size);
 
         if let Some(duration) = self.connect_timeout_ms {

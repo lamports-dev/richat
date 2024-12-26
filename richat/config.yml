@@ -22,7 +22,7 @@ channel:
     endpoint: 127.0.0.1:10101
     keepalive: null
     nodelay: true
-    send_buffer_size: null
+    recv_buffer_size: null
     # ---
     # transport: grpc
     # endpoint: http://127.0.0.1:10102
@@ -30,7 +30,7 @@ channel:
     # connect_timeout: null
     # buffer_size: null
     # http2_adaptive_window: null
-    # http2_keep_alive_interval_ms: null
+    # http2_keep_alive_interval: null
     # initial_connection_window_size: null
     # initial_stream_window_size: null
     # keep_alive_timeout: null
@@ -43,6 +43,10 @@ channel:
     #   accept: ["gzip", "zstd"]
     #   send: ["gzip", "zstd"]
     # x_token: null
+  config:
+    max_messages: 2_097_152
+    max_slots: 100
+    max_bytes: 10_737_418_240
 apps:
   tokio:
     worker_threads: 4

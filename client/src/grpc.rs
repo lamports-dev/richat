@@ -20,18 +20,23 @@ use {
     serde::Deserialize,
     std::{
         collections::HashMap,
-        fmt,
+        fmt, io,
         marker::PhantomData,
         path::PathBuf,
         pin::Pin,
         task::{Context, Poll},
         time::Duration,
     },
+    thiserror::Error,
+    tokio::fs,
     tonic::{
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
         metadata::{errors::InvalidMetadataValue, AsciiMetadataKey, AsciiMetadataValue},
         service::{interceptor::InterceptedService, Interceptor},
-        transport::channel::{Channel, ClientTlsConfig, Endpoint},
+        transport::{
+            channel::{Channel, ClientTlsConfig, Endpoint},
+            Certificate,
+        },
         Request, Response, Status, Streaming,
     },
     yellowstone_grpc_proto::geyser::{
@@ -52,7 +57,7 @@ pub struct ConfigGrpcClient {
     pub buffer_size: Option<usize>,
     pub http2_adaptive_window: Option<bool>,
     #[serde(with = "humantime_serde")]
-    pub http2_keep_alive_interval_ms: Option<Duration>,
+    pub http2_keep_alive_interval: Option<Duration>,
     pub initial_connection_window_size: Option<u32>,
     pub initial_stream_window_size: Option<u32>,
     #[serde(with = "humantime_serde")]
@@ -77,7 +82,7 @@ impl Default for ConfigGrpcClient {
             connect_timeout: None,
             buffer_size: None,
             http2_adaptive_window: None,
-            http2_keep_alive_interval_ms: None,
+            http2_keep_alive_interval: None,
             initial_connection_window_size: None,
             initial_stream_window_size: None,
             keep_alive_timeout: None,
@@ -90,6 +95,58 @@ impl Default for ConfigGrpcClient {
             x_token: None,
         }
     }
+}
+
+impl ConfigGrpcClient {
+    pub async fn connect(self) -> Result<GrpcClient<impl Interceptor>, GrpcClientBuilderError> {
+        let mut builder = GrpcClientBuilder::from_shared(self.endpoint)?
+            .tls_config_native_roots(self.ca_certificate.as_ref())
+            .await?
+            .buffer_size(self.buffer_size)
+            .keep_alive_while_idle(self.keep_alive_while_idle)
+            .tcp_keepalive(self.tcp_keepalive)
+            .tcp_nodelay(self.tcp_nodelay)
+            .max_decoding_message_size(self.max_decoding_message_size)
+            .x_token(self.x_token)?;
+        if let Some(connect_timeout) = self.connect_timeout {
+            builder = builder.connect_timeout(connect_timeout)
+        }
+        if let Some(http2_adaptive_window) = self.http2_adaptive_window {
+            builder = builder.http2_adaptive_window(http2_adaptive_window);
+        }
+        if let Some(http2_keep_alive_interval) = self.http2_keep_alive_interval {
+            builder = builder.http2_keep_alive_interval(http2_keep_alive_interval);
+        }
+        if let Some(initial_connection_window_size) = self.initial_connection_window_size {
+            builder = builder.initial_connection_window_size(initial_connection_window_size);
+        }
+        if let Some(initial_stream_window_size) = self.initial_stream_window_size {
+            builder = builder.initial_stream_window_size(initial_stream_window_size);
+        }
+        if let Some(keep_alive_timeout) = self.keep_alive_timeout {
+            builder = builder.keep_alive_timeout(keep_alive_timeout);
+        }
+        if let Some(timeout) = self.timeout {
+            builder = builder.timeout(timeout);
+        }
+        for encoding in self.compression.accept {
+            builder = builder.accept_compressed(encoding);
+        }
+        for encoding in self.compression.send {
+            builder = builder.send_compressed(encoding);
+        }
+        builder.connect().await.map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum GrpcClientBuilderError {
+    #[error("failed to load cert: {0}")]
+    LoadCert(io::Error),
+    #[error("tonic error: {0}")]
+    Tonic(#[from] tonic::transport::Error),
+    #[error("x-token error: {0}")]
+    XToken(#[from] InvalidMetadataValue),
 }
 
 #[derive(Debug)]
@@ -201,11 +258,25 @@ impl GrpcClientBuilder {
         }
     }
 
-    pub fn tls_config(self, tls_config: ClientTlsConfig) -> Result<Self, tonic::transport::Error> {
+    pub fn tls_config(self, tls_config: ClientTlsConfig) -> Result<Self, GrpcClientBuilderError> {
         Ok(Self {
             endpoint: self.endpoint.tls_config(tls_config)?,
             ..self
         })
+    }
+
+    pub async fn tls_config_native_roots(
+        self,
+        ca_certificate: Option<&PathBuf>,
+    ) -> Result<Self, GrpcClientBuilderError> {
+        let mut tls_config = ClientTlsConfig::new().with_native_roots();
+        if let Some(path) = ca_certificate {
+            let bytes = fs::read(path)
+                .await
+                .map_err(GrpcClientBuilderError::LoadCert)?;
+            tls_config = tls_config.ca_certificate(Certificate::from_pem(bytes));
+        }
+        self.tls_config(tls_config)
     }
 
     // gRPC options

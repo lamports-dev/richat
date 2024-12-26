@@ -3410,6 +3410,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vergen",
+ "yellowstone-grpc-proto",
 ]
 
 [[package]]

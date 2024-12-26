@@ -25,6 +25,7 @@ signal-hook = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
+yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

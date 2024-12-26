@@ -1,8 +1,11 @@
 use {
     anyhow::Context,
     clap::Parser,
-    futures::future::{pending, try_join_all, FutureExt, TryFutureExt},
-    richat::config::Config,
+    futures::{
+        future::{pending, try_join_all, FutureExt, TryFutureExt},
+        stream::StreamExt,
+    },
+    richat::{channel, config::Config},
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
         sync::{
@@ -53,14 +56,31 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Create channel runtime (receive messages from solana node / richat)
+    let messages = channel::Sender::new(config.channel.config);
     let mut chan_jh = std::thread::Builder::new()
         .name("richatChan".to_owned())
-        .spawn(|| {
-            let runtime = config.channel.tokio.build_runtime("richatChan")?;
-            runtime.block_on(async move {
-                //
-                Ok::<(), anyhow::Error>(())
-            })
+        .spawn({
+            let shutdown = create_shutdown_rx();
+            let messages = messages.clone();
+            || {
+                let runtime = config.channel.tokio.build_runtime("richatChan")?;
+                runtime.block_on(async move {
+                    tokio::pin!(shutdown);
+                    let mut stream = channel::subscribe(config.channel.source)
+                        .await
+                        .context("failed to subscribe")?;
+                    loop {
+                        tokio::select! {
+                            message = stream.next() => match message {
+                                Some(Ok(message)) => messages.push(message)?,
+                                Some(Err(error)) => return Err(anyhow::Error::new(error)),
+                                None => anyhow::bail!("source stream finished"),
+                            },
+                            () = &mut shutdown => return Ok(()),
+                        }
+                    }
+                })
+            }
         })
         .map(Some)?;
 
