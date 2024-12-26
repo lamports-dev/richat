@@ -16,9 +16,9 @@ pub enum FuzzSlotStatus {
     Dead(String),
 }
 
-impl Into<SlotStatus> for FuzzSlotStatus {
-    fn into(self) -> SlotStatus {
-        match self {
+impl From<FuzzSlotStatus> for SlotStatus {
+    fn from(fuzz: FuzzSlotStatus) -> Self {
+        match fuzz {
             FuzzSlotStatus::Processed => SlotStatus::Processed,
             FuzzSlotStatus::Rooted => SlotStatus::Rooted,
             FuzzSlotStatus::Confirmed => SlotStatus::Confirmed,

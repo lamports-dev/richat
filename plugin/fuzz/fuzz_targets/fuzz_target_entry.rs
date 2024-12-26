@@ -2,7 +2,7 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
-    libfuzzer_sys::fuzz_target, prost_011::Message, richat_plugin::protobuf::ProtobufMessage,
+    libfuzzer_sys::fuzz_target, prost::Message, richat_plugin::protobuf::ProtobufMessage,
     solana_storage_proto::convert::entries::Entry,
 };
 
