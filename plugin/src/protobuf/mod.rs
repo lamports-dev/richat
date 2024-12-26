@@ -290,8 +290,16 @@ mod tests {
                         .collect()),
                     Some(blockinfo.rewards.rewards)
                 ); // TODO: rewards
-                assert_eq!(0, 0); // TODO: block_time
-                assert_eq!(0, 0); // TODO: block_height
+                assert_eq!(
+                    decoded.block_time.map(|block_time| block_time.timestamp),
+                    blockinfo.block_time
+                );
+                assert_eq!(
+                    decoded
+                        .block_height
+                        .map(|block_height| block_height.block_height),
+                    blockinfo.block_height
+                );
                 assert_eq!(decoded.parent_slot, blockinfo.parent_slot);
                 assert_eq!(&decoded.parent_blockhash, blockinfo.parent_blockhash);
                 assert_eq!(
