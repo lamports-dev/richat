@@ -3054,6 +3054,7 @@ dependencies = [
  "lazy_static",
  "log",
  "prometheus",
+ "prost 0.11.9",
  "prost 0.13.4",
  "prost-types 0.13.4",
  "quinn",

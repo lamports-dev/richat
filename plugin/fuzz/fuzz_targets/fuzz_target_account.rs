@@ -48,7 +48,6 @@ pub struct FuzzAccountMessage<'a> {
 fuzz_target!(|fuzz_message: FuzzAccountMessage| {
     let mut buf = Vec::new();
     let message = ProtobufMessage::Account {
-        slot: fuzz_message.slot,
         account: &ReplicaAccountInfoV3 {
             pubkey: &fuzz_message.account.pubkey,
             lamports: fuzz_message.account.lamports,
@@ -59,6 +58,7 @@ fuzz_target!(|fuzz_message: FuzzAccountMessage| {
             write_version: fuzz_message.account.write_version,
             txn: None,
         },
+        slot: fuzz_message.slot,
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty())

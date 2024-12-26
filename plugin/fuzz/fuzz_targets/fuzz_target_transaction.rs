@@ -11,33 +11,38 @@ use {
         message::{v0::LoadedAddresses, SimpleAddressLoader},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
-        signers::Signers,
-        transaction::{SanitizedTransaction, SanitizedVersionedTransaction, VersionedTransaction},
+        transaction::{
+            SanitizedTransaction, SanitizedVersionedTransaction, TransactionError,
+            VersionedTransaction,
+        },
     },
-    solana_transaction_status::TransactionStatusMeta,
     std::collections::HashSet,
 };
 
-pub struct FuzzSigner;
+pub mod signer {
+    use solana_sdk::{pubkey::Pubkey, signature::Signature, signers::Signers};
 
-impl Signers for FuzzSigner {
-    fn pubkeys(&self) -> Vec<Pubkey> {
-        vec![Pubkey::new_unique()]
-    }
-    fn try_pubkeys(&self) -> Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
-        Ok(vec![Pubkey::new_unique()])
-    }
-    fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
-        vec![Signature::new_unique()]
-    }
-    fn try_sign_message(
-        &self,
-        _message: &[u8],
-    ) -> Result<Vec<Signature>, solana_sdk::signer::SignerError> {
-        Ok(vec![Signature::new_unique()])
-    }
-    fn is_interactive(&self) -> bool {
-        false
+    pub struct SimpleSigner;
+
+    impl Signers for SimpleSigner {
+        fn pubkeys(&self) -> Vec<Pubkey> {
+            vec![Pubkey::new_unique()]
+        }
+        fn try_pubkeys(&self) -> std::result::Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
+            Ok(vec![Pubkey::new_unique()])
+        }
+        fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
+            vec![Signature::new_unique()]
+        }
+        fn try_sign_message(
+            &self,
+            _message: &[u8],
+        ) -> std::result::Result<Vec<Signature>, solana_sdk::signer::SignerError> {
+            Ok(vec![Signature::new_unique()])
+        }
+        fn is_interactive(&self) -> bool {
+            false
+        }
     }
 }
 
@@ -107,19 +112,15 @@ pub mod sanitized {
 
     impl From<FuzzLegacyMessageInner> for legacy::Message {
         fn from(fuzz: FuzzLegacyMessageInner) -> Self {
-            let header = fuzz.header.into_solana();
-            let account_keys = fuzz
-                .account_keys
-                .into_iter()
-                .map(Pubkey::new_from_array)
-                .collect();
-            let recent_blockhash = Hash::new_from_array(fuzz.recent_blockhash);
-            let instructions = fuzz.instructions.into_iter().map(Into::into).collect();
             Self {
-                header,
-                account_keys,
-                recent_blockhash,
-                instructions,
+                header: fuzz.header.into(),
+                account_keys: fuzz
+                    .account_keys
+                    .into_iter()
+                    .map(Pubkey::new_from_array)
+                    .collect(),
+                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
             }
         }
     }
@@ -148,12 +149,12 @@ pub mod sanitized {
         pub num_readonly_unsigned_accounts: u8,
     }
 
-    impl FuzzMessageHeader {
-        pub fn into_solana(self) -> MessageHeader {
+    impl From<FuzzMessageHeader> for MessageHeader {
+        fn from(value: FuzzMessageHeader) -> Self {
             MessageHeader {
-                num_required_signatures: self.num_required_signatures,
-                num_readonly_signed_accounts: self.num_readonly_signed_accounts,
-                num_readonly_unsigned_accounts: self.num_readonly_unsigned_accounts,
+                num_required_signatures: value.num_required_signatures,
+                num_readonly_signed_accounts: value.num_readonly_signed_accounts,
+                num_readonly_unsigned_accounts: value.num_readonly_unsigned_accounts,
             }
         }
     }
@@ -169,25 +170,20 @@ pub mod sanitized {
 
     impl From<FuzzLoadedMessageInner> for v0::Message {
         fn from(fuzz: FuzzLoadedMessageInner) -> Self {
-            let header = fuzz.header.into_solana();
-            let account_keys = fuzz
-                .account_keys
-                .into_iter()
-                .map(Pubkey::new_from_array)
-                .collect();
-            let recent_blockhash = Hash::new_from_array(fuzz.recent_blockhash);
-            let instructions = fuzz.instructions.into_iter().map(Into::into).collect();
-            let address_table_lookups = fuzz
-                .address_table_lookups
-                .into_iter()
-                .map(Into::into)
-                .collect();
             Self {
-                header,
-                account_keys,
-                recent_blockhash,
-                instructions,
-                address_table_lookups,
+                header: fuzz.header.into(),
+                account_keys: fuzz
+                    .account_keys
+                    .into_iter()
+                    .map(Pubkey::new_from_array)
+                    .collect(),
+                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
+                address_table_lookups: fuzz
+                    .address_table_lookups
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }
         }
     }
@@ -265,7 +261,7 @@ pub mod status_meta {
 
     #[derive(Arbitrary, Debug)]
     pub enum FuzzTransactionError {
-        Err,
+        Zero,
     }
 
     #[derive(Arbitrary, Debug)]
@@ -428,7 +424,8 @@ pub struct FuzzTransactionMessage<'a> {
 fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
     let mut buf = Vec::new();
     let versioned_message = fuzz_message.transaction.transaction.message.into();
-    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &FuzzSigner)
+    let simple_signer = signer::SimpleSigner;
+    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &simple_signer)
         .expect("failed to define `VersionedTransaction`");
     let sanitized_versioned_transaction =
         SanitizedVersionedTransaction::try_new(versioned_transaction)
@@ -441,7 +438,6 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         &HashSet::new(),
     )
     .expect("failed to define `SanitizedTransaction`");
-    let _status = ();
     let inner_instructions = fuzz_message
         .transaction
         .transaction_status_meta
@@ -472,8 +468,11 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         .transaction_status_meta
         .return_data
         .map(Into::into);
-    let transaction_status_meta = TransactionStatusMeta {
-        status: Ok(()), // TODO
+    let transaction_status_meta = solana_transaction_status::TransactionStatusMeta {
+        status: match fuzz_message.transaction.transaction_status_meta.status {
+            Ok(_) => Ok(()),
+            Err(_) => Err(TransactionError::UnsupportedVersion),
+        },
         fee: fuzz_message.transaction.transaction_status_meta.fee,
         pre_balances: fuzz_message
             .transaction

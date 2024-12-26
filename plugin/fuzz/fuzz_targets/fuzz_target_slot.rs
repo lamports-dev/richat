@@ -5,15 +5,16 @@ use {
     libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
 };
 
-#[derive(Arbitrary, Debug)]
+#[derive(Clone, Copy, Arbitrary, Debug)]
+#[repr(i32)]
 pub enum FuzzSlotStatus {
-    Processed,
-    Rooted,
-    Confirmed,
-    FirstShredReceived,
-    Completed,
-    CreatedBank,
-    Dead(String),
+    Processed = 0,
+    Rooted = 1,
+    Confirmed = 2,
+    FirstShredReceived = 3,
+    Completed = 4,
+    CreatedBank = 5,
+    Dead = 6,
 }
 
 impl From<FuzzSlotStatus> for SlotStatus {
@@ -25,7 +26,7 @@ impl From<FuzzSlotStatus> for SlotStatus {
             FuzzSlotStatus::FirstShredReceived => SlotStatus::FirstShredReceived,
             FuzzSlotStatus::Completed => SlotStatus::Completed,
             FuzzSlotStatus::CreatedBank => SlotStatus::CreatedBank,
-            FuzzSlotStatus::Dead(dead) => SlotStatus::Dead(dead),
+            FuzzSlotStatus::Dead => SlotStatus::Dead(String::new()),
         }
     }
 }

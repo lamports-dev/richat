@@ -5,15 +5,16 @@ use {
     arbitrary::Arbitrary,
     libfuzzer_sys::fuzz_target,
     richat_plugin::protobuf::ProtobufMessage,
-    solana_transaction_status::{Reward, RewardType, RewardsAndNumPartitions},
+    solana_transaction_status::{RewardType, RewardsAndNumPartitions},
 };
 
-#[derive(Arbitrary, Debug)]
+#[derive(Clone, Copy, Arbitrary, Debug)]
+#[repr(i32)]
 pub enum FuzzRewardType {
-    Fee,
-    Rent,
-    Staking,
-    Voting,
+    Fee = 1,
+    Rent = 2,
+    Staking = 3,
+    Voting = 4,
 }
 
 impl From<FuzzRewardType> for RewardType {
@@ -55,9 +56,9 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
     let rewards_and_num_partitions = RewardsAndNumPartitions {
         rewards: fuzz_blockmeta
             .rewards
-            .into_iter()
-            .map(|reward| Reward {
-                pubkey: reward.pubkey,
+            .iter()
+            .map(|reward| solana_transaction_status::Reward {
+                pubkey: reward.pubkey.to_owned(),
                 lamports: reward.lamports,
                 post_balance: reward.post_balance,
                 reward_type: reward.reward_type.map(Into::into),
@@ -66,18 +67,19 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
             .collect(),
         num_partitions: fuzz_blockmeta.num_partitions,
     };
+    let blockinfo = ReplicaBlockInfoV4 {
+        parent_slot: fuzz_blockmeta.parent_slot,
+        parent_blockhash: fuzz_blockmeta.parent_blockhash,
+        slot: fuzz_blockmeta.slot,
+        blockhash: fuzz_blockmeta.blockhash,
+        rewards: &rewards_and_num_partitions,
+        block_time: fuzz_blockmeta.block_time,
+        block_height: fuzz_blockmeta.block_height,
+        executed_transaction_count: fuzz_blockmeta.executed_transaction_count,
+        entry_count: fuzz_blockmeta.entry_count,
+    };
     let message = ProtobufMessage::BlockMeta {
-        blockinfo: &ReplicaBlockInfoV4 {
-            parent_slot: fuzz_blockmeta.parent_slot,
-            parent_blockhash: fuzz_blockmeta.parent_blockhash,
-            slot: fuzz_blockmeta.slot,
-            blockhash: fuzz_blockmeta.blockhash,
-            rewards: &rewards_and_num_partitions,
-            block_time: fuzz_blockmeta.block_time,
-            block_height: fuzz_blockmeta.block_height,
-            executed_transaction_count: fuzz_blockmeta.executed_transaction_count,
-            entry_count: fuzz_blockmeta.entry_count,
-        },
+        blockinfo: &blockinfo,
     };
     message.encode(&mut buf);
     assert!(!buf.is_empty())
