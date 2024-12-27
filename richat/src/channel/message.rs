@@ -36,6 +36,7 @@ impl Message {
 #[derive(Debug, Clone)]
 pub struct MessageAccount {
     pub pubkey: Pubkey,
+    pub write_version: u64,
 }
 
 #[derive(Debug, Clone)]

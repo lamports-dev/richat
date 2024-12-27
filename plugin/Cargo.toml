@@ -41,6 +41,7 @@ quinn = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+smallvec = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }

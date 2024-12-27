@@ -3061,6 +3061,7 @@ dependencies = [
  "richat-shared",
  "serde",
  "serde_json",
+ "smallvec",
  "solana-account-decoder",
  "solana-logger",
  "solana-sdk",

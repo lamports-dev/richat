@@ -22,6 +22,11 @@ lazy_static::lazy_static! {
         &["status"]
     ).unwrap();
 
+    static ref GEYSER_MISSED_SLOT_STATUS: IntCounterVec = IntCounterVec::new(
+        Opts::new("geyser_missed_slot_status_total", "Number of missed slot status updates"),
+        &["status"]
+    ).unwrap();
+
     // Channel
     static ref CHANNEL_MESSAGES_TOTAL: IntGauge = IntGauge::new(
         "channel_messages_total", "Total number of messages in channel"
@@ -56,6 +61,7 @@ pub async fn spawn_server(
         }
         register!(VERSION);
         register!(GEYSER_SLOT_STATUS);
+        register!(GEYSER_MISSED_SLOT_STATUS);
         register!(CHANNEL_MESSAGES_TOTAL);
         register!(CHANNEL_SLOTS_TOTAL);
         register!(CHANNEL_BYTES_TOTAL);
@@ -92,6 +98,16 @@ pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {
         GEYSER_SLOT_STATUS
             .with_label_values(&[status])
             .set(slot as i64);
+    }
+}
+
+pub fn geyser_missed_slot_status_inc(status: &SlotStatus) {
+    if let Some(status) = match status {
+        SlotStatus::Confirmed => Some("confirmed"),
+        SlotStatus::Rooted => Some("finalized"),
+        _ => None,
+    } {
+        GEYSER_MISSED_SLOT_STATUS.with_label_values(&[status]).inc()
     }
 }
 
