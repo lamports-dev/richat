@@ -508,9 +508,7 @@ pub mod address_table_lookups {
         encoding::message::encoded_len_repeated(tag, to_wrapper(address_table_lookups))
     }
 
-    const fn to_wrapper<'a>(
-        address_table_lookups: &'a [MessageAddressTableLookup],
-    ) -> &'a [Wrapper<'a>] {
+    const fn to_wrapper(address_table_lookups: &[MessageAddressTableLookup]) -> &[Wrapper] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<MessageAddressTableLookup>()`, `size_of::<Wrapper>() == size_of::<MessageAddressTableLookup>()`, the alignment of `Wrapper` and `MessageAddressTableLookup` are identical.
         unsafe { std::mem::transmute(address_table_lookups) }
     }
@@ -847,7 +845,7 @@ pub mod inner_instructions {
         encoding::message::encoded_len_repeated(tag, to_wrapper(inner_instructions))
     }
 
-    const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstructions]) -> &'a [Wrapper<'a>] {
+    const fn to_wrapper(inner_instructions: &[InnerInstructions]) -> &[Wrapper] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstructions>()`, `size_of::<Wrapper>() == size_of::<InnerInstructions>()`, the alignment of `Wrapper` and `InnerInstructions` are identical.
         unsafe { std::mem::transmute(inner_instructions) }
     }
@@ -917,7 +915,7 @@ pub mod inner_instruction {
         encoding::message::encoded_len_repeated(tag, to_wrapper(inner_instructions))
     }
 
-    const fn to_wrapper<'a>(inner_instructions: &'a [InnerInstruction]) -> &'a [Wrapper<'a>] {
+    const fn to_wrapper(inner_instructions: &[InnerInstruction]) -> &[Wrapper] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<InnerInstruction>()`, `size_of::<Wrapper>() == size_of::<InnerInstruction>()`, the alignment of `Wrapper` and `InnerInstruction` are identical.
         unsafe { std::mem::transmute(inner_instructions) }
     }
@@ -989,7 +987,7 @@ pub mod compiled_instructions {
         encoding::message::encoded_len_repeated(tag, to_wrapper(compiled_instructions))
     }
 
-    const fn to_wrapper<'a>(compiled_instructions: &'a [CompiledInstruction]) -> &'a [Wrapper<'a>] {
+    const fn to_wrapper(compiled_instructions: &[CompiledInstruction]) -> &[Wrapper] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<CompiledInstruction>()`, `size_of::<Wrapper>() == size_of::<CompiledInstruction>()`, the alignment of `Wrapper` and `CompiledInstruction` are identical.
         unsafe { std::mem::transmute(compiled_instructions) }
     }
@@ -1148,9 +1146,7 @@ pub mod transaction_token_balance {
         encoding::message::encoded_len_repeated(tag, to_wrapper(transaction_token_balances))
     }
 
-    const fn to_wrapper<'a>(
-        transaction_token_balances: &'a [TransactionTokenBalance],
-    ) -> &'a [Wrapper<'a>] {
+    const fn to_wrapper(transaction_token_balances: &[TransactionTokenBalance]) -> &[Wrapper] {
         // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<TransactionTokenBalance>()`, `size_of::<Wrapper>() == size_of::<TransactionTokenBalance>()`, the alignment of `Wrapper` and `TransactionTokenBalance` are identical.
         unsafe { std::mem::transmute(transaction_token_balances) }
     }

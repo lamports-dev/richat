@@ -123,7 +123,7 @@ pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
     encoding::message::encoded_len_repeated(tag, to_wrapper(rewards))
 }
 
-const fn to_wrapper<'a>(rewards: &'a [Reward]) -> &'a [Wrapper<'a>] {
+const fn to_wrapper(rewards: &[Reward]) -> &[Wrapper] {
     // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<Reward>()`, `size_of::<Wrapper>() == size_of::<Reward>()`, the alignment of `Wrapper` and `Reward` are identical.
     unsafe { std::mem::transmute(rewards) }
 }
