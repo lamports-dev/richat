@@ -197,6 +197,12 @@ mod tests {
     }
 
     #[derive(Message)]
+    pub struct NumPartitions {
+        #[prost(uint64, optional, tag = "1")]
+        num_partitions: Option<u64>,
+    }
+
+    #[derive(Message)]
     pub struct RewardsAndNumPartitions {
         #[prost(message, repeated, tag = "1")]
         rewards: Vec<Reward>,
