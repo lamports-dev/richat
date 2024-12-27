@@ -278,7 +278,7 @@ struct SlotInfo {
     slot: Slot,
     head: u64,
     accounts: Vec<Option<MessageAccount>>,
-    accounts_dedup: HashMap<Pubkey, usize>,
+    accounts_dedup: HashMap<Pubkey, (u64, usize)>,
     transactions: Vec<MessageTransaction>,
     entries: Vec<MessageEntry>,
     block_meta: Option<MessageBlockMeta>,
@@ -337,11 +337,14 @@ impl SlotInfo {
                 let idx_new = self.accounts.len();
                 self.accounts.push(Some(message.clone()));
 
-                if let Some(idx) = self.accounts_dedup.get_mut(&message.pubkey) {
-                    self.accounts[*idx] = None;
-                    *idx = idx_new;
+                if let Some(entry) = self.accounts_dedup.get_mut(&message.pubkey) {
+                    if entry.0 < message.write_version {
+                        self.accounts[entry.1] = None;
+                        *entry = (message.write_version, idx_new);
+                    }
                 } else {
-                    self.accounts_dedup.insert(message.pubkey, idx_new);
+                    self.accounts_dedup
+                        .insert(message.pubkey, (message.write_version, idx_new));
                 }
             }
             Message::Slot(message) => {
