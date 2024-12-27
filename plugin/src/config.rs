@@ -3,7 +3,7 @@ use {
         GeyserPluginError, Result as PluginResult,
     },
     richat_shared::{
-        config::{deserialize_usize_str, ConfigPrometheus, ConfigTokio},
+        config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
         transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer},
     },
     serde::Deserialize,
@@ -54,11 +54,11 @@ impl Default for ConfigLog {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigChannel {
-    #[serde(deserialize_with = "deserialize_usize_str")]
+    #[serde(deserialize_with = "deserialize_num_str")]
     pub max_messages: usize,
-    #[serde(deserialize_with = "deserialize_usize_str")]
+    #[serde(deserialize_with = "deserialize_num_str")]
     pub max_slots: usize,
-    #[serde(deserialize_with = "deserialize_usize_str")]
+    #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
 }
 

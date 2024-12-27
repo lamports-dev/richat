@@ -3431,13 +3431,18 @@ dependencies = [
  "json5",
  "lazy_static",
  "prometheus",
+ "richat-client",
  "richat-shared",
  "serde",
  "serde_yaml",
+ "signal-hook",
+ "solana-sdk",
+ "thiserror 2.0.7",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "vergen",
+ "yellowstone-grpc-proto",
 ]
 
 [[package]]
@@ -3470,6 +3475,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures",
+ "humantime-serde",
  "pin-project-lite",
  "prost 0.13.4",
  "quinn",
@@ -3477,6 +3483,7 @@ dependencies = [
  "rustls 0.23.20",
  "rustls-native-certs 0.8.1",
  "rustls-pemfile 2.2.0",
+ "serde",
  "solana-sdk",
  "thiserror 2.0.7",
  "tokio",
@@ -3987,6 +3994,16 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8621587d4798caf8eb44879d42e56b9a93ea5dcd315a6487c357130095b62801"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
 
 [[package]]
 name = "signal-hook-registry"
@@ -5718,7 +5735,6 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
- "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.52.0",

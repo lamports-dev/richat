@@ -17,12 +17,17 @@ futures = { workspace = true }
 json5 = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
+richat-client = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
+signal-hook = { workspace = true }
+solana-sdk = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
+yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

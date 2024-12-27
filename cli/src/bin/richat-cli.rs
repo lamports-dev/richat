@@ -22,11 +22,7 @@ use {
         path::PathBuf,
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
-    tokio::fs,
-    tonic::{
-        service::Interceptor,
-        transport::{channel::ClientTlsConfig, Certificate},
-    },
+    tonic::service::Interceptor,
     tracing::{error, info},
     yellowstone_grpc_proto::{
         convert_from,
@@ -101,8 +97,8 @@ struct ArgsAppStreamQuic {
     #[clap(long, default_value_t = QuicClientBuilder::default().max_stream_bandwidth)]
     max_stream_bandwidth: u32,
 
-    #[clap(long, default_value_t = QuicClientBuilder::default().max_idle_timeout.unwrap())]
-    max_idle_timeout: u32,
+    #[clap(long, default_value_t = QuicClientBuilder::default().max_idle_timeout.unwrap().as_millis() as u64)]
+    max_idle_timeout: u64,
 
     #[clap(long)]
     server_name: Option<String>,
@@ -126,7 +122,7 @@ impl ArgsAppStreamQuic {
             .set_local_addr(Some(self.local_addr))
             .set_expected_rtt(self.expected_rtt)
             .set_max_stream_bandwidth(self.max_stream_bandwidth)
-            .set_max_idle_timeout(Some(self.max_idle_timeout))
+            .set_max_idle_timeout(Some(Duration::from_millis(self.max_idle_timeout)))
             .set_server_name(self.server_name.clone())
             .set_recv_streams(self.recv_streams)
             .set_max_backlog(self.max_backlog);
@@ -241,14 +237,10 @@ struct ArgsAppStreamGrpc {
 
 impl ArgsAppStreamGrpc {
     async fn connect(self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
-        let mut tls_config = ClientTlsConfig::new().with_native_roots();
-        if let Some(path) = &self.ca_certificate {
-            let bytes = fs::read(path).await?;
-            tls_config = tls_config.ca_certificate(Certificate::from_pem(bytes));
-        }
         let mut builder = GrpcClient::build_from_shared(self.endpoint)?
             .x_token(self.x_token)?
-            .tls_config(tls_config)?
+            .tls_config_native_roots(self.ca_certificate.as_ref())
+            .await?
             .max_decoding_message_size(self.max_decoding_message_size);
 
         if let Some(duration) = self.connect_timeout_ms {

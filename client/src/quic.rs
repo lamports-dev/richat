@@ -15,14 +15,18 @@ use {
         ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, RecvStream,
         TransportConfig, VarInt,
     },
-    richat_shared::transports::{
-        grpc::GrpcSubscribeRequest,
-        quic::{QuicSubscribeClose, QuicSubscribeRequest},
+    richat_shared::{
+        config::{deserialize_maybe_num_str, deserialize_num_str},
+        transports::{
+            grpc::GrpcSubscribeRequest,
+            quic::{ConfigQuicServer, QuicSubscribeClose, QuicSubscribeRequest},
+        },
     },
     rustls::{
         pki_types::{CertificateDer, ServerName, UnixTime},
         RootCertStore,
     },
+    serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
         collections::HashMap,
@@ -34,6 +38,7 @@ use {
         pin::Pin,
         sync::Arc,
         task::{Context, Poll},
+        time::Duration,
     },
     thiserror::Error,
     tokio::{
@@ -109,6 +114,8 @@ pub enum QuicConnectError {
     EndpointClient(io::Error),
     #[error("failed to connect: {0}")]
     Connect(#[from] ConnectError),
+    #[error("invalid max idle timeout: {0:?}")]
+    InvalidMaxIdleTimeout(Duration),
     #[error("connection failed: {0}")]
     Connection(#[from] ConnectionError),
     #[error("server name should be defined")]
@@ -123,12 +130,71 @@ pub enum QuicConnectError {
     PemCert(io::Error),
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ConfigQuicClient {
+    endpoint: String,
+    local_addr: SocketAddr,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    expected_rtt: u32,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    max_stream_bandwidth: u32,
+    #[serde(with = "humantime_serde")]
+    max_idle_timeout: Option<Duration>,
+    server_name: Option<String>,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    recv_streams: u32,
+    #[serde(deserialize_with = "deserialize_maybe_num_str")]
+    max_backlog: Option<u32>,
+    insecure: bool,
+    cert: Option<PathBuf>,
+}
+
+impl Default for ConfigQuicClient {
+    fn default() -> Self {
+        Self {
+            endpoint: ConfigQuicServer::default_endpoint().to_string(),
+            local_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+            expected_rtt: 100,
+            max_stream_bandwidth: 12_500 * 1_000,
+            max_idle_timeout: Some(Duration::from_secs(30)),
+            server_name: None,
+            recv_streams: 1,
+            max_backlog: None,
+            insecure: false,
+            cert: None,
+        }
+    }
+}
+
+impl ConfigQuicClient {
+    pub async fn connect(self) -> Result<QuicClient, QuicConnectError> {
+        let builder = QuicClient::builder()
+            .set_local_addr(Some(self.local_addr))
+            .set_expected_rtt(self.expected_rtt)
+            .set_max_stream_bandwidth(self.max_stream_bandwidth)
+            .set_max_idle_timeout(self.max_idle_timeout)
+            .set_server_name(self.server_name.clone())
+            .set_recv_streams(self.recv_streams)
+            .set_max_backlog(self.max_backlog);
+
+        if self.insecure {
+            builder.insecure().connect(self.endpoint.clone()).await
+        } else {
+            builder
+                .secure(self.cert)
+                .connect(self.endpoint.clone())
+                .await
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct QuicClientBuilder {
     pub local_addr: SocketAddr,
     pub expected_rtt: u32,
     pub max_stream_bandwidth: u32,
-    pub max_idle_timeout: Option<u32>,
+    pub max_idle_timeout: Option<Duration>,
     pub server_name: Option<String>,
     pub recv_streams: u32,
     pub max_backlog: Option<u32>,
@@ -136,14 +202,15 @@ pub struct QuicClientBuilder {
 
 impl Default for QuicClientBuilder {
     fn default() -> Self {
+        let config = ConfigQuicClient::default();
         Self {
-            local_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-            expected_rtt: 100,
-            max_stream_bandwidth: 12_500 * 1_000,
-            max_idle_timeout: Some(30_000),
-            server_name: None,
-            recv_streams: 1,
-            max_backlog: None,
+            local_addr: config.local_addr,
+            expected_rtt: config.expected_rtt,
+            max_stream_bandwidth: config.max_stream_bandwidth,
+            max_idle_timeout: config.max_idle_timeout,
+            server_name: config.server_name,
+            recv_streams: config.recv_streams,
+            max_backlog: config.max_backlog,
         }
     }
 }
@@ -174,7 +241,7 @@ impl QuicClientBuilder {
         }
     }
 
-    pub fn set_max_idle_timeout(self, max_idle_timeout: Option<u32>) -> Self {
+    pub fn set_max_idle_timeout(self, max_idle_timeout: Option<Duration>) -> Self {
         Self {
             max_idle_timeout,
             ..self
@@ -236,8 +303,15 @@ impl QuicClientBuilder {
         transport_config.stream_receive_window(stream_rwnd.into());
         transport_config.send_window(8 * stream_rwnd as u64);
         transport_config.datagram_receive_buffer_size(Some(stream_rwnd as usize));
-        transport_config
-            .max_idle_timeout(self.max_idle_timeout.map(|ms| VarInt::from_u32(ms).into()));
+        transport_config.max_idle_timeout(
+            self.max_idle_timeout
+                .map(|d| d.as_millis().try_into())
+                .transpose()
+                .map_err(|_| {
+                    QuicConnectError::InvalidMaxIdleTimeout(self.max_idle_timeout.unwrap())
+                })?
+                .map(|ms| VarInt::from_u32(ms).into()),
+        );
 
         let crypto_config = Arc::new(QuicClientConfig::try_from(client_config)?);
         let mut client_config = ClientConfig::new(crypto_config);

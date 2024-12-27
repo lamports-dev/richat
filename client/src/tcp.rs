@@ -10,7 +10,10 @@ use {
     },
     pin_project_lite::pin_project,
     prost::Message,
-    richat_shared::transports::{grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose},
+    richat_shared::transports::{
+        grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose, tcp::ConfigTcpServer,
+    },
+    serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
         fmt,
@@ -25,6 +28,37 @@ use {
         net::{lookup_host, TcpSocket, TcpStream, ToSocketAddrs},
     },
 };
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfigTcpClient {
+    pub endpoint: String,
+    pub keepalive: Option<bool>,
+    pub nodelay: Option<bool>,
+    pub recv_buffer_size: Option<u32>,
+}
+
+impl Default for ConfigTcpClient {
+    fn default() -> Self {
+        Self {
+            endpoint: ConfigTcpServer::default().endpoint.to_string(),
+            keepalive: None,
+            nodelay: None,
+            recv_buffer_size: None,
+        }
+    }
+}
+
+impl ConfigTcpClient {
+    pub async fn connect(self) -> io::Result<TcpClient> {
+        TcpClientBuilder::new()
+            .set_keepalive(self.keepalive)
+            .set_nodelay(self.nodelay)
+            .set_recv_buffer_size(self.recv_buffer_size)
+            .connect(self.endpoint)
+            .await
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct TcpClientBuilder {
@@ -63,23 +97,17 @@ impl TcpClientBuilder {
         Ok(TcpClient { stream })
     }
 
-    pub const fn set_keepalive(self, keepalive: bool) -> Self {
-        Self {
-            keepalive: Some(keepalive),
-            ..self
-        }
+    pub const fn set_keepalive(self, keepalive: Option<bool>) -> Self {
+        Self { keepalive, ..self }
     }
 
-    pub const fn set_nodelay(self, nodelay: bool) -> Self {
-        Self {
-            nodelay: Some(nodelay),
-            ..self
-        }
+    pub const fn set_nodelay(self, nodelay: Option<bool>) -> Self {
+        Self { nodelay, ..self }
     }
 
-    pub const fn set_recv_buffer_size(self, recv_buffer_size: u32) -> Self {
+    pub const fn set_recv_buffer_size(self, recv_buffer_size: Option<u32>) -> Self {
         Self {
-            recv_buffer_size: Some(recv_buffer_size),
+            recv_buffer_size,
             ..self
         }
     }

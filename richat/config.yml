@@ -1,5 +1,55 @@
 ---
 log:
   json: false
+channel:
+  tokio:
+    worker_threads: 2
+    affinity: 0-1
+  source:
+    # transport: quic
+    # endpoint: 127.0.0.1:10100
+    # local_addr: "[::]:0"
+    # expected_rtt: 100
+    # max_stream_bandwidth: 12_500_000 # 100Mbits with 100ms latency
+    # max_idle_timeout: 30ms
+    # server_name: null # localhost
+    # recv_streams: 1
+    # max_backlog: null
+    # insecure: false
+    # cert: null
+    # ---
+    transport: tcp
+    endpoint: 127.0.0.1:10101
+    keepalive: null
+    nodelay: true
+    recv_buffer_size: null
+    # ---
+    # transport: grpc
+    # endpoint: http://127.0.0.1:10102
+    # ca_certificate: null
+    # connect_timeout: null
+    # buffer_size: null
+    # http2_adaptive_window: null
+    # http2_keep_alive_interval: null
+    # initial_connection_window_size: null
+    # initial_stream_window_size: null
+    # keep_alive_timeout: null
+    # keep_alive_while_idle: false
+    # tcp_keepalive: 15s
+    # tcp_nodelay: true
+    # timeout: null
+    # max_decoding_message_size: 4_194_304 # 4MiB
+    # compression:
+    #   accept: ["gzip", "zstd"]
+    #   send: ["gzip", "zstd"]
+    # x_token: null
+  config:
+    max_messages: 2_097_152
+    max_slots: 100
+    max_bytes: 10_737_418_240
+apps:
+  tokio:
+    worker_threads: 4
+    affinity: 0-3
 prometheus:
-  endpoint: 127.0.0.1:10123
+  endpoint: 127.0.0.1:10124
