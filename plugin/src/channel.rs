@@ -355,11 +355,8 @@ impl<'a> Future for Recv<'a> {
     type Output = Result<Arc<Vec<u8>>, RecvError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let receiver: &mut Receiver = unsafe {
-            // Safety: Arc<Vec<u8>> is Unpin
-            let me = self.get_unchecked_mut();
-            me.receiver
-        };
+        let me = self.get_mut();
+        let receiver: &mut Receiver = me.receiver;
 
         match receiver.recv_ref(cx.waker()) {
             Ok(Some(value)) => Poll::Ready(Ok(value)),

@@ -456,9 +456,10 @@ impl QuicClient {
 
         let size = stream.read_u64().await? as usize;
         let mut buffer = Vec::<u8>::with_capacity(size);
-        stream
-            .read_exact(unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) })
-            .await?;
+        // SAFETY: buffer capacity is equal to `size`, `len` is equal to `size`
+        let read = unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) };
+        stream.read_exact(read).await?;
+        // SAFETY: `new_len` equal to `capacity`, the elements at `old_len`..`new_len` is initialized.
         unsafe {
             buffer.set_len(size);
         }
