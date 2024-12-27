@@ -123,9 +123,9 @@ pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
     encoding::message::encoded_len_repeated(tag, to_wrapper(rewards))
 }
 
-const fn to_wrapper<'a>(rewards: &'a [Reward]) -> &'a [Wrapper<'a>] {
+const fn to_wrapper(rewards: &[Reward]) -> &[Wrapper] {
     // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<Reward>()`, `size_of::<Wrapper>() == size_of::<Reward>()`, the alignment of `Wrapper` and `Reward` are identical.
-    unsafe { std::slice::from_raw_parts(rewards.as_ptr() as *const Wrapper<'a>, rewards.len()) }
+    unsafe { std::mem::transmute(rewards) }
 }
 
 pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {

@@ -6,58 +6,9 @@ use {
 };
 
 #[derive(Debug)]
-pub struct Account<'a> {
-    account: &'a ReplicaAccountInfoV3<'a>,
-    slot: Slot,
-}
+struct Wrapper<'a>(&'a ReplicaAccountInfoV3<'a>);
 
-impl<'a> prost::Message for Account<'a> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
-        let wrapper = ReplicaAccountInfoWrapper(self.account);
-        encoding::message::encode(1, &wrapper, buf);
-        if self.slot != 0 {
-            encoding::uint64::encode(2, &self.slot, buf)
-        }
-    }
-
-    fn encoded_len(&self) -> usize {
-        let wrapper = ReplicaAccountInfoWrapper(self.account);
-        encoding::message::encoded_len(1, &wrapper)
-            + if self.slot != 0 {
-                encoding::uint64::encoded_len(2, &self.slot)
-            } else {
-                0
-            }
-    }
-
-    fn merge_field(
-        &mut self,
-        _tag: u32,
-        _wire_type: WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
-
-    fn clear(&mut self) {
-        unimplemented!()
-    }
-}
-
-impl<'a> Account<'a> {
-    pub const fn new(slot: Slot, account: &'a ReplicaAccountInfoV3<'a>) -> Self {
-        Self { slot, account }
-    }
-}
-
-#[derive(Debug)]
-struct ReplicaAccountInfoWrapper<'a>(&'a ReplicaAccountInfoV3<'a>);
-
-impl<'a> prost::Message for ReplicaAccountInfoWrapper<'a> {
+impl<'a> prost::Message for Wrapper<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut)
     where
         Self: Sized,
@@ -124,5 +75,54 @@ impl<'a> prost::Message for ReplicaAccountInfoWrapper<'a> {
         Self: Sized,
     {
         unimplemented!()
+    }
+}
+
+#[derive(Debug)]
+pub struct Account<'a> {
+    account: &'a ReplicaAccountInfoV3<'a>,
+    slot: Slot,
+}
+
+impl<'a> prost::Message for Account<'a> {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
+        let wrapper = Wrapper(self.account);
+        encoding::message::encode(1, &wrapper, buf);
+        if self.slot != 0 {
+            encoding::uint64::encode(2, &self.slot, buf)
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        let wrapper = Wrapper(self.account);
+        encoding::message::encoded_len(1, &wrapper)
+            + if self.slot != 0 {
+                encoding::uint64::encoded_len(2, &self.slot)
+            } else {
+                0
+            }
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+}
+
+impl<'a> Account<'a> {
+    pub const fn new(slot: Slot, account: &'a ReplicaAccountInfoV3<'a>) -> Self {
+        Self { slot, account }
     }
 }
