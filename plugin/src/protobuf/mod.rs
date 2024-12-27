@@ -13,7 +13,6 @@ mod tests {
         predefined::load_predefined_blocks,
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, pubkey::Pubkey},
-        solana_transaction_status::RewardType,
         yellowstone_grpc_proto::prelude::NumPartitions,
     };
 
@@ -187,10 +186,10 @@ mod tests {
                 lamports: reward.lamports,
                 post_balance: reward.post_balance,
                 reward_type: match reward.reward_type {
-                    1 => Some(RewardType::Fee),
-                    2 => Some(RewardType::Rent),
-                    3 => Some(RewardType::Staking),
-                    4 => Some(RewardType::Voting),
+                    1 => Some(solana_transaction_status::RewardType::Fee),
+                    2 => Some(solana_transaction_status::RewardType::Rent),
+                    3 => Some(solana_transaction_status::RewardType::Staking),
+                    4 => Some(solana_transaction_status::RewardType::Voting),
                     _ => None,
                 },
                 commission: reward.commission.map(|commission| commission as u8),
@@ -288,7 +287,7 @@ mod tests {
                         .into_iter()
                         .map(Into::into)
                         .collect()),
-                    Some(blockinfo.rewards.rewards)
+                    Some(blockinfo.rewards.rewards.to_owned())
                 ); // TODO: rewards
                 assert_eq!(
                     decoded.block_time.map(|block_time| block_time.timestamp),
