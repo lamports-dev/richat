@@ -1,8 +1,13 @@
 use {
+    crate::grpc::config::ConfigAppsGrpc,
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_shared::config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
-    serde::Deserialize,
-    std::{fs, path::Path},
+    serde::{
+        de::{self, Deserializer},
+        Deserialize,
+    },
+    solana_sdk::pubkey::Pubkey,
+    std::{collections::HashSet, fs, path::Path},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,5 +90,40 @@ impl Default for ConfigChannelInner {
 pub struct ConfigApps {
     /// Runtime for incoming connections
     pub tokio: ConfigTokio,
-    // grpc, pubsub
+    /// gRPC app (fully compatible with Yellowstone Dragon's Mouth)
+    pub grpc: Option<ConfigAppsGrpc>,
+    // TODO: pubsub
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigAppsWorkers {
+    /// Number of worker threads
+    pub threads: usize,
+    /// Threads affinity
+    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
+    pub affinity: Option<Vec<usize>>,
+}
+
+impl Default for ConfigAppsWorkers {
+    fn default() -> Self {
+        Self {
+            threads: 1,
+            affinity: None,
+        }
+    }
+}
+
+pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<&str>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
+        })
+        .collect::<Result<_, _>>()
 }
