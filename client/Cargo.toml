@@ -25,7 +25,7 @@ serde = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["tls-native-roots"] }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
