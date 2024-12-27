@@ -3,8 +3,8 @@ log:
   json: false
 channel:
   tokio:
-    worker_threads: 4
-    affinity: 0-3
+    worker_threads: 2
+    affinity: 0-1
   source:
     # transport: quic
     # endpoint: 127.0.0.1:10100
@@ -52,4 +52,4 @@ apps:
     worker_threads: 4
     affinity: 0-3
 prometheus:
-  endpoint: 127.0.0.1:10123
+  endpoint: 127.0.0.1:10124
