@@ -2,7 +2,8 @@
 use {
     crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    log::debug,
+    log::{debug, error},
+    smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
         cell::RefCell,
@@ -60,6 +61,7 @@ impl Sender {
     }
 
     pub fn push(&self, message: ProtobufMessage) {
+        // encode message
         let data = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
             message.encode(&mut buffer)
@@ -68,20 +70,93 @@ impl Sender {
         // acquire state lock
         let mut state = self.shared.state_lock();
 
+        // In March 2023 in Triton One we noticed that sometimes we do not receive
+        // slots with Confirmed status, I'm not sure that this still a case but for
+        // safety I added this hack
+        let slot_status = if let ProtobufMessage::Slot { slot, status, .. } = &message {
+            Some((*slot, *status))
+        } else {
+            None
+        };
+
+        let mut messages = SmallVec::<[(ProtobufMessage, Vec<u8>); 2]>::new();
+        messages.push((message, data));
+
+        if let Some((slot, status)) = slot_status {
+            let mut slots = SmallVec::<[Slot; 4]>::new();
+            slots.push(slot);
+
+            while let Some((parent, Some(entry))) = slots
+                .pop()
+                .and_then(|slot| state.slots.get(&slot))
+                .and_then(|entry| entry.parent_slot)
+                .map(|parent| (parent, state.slots.get_mut(&parent)))
+            {
+                if (*status == SlotStatus::Confirmed && !entry.confirmed)
+                    || (*status == SlotStatus::Rooted && !entry.finalized)
+                {
+                    slots.push(parent);
+
+                    let message = ProtobufMessage::Slot {
+                        slot: parent,
+                        parent: entry.parent_slot,
+                        status,
+                    };
+                    let data = BUFFER.with(|cell| {
+                        let mut buffer = cell.borrow_mut();
+                        message.encode(&mut buffer)
+                    });
+                    messages.push((message, data));
+
+                    error!("missed slot status update for {} ({:?})", parent, *status);
+                    metrics::geyser_missed_slot_status_inc(status);
+                }
+            }
+        }
+
+        // push messages
+        for (message, data) in messages.into_iter().rev() {
+            self.push_msg(&mut state, message, data);
+        }
+
+        // notify receivers
+        for waker in state.wakers.drain(..) {
+            waker.wake();
+        }
+    }
+
+    fn push_msg(&self, state: &mut MutexGuard<'_, State>, message: ProtobufMessage, data: Vec<u8>) {
         // position of the new message
         let pos = state.tail;
 
-        // update slots info and drop extra messages by extra slots
+        // update slots info
         let slot = message.get_slot();
-        state.slots.entry(slot).or_insert(pos);
+        let entry = state.slots.entry(slot).or_insert_with(|| SlotInfo {
+            head: pos,
+            parent_slot: None,
+            confirmed: false,
+            finalized: false,
+        });
+        if let ProtobufMessage::Slot { parent, status, .. } = &message {
+            if let Some(parent) = parent {
+                entry.parent_slot = Some(*parent);
+            }
+            if **status == SlotStatus::Confirmed {
+                entry.confirmed = true;
+            } else if **status == SlotStatus::Rooted {
+                entry.finalized = true;
+            }
+        }
+
+        // drop extra messages by extra slots
         while state.slots.len() > state.slots_max {
-            let (slot, pos) = state
+            let (slot, slot_info) = state
                 .slots
                 .pop_first()
                 .expect("nothing to remove to keep slots under limit #1");
 
             // remove everything up to beginning of removed slot (messages from geyser are not ordered)
-            while state.head < pos {
+            while state.head < slot_info.head {
                 assert!(
                     state.head < state.tail,
                     "head overflow tail on remove process by slots limit #1"
@@ -154,11 +229,6 @@ impl Sender {
         item.data = Some(Arc::new(data));
         drop(item);
 
-        // notify receivers
-        for waker in state.wakers.drain(..) {
-            waker.wake();
-        }
-
         // update metrics
         if let ProtobufMessage::Slot { status, .. } = message {
             metrics::geyser_slot_status_set(slot, status);
@@ -182,7 +252,7 @@ impl Sender {
 
         let state = shared.state_lock();
         let next = match replay_from_slot {
-            Some(slot) => state.slots.get(&slot).copied().ok_or_else(|| {
+            Some(slot) => state.slots.get(&slot).map(|s| s.head).ok_or_else(|| {
                 match state.slots.first_key_value() {
                     Some((key, _value)) => SubscribeError::SlotNotAvailable {
                         first_available: *key,
@@ -345,11 +415,18 @@ impl Shared {
 struct State {
     head: u64,
     tail: u64,
-    slots: BTreeMap<Slot, u64>,
+    slots: BTreeMap<Slot, SlotInfo>,
     slots_max: usize,
     bytes_total: usize,
     bytes_max: usize,
     wakers: Vec<Waker>,
+}
+
+struct SlotInfo {
+    head: u64,
+    parent_slot: Option<Slot>,
+    confirmed: bool,
+    finalized: bool,
 }
 
 struct Item {
