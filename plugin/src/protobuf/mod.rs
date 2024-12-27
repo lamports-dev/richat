@@ -8,11 +8,12 @@ mod tests {
     use {
         super::ProtobufMessage,
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2,
+            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         },
         predefined::load_predefined_blocks,
         prost::{Enumeration, Message},
-        solana_sdk::{hash::Hash, pubkey::Pubkey},
+        solana_sdk::{hash::Hash, message::SimpleAddressLoader, pubkey::Pubkey},
+        std::collections::HashSet,
     };
 
     mod predefined {
@@ -420,27 +421,6 @@ mod tests {
         assert_eq!(decoded.status, 0)
     }
 
-    /*
-    super::message_header::encode_message_header(1, message.header, buf);
-    super::pubkeys::encode_pubkeys(2, &message.account_keys, buf);
-    super::recent_blockhash::encode_recent_blockhash(
-        3,
-        message.recent_blockhash.as_ref(),
-        buf,
-    );
-    super::compiled_instructions::encode_compiled_instructions(
-        4,
-        &message.instructions,
-        buf,
-    );
-    super::versioned::encode_versioned(5, true, buf);
-    super::address_table_lookups::encode_address_table_lookups(
-        6,
-        &message.address_table_lookups,
-        buf,
-    )
-    */
-
     #[derive(Message)]
     pub struct MessageAddressTableLookup {
         #[prost(bytes = "vec", tag = "1")]
@@ -602,5 +582,72 @@ mod tests {
     }
 
     #[test]
-    pub fn test_decode_transaction() {}
+    pub fn test_decode_transaction() {
+        let blocks = predefined::load_predefined_blocks();
+
+        let transactions_data = blocks
+            .into_iter()
+            .flat_map(|(slot, block)| {
+                block
+                    .transactions
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(index, transaction)| {
+                        let sanitized_transaction =
+                            solana_sdk::transaction::SanitizedTransaction::try_create(
+                                transaction.get_transaction(),
+                                Hash::new_unique(),
+                                None,
+                                SimpleAddressLoader::Disabled,
+                                &HashSet::new(),
+                            )
+                            .expect("failed to create `SanitazedTransaction`");
+                        let transaction_status_meta = transaction
+                            .get_status_meta()
+                            .expect("failed to get `TransactionStatusMeta`");
+
+                        (
+                            slot,
+                            index,
+                            *transaction.transaction_signature(),
+                            sanitized_transaction,
+                            transaction_status_meta,
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        let transactions = transactions_data
+            .iter()
+            .map(
+                |(slot, index, signature, transaction, transaction_status_meta)| {
+                    (
+                        *slot,
+                        ReplicaTransactionInfoV2 {
+                            signature,
+                            is_vote: false,
+                            transaction,
+                            transaction_status_meta,
+                            index: *index,
+                        },
+                    )
+                },
+            )
+            .collect::<Vec<_>>();
+        let protobuf_messages = transactions
+            .iter()
+            .map(|(slot, transaction)| ProtobufMessage::Transaction {
+                slot: *slot,
+                transaction,
+            })
+            .collect::<Vec<_>>();
+        for protobuf_message in protobuf_messages {
+            let mut buf = Vec::new();
+            protobuf_message.encode(&mut buf);
+            if let ProtobufMessage::Transaction { slot, transaction } = protobuf_message {
+                let decoded =
+                    Transaction::decode(buf.as_slice()).expect("failed to decode `Transaction`");
+                todo!()
+            }
+        }
+    }
 }
