@@ -147,14 +147,12 @@ impl TcpClient {
             false
         };
 
-        // create buffer
         let size = size as usize;
-        let mut buffer = Vec::<u8>::with_capacity(size);
-
-        // read
-        stream
-            .read_exact(unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) })
-            .await?;
+        let mut buffer = Vec::with_capacity(size);
+        // SAFETY: buffer capacity is equal to `size`, `len` is equal to `size`
+        let read = unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr(), size) };
+        stream.read_exact(read).await?;
+        // SAFETY: `new_len` equal to `capacity`, the elements at `old_len`..`new_len` is initialized.
         unsafe {
             buffer.set_len(size);
         }
