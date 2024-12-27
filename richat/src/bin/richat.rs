@@ -56,19 +56,20 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages = channel::Sender::new(config.channel.config);
+    let messages = channel::Messages::new(config.channel.config);
     let mut chan_jh = std::thread::Builder::new()
         .name("richatChan".to_owned())
         .spawn({
             let shutdown = create_shutdown_rx();
-            let messages = messages.clone();
+            let mut messages = messages.clone().to_sender();
             || {
                 let runtime = config.channel.tokio.build_runtime("richatChan")?;
                 runtime.block_on(async move {
-                    tokio::pin!(shutdown);
-                    let mut stream = channel::subscribe(config.channel.source)
+                    let mut stream = channel::source::subscribe(config.channel.source)
                         .await
                         .context("failed to subscribe")?;
+                    tokio::pin!(shutdown);
+
                     loop {
                         tokio::select! {
                             message = stream.next() => match message {

@@ -3406,6 +3406,8 @@ dependencies = [
  "serde",
  "serde_yaml",
  "signal-hook",
+ "solana-sdk",
+ "thiserror 2.0.7",
  "tokio",
  "tracing",
  "tracing-subscriber",
