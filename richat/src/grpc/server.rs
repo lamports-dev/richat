@@ -106,6 +106,20 @@ impl GrpcServer {
                 let msg = format!("failed to create CommitmentLevel from {commitment:?}");
                 Status::unknown(msg)
             })
+            .and_then(|commitment| {
+                if matches!(
+                    commitment,
+                    CommitmentLevel::Processed
+                        | CommitmentLevel::Confirmed
+                        | CommitmentLevel::Finalized
+                ) {
+                    Ok(commitment)
+                } else {
+                    Err(Status::unknown(
+                        "only Processed, Confirmed and Finalized are allowed",
+                    ))
+                }
+            })
     }
 
     async fn with_block_meta<'a, T, F>(
@@ -169,7 +183,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
             let block = storage.get_block(commitment).await?;
             Ok(GetLatestBlockhashResponse {
                 slot: block.slot,
-                blockhash: block.blockhash.clone(),
+                blockhash: block.blockhash.as_ref().clone(),
                 last_valid_block_height: block.block_height + MAX_PROCESSING_AGE as u64,
             })
         })
@@ -232,6 +246,7 @@ pub struct ReceiverStream;
 impl Stream for ReceiverStream {
     type Item = TonicResult<SubscribeUpdate>;
 
+    #[allow(unused)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         todo!()
     }
