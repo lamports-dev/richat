@@ -3,7 +3,7 @@ use {
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_shared::{
-        config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
+        config::{deserialize_num_str, parse_taskset, ConfigPrometheus, ConfigTokio},
         shutdown::Shutdown,
     },
     serde::{
@@ -106,35 +106,43 @@ pub struct ConfigAppsWorkers {
     /// Number of worker threads
     pub threads: usize,
     /// Threads affinity
-    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
-    pub affinity: Option<Vec<usize>>,
+    #[serde(deserialize_with = "ConfigAppsWorkers::deserialize_affinity")]
+    pub affinity: Vec<usize>,
 }
 
 impl Default for ConfigAppsWorkers {
     fn default() -> Self {
         Self {
             threads: 1,
-            affinity: None,
+            affinity: vec![0],
         }
     }
 }
 
 impl ConfigAppsWorkers {
+    pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let taskset: &str = Deserialize::deserialize(deserializer)?;
+        parse_taskset(taskset).map_err(de::Error::custom)
+    }
+
     pub async fn run(
         self,
         get_name: impl Fn(usize) -> String,
         spawn_fn: impl Fn(usize) -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.threads > 0, "number of threads can be zero");
+
         let mut jhs = Vec::with_capacity(self.threads);
         for index in 0..self.threads {
             let cpus = self.affinity.clone();
             let spawn_fn = spawn_fn.clone();
             let shutdown = shutdown.clone();
             let th = Builder::new().name(get_name(index)).spawn(move || {
-                if let Some(cpus) = cpus {
-                    affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
-                }
+                affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
                 spawn_fn(index)
             })?;
 

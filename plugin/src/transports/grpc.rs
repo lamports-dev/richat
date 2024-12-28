@@ -2,7 +2,7 @@ use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
         metrics,
-        version::GrpcVersionInfo,
+        version::VERSION,
     },
     futures::stream::Stream,
     log::{error, info},
@@ -119,7 +119,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
         _request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
         Ok(Response::new(GetVersionResponse {
-            version: serde_json::to_string(&GrpcVersionInfo::default()).unwrap(),
+            version: VERSION.create_grpc_version_info().json(),
         }))
     }
 }
