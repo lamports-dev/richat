@@ -12,7 +12,7 @@ use {
     },
     prometheus::{proto::MetricFamily, TextEncoder},
     std::{convert::Infallible, future::Future},
-    tokio::{net::TcpListener, task::JoinHandle},
+    tokio::{net::TcpListener, task::JoinError},
     tracing::{error, info},
 };
 
@@ -20,7 +20,7 @@ pub async fn spawn_server(
     ConfigPrometheus { endpoint }: ConfigPrometheus,
     gather_metrics: impl Fn() -> Vec<MetricFamily> + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> std::io::Result<JoinHandle<()>> {
+) -> std::io::Result<impl Future<Output = Result<(), JoinError>>> {
     let listener = TcpListener::bind(endpoint).await?;
     info!("start server at: {endpoint}");
 

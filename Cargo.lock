@@ -3393,6 +3393,7 @@ dependencies = [
 name = "richat"
 version = "2.0.0"
 dependencies = [
+ "affinity",
  "anyhow",
  "cargo-lock",
  "clap",
@@ -3514,6 +3515,7 @@ version = "2.0.0"
 dependencies = [
  "affinity",
  "anyhow",
+ "futures",
  "http 1.2.0",
  "http-body-util",
  "humantime-serde",

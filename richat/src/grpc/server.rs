@@ -1,12 +1,15 @@
 use {
     crate::{channel::Messages, grpc::config::ConfigAppsGrpc},
-    futures::stream::Stream,
+    futures::{
+        future::{try_join_all, FutureExt, TryFutureExt},
+        stream::Stream,
+    },
     richat_shared::shutdown::Shutdown,
     std::{
+        future::Future,
         pin::Pin,
         task::{Context, Poll},
     },
-    tokio::task::JoinHandle,
     tonic::{Request, Response, Result as TonicResult, Streaming},
     tracing::{error, info},
     yellowstone_grpc_proto::geyser::{
@@ -24,24 +27,25 @@ pub mod gen {
     include!(concat!(env!("OUT_DIR"), "/geyser.Geyser.rs"));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GrpcServer {
-    //
+    messages: Messages,
 }
 
 impl GrpcServer {
     pub fn spawn(
         config: ConfigAppsGrpc,
-        _messages: Messages,
+        messages: Messages,
         shutdown: Shutdown,
-    ) -> anyhow::Result<JoinHandle<()>> {
+    ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
+        // create gRPC server
         let (incoming, mut server_builder) = config.server.create_server()?;
         info!("start server at {}", config.server.endpoint);
 
-        let mut service = gen::geyser_server::GeyserServer::new(Self {
-            // todo
-        })
-        .max_decoding_message_size(config.server.max_decoding_message_size);
+        let grpc_server = Self { messages };
+
+        let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
+            .max_decoding_message_size(config.server.max_decoding_message_size);
         for encoding in config.server.compression.accept {
             service = service.accept_compressed(encoding);
         }
@@ -49,8 +53,18 @@ impl GrpcServer {
             service = service.send_compressed(encoding);
         }
 
+        // Spawn workers pool
+        let threads = config
+            .workers
+            .run(
+                |index| format!("grpcWrk{index:02}"),
+                move |index| grpc_server.work(index),
+                shutdown.clone(),
+            )
+            .boxed();
+
         // Spawn server
-        Ok(tokio::spawn(async move {
+        let server = tokio::spawn(async move {
             if let Err(error) = server_builder
                 .add_service(service)
                 .serve_with_incoming_shutdown(incoming, shutdown)
@@ -60,7 +74,15 @@ impl GrpcServer {
             } else {
                 info!("shutdown")
             }
-        }))
+        })
+        .map_err(anyhow::Error::new)
+        .boxed();
+
+        Ok(try_join_all([threads, server]).map_ok(|_| ()))
+    }
+
+    fn work(&self, index: usize) -> anyhow::Result<()> {
+        todo!()
     }
 }
 

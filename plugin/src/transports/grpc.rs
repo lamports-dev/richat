@@ -19,7 +19,7 @@ use {
         },
         task::{Context, Poll},
     },
-    tokio::task::JoinHandle,
+    tokio::task::JoinError,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
         Request, Response, Status, Streaming,
@@ -45,7 +45,7 @@ impl GrpcServer {
         config: ConfigGrpcServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<JoinHandle<()>> {
+    ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
         let (incoming, mut server_builder) = config.create_server()?;
         info!("start server at {}", config.endpoint);
 

@@ -17,7 +17,7 @@ use {
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        task::{JoinHandle, JoinSet},
+        task::{JoinError, JoinSet},
     },
 };
 
@@ -29,7 +29,7 @@ impl QuicServer {
         config: ConfigQuicServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<JoinHandle<()>> {
+    ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
         let endpoint = config.create_server()?;
         info!("start server at {}", config.endpoint);
 

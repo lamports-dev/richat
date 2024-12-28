@@ -11,19 +11,31 @@ use {
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
+    futures::future::BoxFuture,
     log::error,
     richat_shared::shutdown::Shutdown,
     solana_sdk::clock::Slot,
-    std::time::Duration,
-    tokio::{runtime::Runtime, task::JoinHandle},
+    std::{fmt, time::Duration},
+    tokio::{runtime::Runtime, task::JoinError},
 };
+
+struct PluginTask(BoxFuture<'static, Result<(), JoinError>>);
+
+unsafe impl Sync for PluginTask {}
+
+impl fmt::Debug for PluginTask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PluginTask").finish()
+    }
+}
 
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
     shutdown: Shutdown,
-    tasks: Vec<(&'static str, JoinHandle<()>)>,
+    // tasks: Vec<(&'static str, BoxFuture<'static, Result<(), JoinError>>)>,
+    tasks: Vec<(&'static str, PluginTask)>,
 }
 
 impl PluginInner {
@@ -47,14 +59,18 @@ impl PluginInner {
                 if let Some(config) = config.quic {
                     tasks.push((
                         "Quic Server",
-                        QuicServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        PluginTask(Box::pin(
+                            QuicServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
                 if let Some(config) = config.tcp {
                     tasks.push((
                         "Tcp Server",
-                        TcpServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        PluginTask(Box::pin(
+                            TcpServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
@@ -62,7 +78,9 @@ impl PluginInner {
                 if let Some(config) = config.grpc {
                     tasks.push((
                         "gRPC Server",
-                        GrpcServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        PluginTask(Box::pin(
+                            GrpcServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
@@ -70,7 +88,9 @@ impl PluginInner {
                 if let Some(config) = config.prometheus {
                     tasks.push((
                         "Prometheus Server",
-                        metrics::spawn_server(config, shutdown.clone()).await?,
+                        PluginTask(Box::pin(
+                            metrics::spawn_server(config, shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
@@ -121,7 +141,7 @@ impl GeyserPlugin for Plugin {
             inner.shutdown.shutdown();
             inner.runtime.block_on(async {
                 for (name, task) in inner.tasks {
-                    if let Err(error) = task.await {
+                    if let Err(error) = task.0.await {
                         error!("failed to join `{name}` task: {error:?}");
                     }
                 }

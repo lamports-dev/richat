@@ -11,6 +11,7 @@ keywords = { workspace = true }
 publish = { workspace = true }
 
 [dependencies]
+affinity = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }

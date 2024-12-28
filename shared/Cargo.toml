@@ -12,6 +12,7 @@ publish = { workspace = true }
 
 [dependencies]
 affinity = { workspace = true }
+futures = { workspace = true }
 humantime-serde = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

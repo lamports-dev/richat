@@ -1,13 +1,18 @@
 use {
     crate::grpc::config::ConfigAppsGrpc,
+    futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
-    richat_shared::config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
+    richat_shared::{
+        config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
+        shutdown::Shutdown,
+    },
     serde::{
         de::{self, Deserializer},
         Deserialize,
     },
     solana_sdk::pubkey::Pubkey,
-    std::{collections::HashSet, fs, path::Path},
+    std::{collections::HashSet, fs, path::Path, thread::Builder},
+    tokio::time::{sleep, Duration},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,6 +116,40 @@ impl Default for ConfigAppsWorkers {
             threads: 1,
             affinity: None,
         }
+    }
+}
+
+impl ConfigAppsWorkers {
+    pub async fn run(
+        self,
+        get_name: impl Fn(usize) -> String,
+        spawn_fn: impl Fn(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<()> {
+        let mut jhs = Vec::with_capacity(self.threads);
+        for index in 0..self.threads {
+            let cpus = self.affinity.clone();
+            let spawn_fn = spawn_fn.clone();
+            let shutdown = shutdown.clone();
+            let th = Builder::new().name(get_name(index)).spawn(move || {
+                if let Some(cpus) = cpus {
+                    affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
+                }
+                spawn_fn(index)
+            })?;
+
+            let jh = tokio::spawn(async move {
+                while !th.is_finished() {
+                    let ms = if shutdown.is_set() { 10 } else { 3_000 };
+                    sleep(Duration::from_millis(ms)).await;
+                }
+                th.join().expect("failed to join thread")
+            });
+
+            jhs.push(jh.map_err(anyhow::Error::new).and_then(ready));
+        }
+
+        try_join_all(jhs).await.map(|_| ())
     }
 }
 

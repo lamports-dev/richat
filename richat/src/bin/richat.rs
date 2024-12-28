@@ -77,9 +77,7 @@ fn main() -> anyhow::Result<()> {
                 let runtime = config.apps.tokio.build_runtime("richatApp")?;
                 runtime.block_on(async move {
                     let grpc_fut = if let Some(config) = config.apps.grpc {
-                        GrpcServer::spawn(config, messages, shutdown.clone())?
-                            .map_err(anyhow::Error::from)
-                            .boxed()
+                        GrpcServer::spawn(config, messages, shutdown.clone())?.boxed()
                     } else {
                         pending().boxed()
                     };
