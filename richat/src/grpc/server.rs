@@ -1,11 +1,14 @@
 use {
     crate::{channel::Messages, grpc::config::ConfigAppsGrpc},
     futures::stream::Stream,
+    richat_shared::shutdown::Shutdown,
     std::{
         pin::Pin,
         task::{Context, Poll},
     },
+    tokio::task::JoinHandle,
     tonic::{Request, Response, Result as TonicResult, Streaming},
+    tracing::{error, info},
     yellowstone_grpc_proto::geyser::{
         GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
@@ -27,8 +30,37 @@ pub struct GrpcServer {
 }
 
 impl GrpcServer {
-    pub fn new(_config: ConfigAppsGrpc, _messages: Messages) -> Self {
-        todo!()
+    pub fn spawn(
+        config: ConfigAppsGrpc,
+        _messages: Messages,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<JoinHandle<()>> {
+        let (incoming, mut server_builder) = config.server.create_server()?;
+        info!("start server at {}", config.server.endpoint);
+
+        let mut service = gen::geyser_server::GeyserServer::new(Self {
+            // todo
+        })
+        .max_decoding_message_size(config.server.max_decoding_message_size);
+        for encoding in config.server.compression.accept {
+            service = service.accept_compressed(encoding);
+        }
+        for encoding in config.server.compression.send {
+            service = service.send_compressed(encoding);
+        }
+
+        // Spawn server
+        Ok(tokio::spawn(async move {
+            if let Err(error) = server_builder
+                .add_service(service)
+                .serve_with_incoming_shutdown(incoming, shutdown)
+                .await
+            {
+                error!("server error: {error:?}")
+            } else {
+                info!("shutdown")
+            }
+        }))
     }
 }
 
