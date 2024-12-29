@@ -1,11 +1,9 @@
 use {
     super::encode_protobuf_message,
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::ProtobufMessage,
-    solana_sdk::hash::Hash,
+    richat_plugin::protobuf::{fixtures::generate_entries, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -13,33 +11,12 @@ use {
     },
 };
 
-pub fn generate_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
-    const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
-    const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
-    [
-        ReplicaEntryInfoV2 {
-            slot: 299888121,
-            index: 42,
-            num_hashes: 128,
-            hash: FIRST_ENTRY_HASH.as_ref(),
-            executed_transaction_count: 32,
-            starting_transaction_index: 1000,
-        },
-        ReplicaEntryInfoV2 {
-            slot: 299888121,
-            index: 0,
-            num_hashes: 16,
-            hash: SECOND_ENTRY_HASH.as_ref(),
-            executed_transaction_count: 32,
-            starting_transaction_index: 1000,
-        },
-    ]
-}
-
 pub fn bench_encode_entries(criterion: &mut Criterion) {
     let entries = generate_entries();
 
-    let entry_messages = entries
+    let entries_replica = entries.iter().map(|e| e.to_replica()).collect::<Vec<_>>();
+
+    let entries_grpc = entries_replica
         .iter()
         .map(MessageEntry::from_geyser)
         .map(Arc::new)
@@ -47,7 +24,7 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_entry")
-        .bench_with_input("richat", &entries, |criterion, entries| {
+        .bench_with_input("richat", &entries_replica, |criterion, entries| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
@@ -60,7 +37,7 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
         })
         .bench_with_input(
             "dragons-mouth/encoding-only",
-            &entry_messages,
+            &entries_grpc,
             |criterion, entry_messages| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter_batched(
@@ -84,7 +61,7 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
         )
         .bench_with_input(
             "dragons-mouth/full-pipeline",
-            &entries,
+            &entries_replica,
             |criterion, entries| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter(|| {

@@ -7,11 +7,12 @@ pub use message::ProtobufMessage;
 pub mod fixtures {
     use {
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaAccountInfoV3, ReplicaBlockInfoV4,
+            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2,
         },
         prost_011::Message,
         solana_sdk::{
             clock::Slot,
+            hash::Hash,
             message::SimpleAddressLoader,
             pubkey::Pubkey,
             transaction::{MessageHash, SanitizedTransaction},
@@ -21,7 +22,7 @@ pub mod fixtures {
         std::{collections::HashSet, fs},
         yellowstone_grpc_proto::{
             convert_to,
-            geyser::{SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta},
+            geyser::{SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta, SubscribeUpdateEntry},
         },
     };
 
@@ -199,18 +200,84 @@ pub mod fixtures {
             })
             .collect::<Vec<_>>()
     }
+
+    #[derive(Debug)]
+    pub struct Entry {
+        pub slot: Slot,
+        pub index: usize,
+        pub num_hashes: u64,
+        pub hash: Hash,
+        pub executed_transaction_count: u64,
+        pub starting_transaction_index: usize,
+    }
+
+    impl Entry {
+        pub fn to_replica(&self) -> ReplicaEntryInfoV2<'_> {
+            ReplicaEntryInfoV2 {
+                slot: self.slot,
+                index: self.index,
+                num_hashes: self.num_hashes,
+                hash: self.hash.as_ref(),
+                executed_transaction_count: self.executed_transaction_count,
+                starting_transaction_index: self.starting_transaction_index,
+            }
+        }
+
+        pub fn to_prost(&self) -> SubscribeUpdateEntry {
+            SubscribeUpdateEntry {
+                slot: self.slot,
+                index: self.index as u64,
+                num_hashes: self.num_hashes,
+                hash: self.hash.as_ref().to_vec(),
+                executed_transaction_count: self.executed_transaction_count,
+                starting_transaction_index: self.starting_transaction_index as u64,
+            }
+        }
+    }
+
+    pub fn generate_entries() -> Vec<Entry> {
+        const ENTRY_HASHES: [Hash; 4] = [
+            Hash::new_from_array([0; 32]),
+            Hash::new_from_array([42; 32]),
+            Hash::new_from_array([98; 32]),
+            Hash::new_from_array([255; 32]),
+        ];
+
+        let mut entries = Vec::new();
+        for slot in [0, 42, 310629080] {
+            for index in [0, 42] {
+                for num_hashes in [0, 128] {
+                    for hash in &ENTRY_HASHES {
+                        for executed_transaction_count in [0, 32] {
+                            for starting_transaction_index in [0, 96, 1067] {
+                                entries.push(Entry {
+                                    slot,
+                                    index,
+                                    num_hashes,
+                                    hash: *hash,
+                                    executed_transaction_count,
+                                    starting_transaction_index,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        entries
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use {
         super::{
-            fixtures::{generate_accounts, generate_blocks_meta, load_predefined_blocks},
+            fixtures::{
+                generate_accounts, generate_blocks_meta, generate_entries, load_predefined_blocks,
+            },
             ProtobufMessage,
         },
-        agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
-        },
+        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, message::SimpleAddressLoader},
         std::{collections::HashSet, time::SystemTime},
@@ -289,71 +356,25 @@ mod tests {
         }
     }
 
-    #[derive(Message)]
-    pub struct Entry {
-        #[prost(uint64, tag = "1")]
-        pub slot: u64,
-        #[prost(uint64, tag = "2")]
-        pub index: u64,
-        #[prost(uint64, tag = "3")]
-        pub num_hashes: u64,
-        #[prost(bytes = "vec", tag = "4")]
-        pub hash: Vec<u8>,
-        #[prost(uint64, tag = "5")]
-        pub executed_transaction_count: u64,
-        #[prost(uint64, tag = "6")]
-        pub starting_transaction_index: u64,
-    }
-
-    pub fn generate_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
-        const FIRST_ENTRY_HASH: Hash = Hash::new_from_array([98; 32]);
-        const SECOND_ENTRY_HASH: Hash = Hash::new_from_array([42; 32]);
-        [
-            ReplicaEntryInfoV2 {
-                slot: 299888121,
-                index: 42,
-                num_hashes: 128,
-                hash: FIRST_ENTRY_HASH.as_ref(),
-                executed_transaction_count: 32,
-                starting_transaction_index: 1000,
-            },
-            ReplicaEntryInfoV2 {
-                slot: 299888121,
-                index: 0,
-                num_hashes: 16,
-                hash: SECOND_ENTRY_HASH.as_ref(),
-                executed_transaction_count: 32,
-                starting_transaction_index: 1000,
-            },
-        ]
-    }
-
     #[test]
-    pub fn test_decode_entry() {
+    pub fn test_encode_entry() {
         let entries = generate_entries();
-        let protobuf_messages = entries
-            .iter()
-            .map(|entry| ProtobufMessage::Entry { entry })
-            .collect::<Vec<_>>();
-        for protobuf_message in protobuf_messages {
-            let mut buf = Vec::new();
-            protobuf_message.encode(&mut buf);
-            if let ProtobufMessage::Entry { entry } = protobuf_message {
-                let decoded =
-                    Entry::decode(buf.as_slice()).expect("failed to decode `Entry` from buf");
-                assert_eq!(decoded.slot, entry.slot);
-                assert_eq!(decoded.index, entry.index as u64);
-                assert_eq!(decoded.num_hashes, entry.num_hashes);
-                assert_eq!(decoded.hash.as_slice(), entry.hash);
-                assert_eq!(
-                    decoded.executed_transaction_count,
-                    entry.executed_transaction_count
-                );
-                assert_eq!(
-                    decoded.starting_transaction_index,
-                    entry.starting_transaction_index as u64
-                )
-            }
+
+        let mut buffer = Vec::new();
+        let created_at = SystemTime::now();
+        for entry in entries {
+            let replica = entry.to_replica();
+            let message = ProtobufMessage::Entry { entry: &replica };
+            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+
+            let message = SubscribeUpdate {
+                filters: vec![],
+                update_oneof: Some(UpdateOneof::Entry(entry.to_prost())),
+                created_at: Some(created_at.into()),
+            };
+            let vec_prost = message.encode_to_vec();
+
+            cmp_vecs(&vec_richat, &vec_prost, &format!("entry {entry:?}"));
         }
     }
 
