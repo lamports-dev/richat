@@ -8,10 +8,16 @@ pub mod fixtures {
     use {
         agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
         prost_011::Message,
-        solana_sdk::{clock::Slot, pubkey::Pubkey},
+        solana_sdk::{
+            clock::Slot,
+            message::SimpleAddressLoader,
+            pubkey::Pubkey,
+            transaction::{MessageHash, SanitizedTransaction},
+        },
         solana_storage_proto::convert::generated,
         solana_transaction_status::ConfirmedBlock,
-        std::fs,
+        std::{collections::HashSet, fs},
+        yellowstone_grpc_proto::geyser::SubscribeUpdateAccountInfo,
     };
 
     pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
@@ -41,13 +47,45 @@ pub mod fixtures {
 
     #[derive(Debug)]
     pub struct Account {
-        pubkey: Pubkey,
-        lamports: u64,
-        owner: Pubkey,
-        executable: bool,
-        rent_epoch: u64,
-        data: Vec<u8>,
-        write_version: u64,
+        pub pubkey: Pubkey,
+        pub lamports: u64,
+        pub owner: Pubkey,
+        pub executable: bool,
+        pub rent_epoch: u64,
+        pub data: Vec<u8>,
+        pub write_version: u64,
+        pub txn_signature: Option<SanitizedTransaction>,
+    }
+
+    impl Account {
+        pub fn to_replica(&self) -> ReplicaAccountInfoV3 {
+            ReplicaAccountInfoV3 {
+                pubkey: self.pubkey.as_ref(),
+                lamports: self.lamports,
+                owner: self.owner.as_ref(),
+                executable: self.executable,
+                rent_epoch: self.rent_epoch,
+                data: &self.data,
+                write_version: self.write_version,
+                txn: self.txn_signature.as_ref(),
+            }
+        }
+
+        pub fn to_prost(&self) -> SubscribeUpdateAccountInfo {
+            SubscribeUpdateAccountInfo {
+                pubkey: self.pubkey.as_ref().to_vec(),
+                lamports: self.lamports,
+                owner: self.owner.as_ref().to_vec(),
+                executable: self.executable,
+                rent_epoch: self.rent_epoch,
+                data: self.data.clone(),
+                write_version: self.write_version,
+                txn_signature: self
+                    .txn_signature
+                    .as_ref()
+                    .map(|tx| tx.signature().as_ref().to_vec()),
+            }
+        }
     }
 
     pub fn generate_accounts() -> Vec<Account> {
@@ -55,6 +93,17 @@ pub mod fixtures {
             Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
         const OWNER: Pubkey =
             Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
+
+        let block = &load_predefined_blocks()[0].1;
+        let tx_ver = block.transactions[0].get_transaction();
+        let tx = SanitizedTransaction::try_create(
+            tx_ver,
+            MessageHash::Compute,          // message_hash
+            None,                          // is_simple_vote_tx
+            SimpleAddressLoader::Disabled, // address_loader
+            &HashSet::new(),               // reserved_account_keys
+        )
+        .unwrap();
 
         let mut accounts = Vec::new();
         for lamports in [0, 8123] {
@@ -67,15 +116,18 @@ pub mod fixtures {
                         vec![42; 2 * 1024 * 1024],
                     ] {
                         for write_version in [0, 1] {
-                            accounts.push(Account {
-                                pubkey: PUBKEY,
-                                lamports,
-                                owner: OWNER,
-                                executable,
-                                rent_epoch,
-                                data: data.to_owned(),
-                                write_version,
-                            })
+                            for txn_signature in [None, Some(tx.clone())] {
+                                accounts.push(Account {
+                                    pubkey: PUBKEY,
+                                    lamports,
+                                    owner: OWNER,
+                                    executable,
+                                    rent_epoch,
+                                    data: data.to_owned(),
+                                    write_version,
+                                    txn_signature,
+                                })
+                            }
                         }
                     }
                 }
@@ -84,29 +136,13 @@ pub mod fixtures {
 
         accounts
     }
-
-    pub fn generate_accounts_replica(accounts: &[Account]) -> Vec<ReplicaAccountInfoV3<'_>> {
-        accounts
-            .iter()
-            .map(|account| ReplicaAccountInfoV3 {
-                pubkey: account.pubkey.as_ref(),
-                lamports: account.lamports,
-                owner: account.owner.as_ref(),
-                executable: account.executable,
-                rent_epoch: account.rent_epoch,
-                data: &account.data,
-                write_version: account.write_version,
-                txn: None,
-            })
-            .collect::<Vec<_>>()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use {
         super::{
-            fixtures::{generate_accounts, generate_accounts_replica, load_predefined_blocks},
+            fixtures::{generate_accounts, load_predefined_blocks},
             ProtobufMessage,
         },
         agave_geyser_plugin_interface::geyser_plugin_interface::{
@@ -114,67 +150,44 @@ mod tests {
         },
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, message::SimpleAddressLoader},
-        std::collections::HashSet,
+        std::{collections::HashSet, time::SystemTime},
+        yellowstone_grpc_proto::geyser::{
+            subscribe_update::UpdateOneof, SubscribeUpdate, SubscribeUpdateAccount,
+        },
     };
 
-    #[derive(Clone, Message)]
-    pub struct Account {
-        #[prost(bytes = "vec", tag = "1")]
-        pubkey: Vec<u8>,
-        #[prost(uint64, tag = "2")]
-        lamports: u64,
-        #[prost(bytes = "vec", tag = "3")]
-        owner: Vec<u8>,
-        #[prost(bool, tag = "4")]
-        executable: bool,
-        #[prost(uint64, tag = "5")]
-        rent_epoch: u64,
-        #[prost(bytes = "vec", tag = "6")]
-        data: Vec<u8>,
-        #[prost(uint64, tag = "7")]
-        write_version: u64,
-        #[prost(bytes = "vec", tag = "8")]
-        signature: Vec<u8>,
-    }
-
-    #[derive(Message)]
-    pub struct AccountMessage {
-        #[prost(message, tag = "1")]
-        account: Option<Account>,
-        #[prost(uint64, tag = "2")]
-        slot: u64,
-    }
-
     #[test]
-    pub fn test_decode_account() {
+    pub fn test_encode_account() {
         let accounts = generate_accounts();
-        let accounts_replicas = generate_accounts_replica(&accounts);
-        let protobuf_messages = accounts_replicas
-            .iter()
-            .enumerate()
-            .map(|(slot, account)| {
-                let slot = slot as u64;
-                ProtobufMessage::Account { slot, account }
-            })
-            .collect::<Vec<_>>();
-        for protobuf_message in protobuf_messages {
-            let mut buf = Vec::new();
-            protobuf_message.encode(&mut buf);
-            if let ProtobufMessage::Account { slot, account } = protobuf_message {
-                let decoded = AccountMessage::decode(buf.as_slice())
-                    .expect("failed to decode `AccountMessage` from buf");
-                let decoded_account = decoded
-                    .account
-                    .expect("failed to get `Account` from `AccountMessage`");
-                assert_eq!(decoded.slot, slot);
-                assert_eq!(decoded_account.pubkey.as_slice(), account.pubkey);
-                assert_eq!(decoded_account.lamports, account.lamports);
-                assert_eq!(decoded_account.owner.as_slice(), account.owner);
-                assert_eq!(decoded_account.executable, account.executable);
-                assert_eq!(decoded_account.rent_epoch, account.rent_epoch);
-                assert_eq!(decoded_account.data.as_slice(), account.data);
-                assert_eq!(decoded_account.write_version, account.write_version)
-            }
+
+        let mut buffer = Vec::new();
+        let created_at = SystemTime::now();
+        for (slot, account) in accounts.iter().enumerate() {
+            let replica = account.to_replica();
+            let message = ProtobufMessage::Account {
+                slot: slot as u64,
+                account: &replica,
+            };
+            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+
+            let message = SubscribeUpdate {
+                filters: vec![],
+                update_oneof: Some(UpdateOneof::Account(SubscribeUpdateAccount {
+                    account: Some(account.to_prost()),
+                    slot: slot as u64,
+                    is_startup: false,
+                })),
+                created_at: Some(created_at.into()),
+            };
+            let vec_prost = message.encode_to_vec();
+
+            assert_eq!(
+                vec_richat.len(),
+                vec_prost.len(),
+                "len failed to account {:?} with slot {slot}",
+                account
+            );
+            assert_eq!(vec_richat, vec_prost);
         }
     }
 

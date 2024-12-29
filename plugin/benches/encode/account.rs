@@ -3,10 +3,7 @@ use {
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{
-        fixtures::{generate_accounts, generate_accounts_replica},
-        ProtobufMessage,
-    },
+    richat_plugin::protobuf::{fixtures::generate_accounts, ProtobufMessage},
     std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::{
@@ -19,7 +16,10 @@ use {
 
 pub fn bench_encode_accounts(criterion: &mut Criterion) {
     let accounts = generate_accounts();
-    let accounts_replica = generate_accounts_replica(&accounts);
+    let accounts_replica = accounts
+        .iter()
+        .map(|acc| acc.to_replica())
+        .collect::<Vec<_>>();
 
     let grpc_replicas = accounts_replica
         .iter()
