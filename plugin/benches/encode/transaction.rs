@@ -63,13 +63,6 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
             },
         )
         .collect::<Vec<_>>();
-    let protobuf_transaction_messages = transactions
-        .iter()
-        .map(|(slot, transaction)| ProtobufMessage::Transaction {
-            slot: *slot,
-            transaction,
-        })
-        .collect::<Vec<_>>();
     let transaction_messages = transactions
         .iter()
         .map(|(slot, transaction)| MessageTransaction::from_geyser(transaction, *slot))
@@ -77,38 +70,20 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_transaction")
-        .bench_with_input(
-            "richat/encoding-only",
-            &protobuf_transaction_messages,
-            |criterion, protobuf_transaction_messages| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for message in protobuf_transaction_messages {
-                            encode_protobuf_message(message)
-                        }
-                    })
-                });
-            },
-        )
-        .bench_with_input(
-            "richat/full-pipeline",
-            &transactions,
-            |criterion, transactions| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for (slot, transaction) in transactions {
-                            let message = ProtobufMessage::Transaction {
-                                slot: *slot,
-                                transaction,
-                            };
-                            encode_protobuf_message(&message)
-                        }
-                    })
-                });
-            },
-        )
+        .bench_with_input("richat", &transactions, |criterion, transactions| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for (slot, transaction) in transactions {
+                        let message = ProtobufMessage::Transaction {
+                            slot: *slot,
+                            transaction,
+                        };
+                        encode_protobuf_message(&message)
+                    }
+                })
+            });
+        })
         .bench_with_input(
             "dragons-mouth/encoding-only",
             &transaction_messages,

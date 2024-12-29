@@ -73,10 +73,6 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             txn: None,
         })
         .collect::<Vec<_>>();
-    let protobuf_account_messages = accounts
-        .iter()
-        .map(|account| ProtobufMessage::Account { slot: 0, account })
-        .collect::<Vec<_>>();
     let grpc_replicas = accounts
         .iter()
         .cloned()
@@ -99,21 +95,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_accounts")
-        .bench_with_input(
-            "richat/encoding-only",
-            &protobuf_account_messages,
-            |criterion, protobuf_account_messages| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for message in protobuf_account_messages {
-                            encode_protobuf_message(message)
-                        }
-                    })
-                })
-            },
-        )
-        .bench_with_input("richat/full-pipeline", &accounts, |criterion, accounts| {
+        .bench_with_input("richat", &accounts, |criterion, accounts| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({

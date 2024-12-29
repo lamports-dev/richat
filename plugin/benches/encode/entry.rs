@@ -39,10 +39,6 @@ pub fn generate_entries() -> [ReplicaEntryInfoV2<'static>; 2] {
 pub fn bench_encode_entries(criterion: &mut Criterion) {
     let entries = generate_entries();
 
-    let protobuf_entry_messages = entries
-        .iter()
-        .map(|entry| ProtobufMessage::Entry { entry })
-        .collect::<Vec<_>>();
     let entry_messages = entries
         .iter()
         .map(MessageEntry::from_geyser)
@@ -51,21 +47,7 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_entry")
-        .bench_with_input(
-            "richat/encoding-only",
-            &protobuf_entry_messages,
-            |criterion, protobuf_entry_messages| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for message in protobuf_entry_messages {
-                            encode_protobuf_message(message)
-                        }
-                    })
-                });
-            },
-        )
-        .bench_with_input("richat/full-pipeline", &entries, |criterion, entries| {
+        .bench_with_input("richat", &entries, |criterion, entries| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
