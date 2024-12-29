@@ -5,17 +5,10 @@ use {
         future::{pending, try_join_all, FutureExt, TryFutureExt},
         stream::StreamExt,
     },
-    richat::{channel, config::Config},
+    richat::{channel, config::Config, grpc::server::GrpcServer},
+    richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
-    std::{
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
-        thread::sleep,
-        time::Duration,
-    },
-    tokio::sync::broadcast,
+    std::{thread::sleep, time::Duration},
     tracing::{info, warn},
 };
 
@@ -43,24 +36,14 @@ fn main() -> anyhow::Result<()> {
     richat::log::setup(config.log.json)?;
 
     // Shutdown channel/flag
-    let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let (shutdown_tx, _rx) = broadcast::channel(1);
-    let create_shutdown_rx = {
-        let shutdown_tx = shutdown_tx.clone();
-        move || {
-            let mut rx = shutdown_tx.subscribe();
-            async move {
-                let _ = rx.recv().await;
-            }
-        }
-    };
+    let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
     let messages = channel::Messages::new(config.channel.config);
     let mut chan_jh = std::thread::Builder::new()
         .name("richatChan".to_owned())
         .spawn({
-            let shutdown = create_shutdown_rx();
+            let shutdown = shutdown.clone();
             let mut messages = messages.clone().to_sender();
             || {
                 let runtime = config.channel.tokio.build_runtime("richatChan")?;
@@ -88,37 +71,45 @@ fn main() -> anyhow::Result<()> {
     // Create runtime for incoming connections
     let mut app_jh = std::thread::Builder::new()
         .name("richatApp".to_owned())
-        .spawn(move || {
-            let runtime = config.apps.tokio.build_runtime("richatApp")?;
-            runtime.block_on(async move {
-                let prometheus_fut = if let Some(config) = config.prometheus {
-                    richat::metrics::spawn_server(config, create_shutdown_rx())
-                        .await?
-                        .map_err(anyhow::Error::from)
-                        .boxed()
-                } else {
-                    pending().boxed()
-                };
+        .spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                let runtime = config.apps.tokio.build_runtime("richatApp")?;
+                runtime.block_on(async move {
+                    let grpc_fut = if let Some(config) = config.apps.grpc {
+                        GrpcServer::spawn(config, messages, shutdown.clone())?.boxed()
+                    } else {
+                        pending().boxed()
+                    };
 
-                try_join_all(vec![prometheus_fut]).await.map(|_| ())
-            })
+                    let prometheus_fut = if let Some(config) = config.prometheus {
+                        richat::metrics::spawn_server(config, shutdown)
+                            .await?
+                            .map_err(anyhow::Error::from)
+                            .boxed()
+                    } else {
+                        pending().boxed()
+                    };
+
+                    try_join_all(vec![grpc_fut, prometheus_fut])
+                        .await
+                        .map(|_| ())
+                })
+            }
         })
         .map(Some)?;
 
     let mut signals = Signals::new([SIGINT])?;
-    let mut shutdown_inprogress = false;
     'outer: while chan_jh.is_some() || app_jh.is_some() {
         for signal in signals.pending() {
             match signal {
                 SIGINT => {
-                    if shutdown_inprogress {
+                    if shutdown.is_set() {
                         warn!("SIGINT received again, shutdown now");
                         break 'outer;
                     }
-                    shutdown_inprogress = true;
                     info!("SIGINT received...");
-                    shutdown_flag.store(true, Ordering::Relaxed);
-                    let _ = shutdown_tx.send(());
+                    shutdown.shutdown();
                 }
                 _ => unreachable!(),
             }

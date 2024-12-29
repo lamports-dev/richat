@@ -5,7 +5,7 @@ use {
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
     std::{future::Future, sync::Once},
-    tokio::task::JoinHandle,
+    tokio::task::JoinError,
 };
 
 lazy_static::lazy_static! {
@@ -49,7 +49,7 @@ lazy_static::lazy_static! {
 pub async fn spawn_server(
     config: ConfigPrometheus,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> anyhow::Result<JoinHandle<()>> {
+) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
     static REGISTER: Once = Once::new();
     REGISTER.call_once(|| {
         macro_rules! register {

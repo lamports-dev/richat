@@ -1,8 +1,18 @@
 use {
+    crate::grpc::config::ConfigAppsGrpc,
+    futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
-    richat_shared::config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
-    serde::Deserialize,
-    std::{fs, path::Path},
+    richat_shared::{
+        config::{deserialize_num_str, parse_taskset, ConfigPrometheus, ConfigTokio},
+        shutdown::Shutdown,
+    },
+    serde::{
+        de::{self, Deserializer},
+        Deserialize,
+    },
+    solana_sdk::pubkey::Pubkey,
+    std::{collections::HashSet, fs, path::Path, thread::Builder},
+    tokio::time::{sleep, Duration},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,5 +95,82 @@ impl Default for ConfigChannelInner {
 pub struct ConfigApps {
     /// Runtime for incoming connections
     pub tokio: ConfigTokio,
-    // grpc, pubsub
+    /// gRPC app (fully compatible with Yellowstone Dragon's Mouth)
+    pub grpc: Option<ConfigAppsGrpc>,
+    // TODO: pubsub
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigAppsWorkers {
+    /// Number of worker threads
+    pub threads: usize,
+    /// Threads affinity
+    #[serde(deserialize_with = "ConfigAppsWorkers::deserialize_affinity")]
+    pub affinity: Vec<usize>,
+}
+
+impl Default for ConfigAppsWorkers {
+    fn default() -> Self {
+        Self {
+            threads: 1,
+            affinity: (0..affinity::get_core_num()).collect(),
+        }
+    }
+}
+
+impl ConfigAppsWorkers {
+    pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let taskset: &str = Deserialize::deserialize(deserializer)?;
+        parse_taskset(taskset).map_err(de::Error::custom)
+    }
+
+    pub async fn run(
+        self,
+        get_name: impl Fn(usize) -> String,
+        spawn_fn: impl Fn(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.threads > 0, "number of threads can be zero");
+
+        let mut jhs = Vec::with_capacity(self.threads);
+        for index in 0..self.threads {
+            let cpus = self.affinity.clone();
+            let spawn_fn = spawn_fn.clone();
+            let shutdown = shutdown.clone();
+            let th = Builder::new().name(get_name(index)).spawn(move || {
+                affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
+                spawn_fn(index)
+            })?;
+
+            let jh = tokio::spawn(async move {
+                while !th.is_finished() {
+                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
+                    sleep(Duration::from_millis(ms)).await;
+                }
+                th.join().expect("failed to join thread")
+            });
+
+            jhs.push(jh.map_err(anyhow::Error::new).and_then(ready));
+        }
+
+        try_join_all(jhs).await.map(|_| ())
+    }
+}
+
+pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<&str>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
+        })
+        .collect::<Result<_, _>>()
 }

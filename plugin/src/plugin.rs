@@ -11,18 +11,30 @@ use {
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
         SlotStatus,
     },
+    futures::future::BoxFuture,
     log::error,
+    richat_shared::shutdown::Shutdown,
     solana_sdk::clock::Slot,
-    std::time::Duration,
-    tokio::{runtime::Runtime, sync::broadcast, task::JoinHandle},
+    std::{fmt, time::Duration},
+    tokio::{runtime::Runtime, task::JoinError},
 };
+
+struct PluginTask(BoxFuture<'static, Result<(), JoinError>>);
+
+unsafe impl Sync for PluginTask {}
+
+impl fmt::Debug for PluginTask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PluginTask").finish()
+    }
+}
 
 #[derive(Debug)]
 pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
-    shutdown: broadcast::Sender<()>,
-    tasks: Vec<(&'static str, JoinHandle<()>)>,
+    shutdown: Shutdown,
+    tasks: Vec<(&'static str, PluginTask)>,
 }
 
 impl PluginInner {
@@ -37,30 +49,27 @@ impl PluginInner {
         let messages = Sender::new(config.channel);
 
         // Spawn servers
-        let (tx, _rx) = broadcast::channel(1);
-        let (messages, tx, tasks) = runtime
+        let (messages, shutdown, tasks) = runtime
             .block_on(async move {
+                let shutdown = Shutdown::new();
                 let mut tasks = Vec::with_capacity(4);
-
-                let create_shutdown_rx = || {
-                    let mut rx = tx.subscribe();
-                    async move {
-                        let _ = rx.recv().await;
-                    }
-                };
 
                 // Start Quic
                 if let Some(config) = config.quic {
                     tasks.push((
                         "Quic Server",
-                        QuicServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
+                        PluginTask(Box::pin(
+                            QuicServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
                 if let Some(config) = config.tcp {
                     tasks.push((
                         "Tcp Server",
-                        TcpServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
+                        PluginTask(Box::pin(
+                            TcpServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
@@ -68,7 +77,9 @@ impl PluginInner {
                 if let Some(config) = config.grpc {
                     tasks.push((
                         "gRPC Server",
-                        GrpcServer::spawn(config, messages.clone(), create_shutdown_rx()).await?,
+                        PluginTask(Box::pin(
+                            GrpcServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
@@ -76,18 +87,20 @@ impl PluginInner {
                 if let Some(config) = config.prometheus {
                     tasks.push((
                         "Prometheus Server",
-                        metrics::spawn_server(config, create_shutdown_rx()).await?,
+                        PluginTask(Box::pin(
+                            metrics::spawn_server(config, shutdown.clone()).await?,
+                        )),
                     ));
                 }
 
-                Ok::<_, anyhow::Error>((messages, tx, tasks))
+                Ok::<_, anyhow::Error>((messages, shutdown, tasks))
             })
             .map_err(|error| GeyserPluginError::Custom(format!("{error:?}").into()))?;
 
         Ok(Self {
             runtime,
             messages,
-            shutdown: tx,
+            shutdown,
             tasks,
         })
     }
@@ -124,10 +137,10 @@ impl GeyserPlugin for Plugin {
         if let Some(inner) = self.inner.take() {
             inner.messages.close();
 
-            let _ = inner.shutdown.send(());
+            inner.shutdown.shutdown();
             inner.runtime.block_on(async {
                 for (name, task) in inner.tasks {
-                    if let Err(error) = task.await {
+                    if let Err(error) = task.0.await {
                         error!("failed to join `{name}` task: {error:?}");
                     }
                 }

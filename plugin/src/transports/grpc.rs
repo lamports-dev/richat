@@ -2,7 +2,7 @@ use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
         metrics,
-        version::GrpcVersionInfo,
+        version::VERSION,
     },
     futures::stream::Stream,
     log::{error, info},
@@ -19,7 +19,7 @@ use {
         },
         task::{Context, Poll},
     },
-    tokio::task::JoinHandle,
+    tokio::task::JoinError,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
         Request, Response, Status, Streaming,
@@ -45,7 +45,7 @@ impl GrpcServer {
         config: ConfigGrpcServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<JoinHandle<()>> {
+    ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
         let (incoming, mut server_builder) = config.create_server()?;
         info!("start server at {}", config.endpoint);
 
@@ -119,7 +119,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
         _request: Request<GetVersionRequest>,
     ) -> Result<Response<GetVersionResponse>, Status> {
         Ok(Response::new(GetVersionResponse {
-            version: serde_json::to_string(&GrpcVersionInfo::default()).unwrap(),
+            version: VERSION.create_grpc_version_info().json(),
         }))
     }
 }

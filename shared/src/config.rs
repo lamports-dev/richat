@@ -24,7 +24,7 @@ pub struct ConfigTokio {
 }
 
 impl ConfigTokio {
-    fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
+    pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
     where
         D: Deserializer<'de>,
     {

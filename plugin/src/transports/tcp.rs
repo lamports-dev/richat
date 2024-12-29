@@ -14,7 +14,7 @@ use {
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
-        task::JoinHandle,
+        task::JoinError,
     },
 };
 
@@ -26,7 +26,7 @@ impl TcpServer {
         config: ConfigTcpServer,
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> anyhow::Result<JoinHandle<()>> {
+    ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
         let listener = config.create_server()?;
         info!("start server at {}", config.endpoint);
 

@@ -57,6 +57,9 @@ pub struct MessageEntry {
 
 #[derive(Debug, Clone)]
 pub struct MessageBlockMeta {
+    pub slot: Slot,
+    pub blockhash: String,
+    pub block_height: Slot,
     pub executed_transaction_count: u64,
     pub entry_count: u64,
 }
