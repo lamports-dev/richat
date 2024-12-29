@@ -9,6 +9,12 @@ pub struct Transaction<'a> {
     transaction: &'a ReplicaTransactionInfoV2<'a>,
 }
 
+impl<'a> Transaction<'a> {
+    pub const fn new(slot: Slot, transaction: &'a ReplicaTransactionInfoV2<'a>) -> Self {
+        Self { slot, transaction }
+    }
+}
+
 impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         replica::encode_replica_transaction_info(1, self.transaction, buf);
@@ -35,12 +41,6 @@ impl<'a> prost::Message for Transaction<'a> {
 
     fn clear(&mut self) {
         unimplemented!()
-    }
-}
-
-impl<'a> Transaction<'a> {
-    pub const fn new(slot: Slot, transaction: &'a ReplicaTransactionInfoV2<'a>) -> Self {
-        Self { slot, transaction }
     }
 }
 
@@ -219,6 +219,7 @@ pub mod sanitazed_message {
         prost::encoding,
         solana_sdk::message::{v0::LoadedMessage, LegacyMessage, SanitizedMessage},
     };
+
     #[derive(Debug)]
     struct Wrapper<'a>(&'a SanitizedMessage);
 
