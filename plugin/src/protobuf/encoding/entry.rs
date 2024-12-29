@@ -9,6 +9,12 @@ pub struct Entry<'a> {
     entry: &'a ReplicaEntryInfoV2<'a>,
 }
 
+impl<'a> Entry<'a> {
+    pub const fn new(entry: &'a ReplicaEntryInfoV2<'a>) -> Self {
+        Self { entry }
+    }
+}
+
 impl<'a> prost::Message for Entry<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let index = self.entry.index as u64;
@@ -76,11 +82,5 @@ impl<'a> prost::Message for Entry<'a> {
 
     fn clear(&mut self) {
         unimplemented!()
-    }
-}
-
-impl<'a> Entry<'a> {
-    pub const fn new(entry: &'a ReplicaEntryInfoV2<'a>) -> Self {
-        Self { entry }
     }
 }

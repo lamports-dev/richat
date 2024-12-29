@@ -1,10 +1,13 @@
-use {agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, prost::encoding};
+use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, prost::encoding,
+    yellowstone_grpc_proto::geyser::CommitmentLevel,
+};
 
 const fn slot_status_as_i32(status: &SlotStatus) -> i32 {
     match status {
         SlotStatus::Processed => 0,
-        SlotStatus::Rooted => 1,
-        SlotStatus::Confirmed => 2,
+        SlotStatus::Rooted => 2,
+        SlotStatus::Confirmed => 1,
         SlotStatus::FirstShredReceived => 3,
         SlotStatus::Completed => 4,
         SlotStatus::CreatedBank => 5,
@@ -12,7 +15,7 @@ const fn slot_status_as_i32(status: &SlotStatus) -> i32 {
     }
 }
 
-const fn is_slot_status_dead(status: &SlotStatus) -> Option<&String> {
+const fn slot_status_as_dead_error(status: &SlotStatus) -> Option<&String> {
     if let SlotStatus::Dead(dead) = status {
         Some(dead)
     } else {
@@ -27,55 +30,59 @@ pub struct Slot<'a> {
     status: &'a SlotStatus,
 }
 
+impl<'a> Slot<'a> {
+    pub const fn new(
+        slot: solana_sdk::clock::Slot,
+        parent: Option<u64>,
+        status: &'a SlotStatus,
+    ) -> Self {
+        Self {
+            slot,
+            parent,
+            status,
+        }
+    }
+}
+
 impl<'a> prost::Message for Slot<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let status = slot_status_as_i32(self.status);
-        let dead = is_slot_status_dead(self.status);
-        if self.slot != 0 {
-            encoding::uint64::encode(1, &self.slot, buf)
+        let dead_error = slot_status_as_dead_error(self.status);
+
+        if self.slot != 0u64 {
+            encoding::uint64::encode(1u32, &self.slot, buf);
         }
-        if let Some(value) = self.parent {
-            if value != 0 {
-                encoding::uint64::encode(2, &value, buf)
-            }
+        if let Some(ref value) = self.parent {
+            encoding::uint64::encode(2u32, value, buf);
         }
-        if status != 0 {
-            encoding::int32::encode(3, &status, buf)
+        if status != CommitmentLevel::default() as i32 {
+            encoding::int32::encode(3u32, &status, buf);
         }
-        if let Some(value) = dead {
-            if !value.is_empty() {
-                encoding::string::encode(4, value, buf)
-            }
+        if let Some(value) = dead_error {
+            encoding::string::encode(4u32, value, buf);
         }
     }
 
     fn encoded_len(&self) -> usize {
         let status = slot_status_as_i32(self.status);
-        let dead = is_slot_status_dead(self.status);
+        let dead_error = slot_status_as_dead_error(self.status);
 
-        encoding::uint64::encoded_len(1, &self.slot)
-            + self.parent.map_or(0, |value| {
-                if value != 0 {
-                    encoding::uint64::encoded_len(2, &value)
-                } else {
-                    0
-                }
-            })
-            + if status != 0 {
-                encoding::int32::encoded_len(3, &status)
+        (if self.slot != 0u64 {
+            encoding::uint64::encoded_len(1u32, &self.slot)
+        } else {
+            0
+        }) + self
+            .parent
+            .as_ref()
+            .map_or(0, |value| encoding::uint64::encoded_len(2u32, value))
+            + if status != CommitmentLevel::default() as i32 {
+                encoding::int32::encoded_len(3u32, &status)
             } else {
                 0
             }
-            + if let Some(value) = dead {
-                if !value.is_empty() {
-                    encoding::string::encoded_len(4, value)
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-            + dead.map_or(0, |dead| encoding::string::encoded_len(4, dead))
+            + dead_error
+                .as_ref()
+                .map_or(0, |value| encoding::string::encoded_len(4u32, value))
     }
 
     fn merge_field(
@@ -93,19 +100,5 @@ impl<'a> prost::Message for Slot<'a> {
 
     fn clear(&mut self) {
         unimplemented!()
-    }
-}
-
-impl<'a> Slot<'a> {
-    pub const fn new(
-        slot: solana_sdk::clock::Slot,
-        parent: Option<u64>,
-        status: &'a SlotStatus,
-    ) -> Self {
-        Self {
-            slot,
-            parent,
-            status,
-        }
     }
 }
