@@ -34,9 +34,9 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
         .collect::<Vec<_>>();
     let grpc_messages = grpc_replicas
         .iter()
-        .map(|(replica, data_slice)| {
+        .map(|((slot, account), data_slice)| {
             (
-                MessageAccount::from_geyser(replica, 0, false),
+                MessageAccount::from_geyser(account, *slot, false),
                 data_slice.clone(),
             )
         })
@@ -48,8 +48,11 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
-                    for account in accounts {
-                        let message = ProtobufMessage::Account { slot: 0, account };
+                    for (slot, account) in accounts {
+                        let message = ProtobufMessage::Account {
+                            slot: *slot,
+                            account,
+                        };
                         encode_protobuf_message(&message)
                     }
                 })
@@ -88,8 +91,8 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                     || grpc_replicas.to_owned(),
                     |grpc_replicas| {
                         #[allow(clippy::unit_arg)]
-                        black_box(for (replica, data_slice) in grpc_replicas {
-                            let message = MessageAccount::from_geyser(&replica, 0, false);
+                        black_box(for ((slot, account), data_slice) in grpc_replicas {
+                            let message = MessageAccount::from_geyser(&account, slot, false);
                             let update = FilteredUpdate {
                                 filters: FilteredUpdateFilters::new(),
                                 message: FilteredUpdateOneof::account(&message, data_slice),

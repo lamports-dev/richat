@@ -16,7 +16,7 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
 
     let blocks_meta_replica = blocks_meta
         .iter()
-        .map(|b| b.to_replica(0))
+        .map(|b| b.to_replica())
         .collect::<Vec<_>>();
 
     let blocks_meta_grpc = blocks_meta_replica

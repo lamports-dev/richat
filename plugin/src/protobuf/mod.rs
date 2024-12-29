@@ -23,8 +23,8 @@ pub mod fixtures {
         yellowstone_grpc_proto::{
             convert_to,
             geyser::{
-                CommitmentLevel, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
-                SubscribeUpdateEntry, SubscribeUpdateSlot,
+                CommitmentLevel, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
+                SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
             },
         },
     };
@@ -64,11 +64,13 @@ pub mod fixtures {
         pub data: Vec<u8>,
         pub write_version: u64,
         pub txn_signature: Option<SanitizedTransaction>,
+        pub slot: Slot,
+        pub is_startup: bool,
     }
 
     impl GenAccount {
-        pub fn to_replica(&self) -> ReplicaAccountInfoV3 {
-            ReplicaAccountInfoV3 {
+        pub fn to_replica(&self) -> (Slot, ReplicaAccountInfoV3) {
+            let replica = ReplicaAccountInfoV3 {
                 pubkey: self.pubkey.as_ref(),
                 lamports: self.lamports,
                 owner: self.owner.as_ref(),
@@ -77,22 +79,27 @@ pub mod fixtures {
                 data: &self.data,
                 write_version: self.write_version,
                 txn: self.txn_signature.as_ref(),
-            }
+            };
+            (self.slot, replica)
         }
 
-        pub fn to_prost(&self) -> SubscribeUpdateAccountInfo {
-            SubscribeUpdateAccountInfo {
-                pubkey: self.pubkey.as_ref().to_vec(),
-                lamports: self.lamports,
-                owner: self.owner.as_ref().to_vec(),
-                executable: self.executable,
-                rent_epoch: self.rent_epoch,
-                data: self.data.clone(),
-                write_version: self.write_version,
-                txn_signature: self
-                    .txn_signature
-                    .as_ref()
-                    .map(|tx| tx.signature().as_ref().to_vec()),
+        pub fn to_prost(&self) -> SubscribeUpdateAccount {
+            SubscribeUpdateAccount {
+                account: Some(SubscribeUpdateAccountInfo {
+                    pubkey: self.pubkey.as_ref().to_vec(),
+                    lamports: self.lamports,
+                    owner: self.owner.as_ref().to_vec(),
+                    executable: self.executable,
+                    rent_epoch: self.rent_epoch,
+                    data: self.data.clone(),
+                    write_version: self.write_version,
+                    txn_signature: self
+                        .txn_signature
+                        .as_ref()
+                        .map(|tx| tx.signature().as_ref().to_vec()),
+                }),
+                slot: self.slot,
+                is_startup: self.is_startup,
             }
         }
     }
@@ -125,17 +132,23 @@ pub mod fixtures {
                         vec![42; 2 * 1024 * 1024],
                     ] {
                         for write_version in [0, 1] {
-                            for txn_signature in [None, Some(tx.clone())] {
-                                accounts.push(GenAccount {
-                                    pubkey: PUBKEY,
-                                    lamports,
-                                    owner: OWNER,
-                                    executable,
-                                    rent_epoch,
-                                    data: data.to_owned(),
-                                    write_version,
-                                    txn_signature,
-                                })
+                            for txn_signature in [None, Some(&tx)] {
+                                for slot in [0, 310639056] {
+                                    for is_startup in [true, false] {
+                                        accounts.push(GenAccount {
+                                            pubkey: PUBKEY,
+                                            lamports,
+                                            owner: OWNER,
+                                            executable,
+                                            rent_epoch,
+                                            data: data.to_owned(),
+                                            write_version,
+                                            txn_signature: txn_signature.cloned(),
+                                            slot,
+                                            is_startup,
+                                        })
+                                    }
+                                }
                             }
                         }
                     }
@@ -151,10 +164,11 @@ pub mod fixtures {
         slot: Slot,
         block: ConfirmedBlock,
         rewards: RewardsAndNumPartitions,
+        entry_count: u64,
     }
 
     impl GenBlockMeta {
-        pub fn to_replica(&self, entry_count: u64) -> ReplicaBlockInfoV4 {
+        pub fn to_replica(&self) -> ReplicaBlockInfoV4 {
             ReplicaBlockInfoV4 {
                 parent_slot: self.block.parent_slot,
                 slot: self.slot,
@@ -164,11 +178,11 @@ pub mod fixtures {
                 block_time: self.block.block_time,
                 block_height: self.block.block_height,
                 executed_transaction_count: self.block.transactions.len() as u64,
-                entry_count,
+                entry_count: self.entry_count,
             }
         }
 
-        pub fn to_prost(&self, entries_count: u64) -> SubscribeUpdateBlockMeta {
+        pub fn to_prost(&self) -> SubscribeUpdateBlockMeta {
             SubscribeUpdateBlockMeta {
                 slot: self.slot,
                 blockhash: self.block.blockhash.clone(),
@@ -181,7 +195,7 @@ pub mod fixtures {
                 parent_slot: self.block.parent_slot,
                 parent_blockhash: self.block.previous_blockhash.clone(),
                 executed_transaction_count: self.block.transactions.len() as u64,
-                entries_count,
+                entries_count: self.entry_count,
             }
         }
     }
@@ -189,17 +203,26 @@ pub mod fixtures {
     pub fn generate_blocks_meta() -> Vec<GenBlockMeta> {
         load_predefined_blocks()
             .into_iter()
-            .map(|(slot, block)| {
+            .flat_map(|(slot, block)| {
                 let rewards = RewardsAndNumPartitions {
                     rewards: block.rewards.to_owned(),
                     num_partitions: block.num_partitions,
                 };
 
-                GenBlockMeta {
-                    slot,
-                    block,
-                    rewards,
-                }
+                [
+                    GenBlockMeta {
+                        slot,
+                        block: block.clone(),
+                        rewards: rewards.clone(),
+                        entry_count: 0,
+                    },
+                    GenBlockMeta {
+                        slot,
+                        block,
+                        rewards,
+                        entry_count: 42,
+                    },
+                ]
             })
             .collect::<Vec<_>>()
     }
@@ -344,9 +367,7 @@ mod tests {
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, message::SimpleAddressLoader},
         std::{collections::HashSet, time::SystemTime},
-        yellowstone_grpc_proto::geyser::{
-            subscribe_update::UpdateOneof, SubscribeUpdate, SubscribeUpdateAccount,
-        },
+        yellowstone_grpc_proto::geyser::{subscribe_update::UpdateOneof, SubscribeUpdate},
     };
 
     fn cmp_vecs(richat: &[u8], prost: &[u8], message: &str) {
@@ -362,30 +383,22 @@ mod tests {
 
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for (slot, account) in accounts.iter().enumerate() {
+        for account in accounts.iter() {
             let replica = account.to_replica();
             let message = ProtobufMessage::Account {
-                slot: slot as u64,
-                account: &replica,
+                slot: replica.0,
+                account: &replica.1,
             };
             let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
 
             let message = SubscribeUpdate {
                 filters: vec![],
-                update_oneof: Some(UpdateOneof::Account(SubscribeUpdateAccount {
-                    account: Some(account.to_prost()),
-                    slot: slot as u64,
-                    is_startup: false,
-                })),
+                update_oneof: Some(UpdateOneof::Account(account.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(
-                &vec_richat,
-                &vec_prost,
-                &format!("account {account:?} with slot {slot}"),
-            );
+            cmp_vecs(&vec_richat, &vec_prost, &format!("account {account:?}"));
         }
     }
 
@@ -396,26 +409,24 @@ mod tests {
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
         for block_meta in blocks_meta {
-            for entry_count in [0, 42] {
-                let replica = block_meta.to_replica(entry_count);
-                let message = ProtobufMessage::BlockMeta {
-                    blockinfo: &replica,
-                };
-                let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+            let replica = block_meta.to_replica();
+            let message = ProtobufMessage::BlockMeta {
+                blockinfo: &replica,
+            };
+            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
 
-                let message = SubscribeUpdate {
-                    filters: vec![],
-                    update_oneof: Some(UpdateOneof::BlockMeta(block_meta.to_prost(entry_count))),
-                    created_at: Some(created_at.into()),
-                };
-                let vec_prost = message.encode_to_vec();
+            let message = SubscribeUpdate {
+                filters: vec![],
+                update_oneof: Some(UpdateOneof::BlockMeta(block_meta.to_prost())),
+                created_at: Some(created_at.into()),
+            };
+            let vec_prost = message.encode_to_vec();
 
-                cmp_vecs(
-                    &vec_richat,
-                    &vec_prost,
-                    &format!("block meta {block_meta:?} with entries count {entry_count}"),
-                );
-            }
+            cmp_vecs(
+                &vec_richat,
+                &vec_prost,
+                &format!("block meta {block_meta:?}"),
+            );
         }
     }
 
