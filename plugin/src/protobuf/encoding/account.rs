@@ -7,9 +7,9 @@ use {
 };
 
 #[derive(Debug)]
-struct Wrapper<'a>(&'a ReplicaAccountInfoV3<'a>);
+struct ReplicaWrapper<'a>(&'a ReplicaAccountInfoV3<'a>);
 
-impl<'a> Deref for Wrapper<'a> {
+impl<'a> Deref for ReplicaWrapper<'a> {
     type Target = &'a ReplicaAccountInfoV3<'a>;
 
     fn deref(&self) -> &Self::Target {
@@ -17,7 +17,7 @@ impl<'a> Deref for Wrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for Wrapper<'a> {
+impl<'a> prost::Message for ReplicaWrapper<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut)
     where
         Self: Sized,
@@ -110,7 +110,7 @@ impl<'a> Account<'a> {
 
 impl<'a> prost::Message for Account<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
-        let wrapper = Wrapper(self.account);
+        let wrapper = ReplicaWrapper(self.account);
         encoding::message::encode(1, &wrapper, buf);
         if self.slot != 0 {
             encoding::uint64::encode(2, &self.slot, buf)
@@ -118,7 +118,7 @@ impl<'a> prost::Message for Account<'a> {
     }
 
     fn encoded_len(&self) -> usize {
-        let wrapper = Wrapper(self.account);
+        let wrapper = ReplicaWrapper(self.account);
         encoding::message::encoded_len(1, &wrapper)
             + if self.slot != 0 {
                 encoding::uint64::encoded_len(2, &self.slot)

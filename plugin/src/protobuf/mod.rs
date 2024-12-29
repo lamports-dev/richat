@@ -6,7 +6,9 @@ pub use message::ProtobufMessage;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures {
     use {
-        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
+        agave_geyser_plugin_interface::geyser_plugin_interface::{
+            ReplicaAccountInfoV3, ReplicaBlockInfoV4,
+        },
         prost_011::Message,
         solana_sdk::{
             clock::Slot,
@@ -15,9 +17,12 @@ pub mod fixtures {
             transaction::{MessageHash, SanitizedTransaction},
         },
         solana_storage_proto::convert::generated,
-        solana_transaction_status::ConfirmedBlock,
+        solana_transaction_status::{ConfirmedBlock, RewardsAndNumPartitions},
         std::{collections::HashSet, fs},
-        yellowstone_grpc_proto::geyser::SubscribeUpdateAccountInfo,
+        yellowstone_grpc_proto::{
+            convert_to,
+            geyser::{SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta},
+        },
     };
 
     pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
@@ -136,17 +141,75 @@ pub mod fixtures {
 
         accounts
     }
+
+    #[derive(Debug)]
+    pub struct BlockMeta {
+        slot: Slot,
+        block: ConfirmedBlock,
+        rewards: RewardsAndNumPartitions,
+    }
+
+    impl BlockMeta {
+        pub fn to_replica(&self, entry_count: u64) -> ReplicaBlockInfoV4 {
+            ReplicaBlockInfoV4 {
+                parent_slot: self.block.parent_slot,
+                slot: self.slot,
+                parent_blockhash: &self.block.previous_blockhash,
+                blockhash: &self.block.blockhash,
+                rewards: &self.rewards,
+                block_time: self.block.block_time,
+                block_height: self.block.block_height,
+                executed_transaction_count: self.block.transactions.len() as u64,
+                entry_count,
+            }
+        }
+
+        pub fn to_prost(&self, entries_count: u64) -> SubscribeUpdateBlockMeta {
+            SubscribeUpdateBlockMeta {
+                slot: self.slot,
+                blockhash: self.block.blockhash.clone(),
+                rewards: Some(convert_to::create_rewards_obj(
+                    &self.rewards.rewards,
+                    self.rewards.num_partitions,
+                )),
+                block_time: self.block.block_time.map(convert_to::create_timestamp),
+                block_height: self.block.block_height.map(convert_to::create_block_height),
+                parent_slot: self.block.parent_slot,
+                parent_blockhash: self.block.previous_blockhash.clone(),
+                executed_transaction_count: self.block.transactions.len() as u64,
+                entries_count,
+            }
+        }
+    }
+
+    pub fn generate_blocks_meta() -> Vec<BlockMeta> {
+        load_predefined_blocks()
+            .into_iter()
+            .map(|(slot, block)| {
+                let rewards = RewardsAndNumPartitions {
+                    rewards: block.rewards.to_owned(),
+                    num_partitions: block.num_partitions,
+                };
+
+                BlockMeta {
+                    slot,
+                    block,
+                    rewards,
+                }
+            })
+            .collect::<Vec<_>>()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use {
         super::{
-            fixtures::{generate_accounts, load_predefined_blocks},
+            fixtures::{generate_accounts, generate_blocks_meta, load_predefined_blocks},
             ProtobufMessage,
         },
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+            ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         },
         prost::{Enumeration, Message},
         solana_sdk::{hash::Hash, message::SimpleAddressLoader},
@@ -155,6 +218,13 @@ mod tests {
             subscribe_update::UpdateOneof, SubscribeUpdate, SubscribeUpdateAccount,
         },
     };
+
+    fn cmp_vecs(richat: &[u8], prost: &[u8], message: &str) {
+        // assert on len is useless because we check slices,
+        // but error message would be better for future debug
+        assert_eq!(richat.len(), prost.len(), "len failed for: {message}");
+        assert_eq!(richat, prost, "vec failed for: {message}");
+    }
 
     #[test]
     pub fn test_encode_account() {
@@ -181,176 +251,40 @@ mod tests {
             };
             let vec_prost = message.encode_to_vec();
 
-            assert_eq!(
-                vec_richat.len(),
-                vec_prost.len(),
-                "len failed to account {:?} with slot {slot}",
-                account
-            );
-            assert_eq!(
-                vec_richat, vec_prost,
-                "vec failed to account {:?} with slot {slot}",
-                account
+            cmp_vecs(
+                &vec_richat,
+                &vec_prost,
+                &format!("account {account:?} with slot {slot}"),
             );
         }
-    }
-
-    #[derive(Debug, Enumeration)]
-    #[repr(i32)]
-    pub enum RewardType {
-        Fee = 1,
-        Rent = 2,
-        Staking = 3,
-        Voting = 4,
-    }
-
-    #[derive(Message)]
-    pub struct Reward {
-        #[prost(string, tag = "1")]
-        pub pubkey: String,
-        #[prost(int64, tag = "2")]
-        pub lamports: i64,
-        #[prost(uint64, tag = "3")]
-        pub post_balance: u64,
-        #[prost(enumeration = "RewardType", tag = "4")]
-        pub reward_type: i32,
-        #[prost(uint32, optional, tag = "5")]
-        pub commission: Option<u32>,
-    }
-
-    impl From<Reward> for solana_transaction_status::Reward {
-        fn from(reward: Reward) -> Self {
-            solana_transaction_status::Reward {
-                pubkey: reward.pubkey,
-                lamports: reward.lamports,
-                post_balance: reward.post_balance,
-                reward_type: match reward.reward_type {
-                    1 => Some(solana_transaction_status::RewardType::Fee),
-                    2 => Some(solana_transaction_status::RewardType::Rent),
-                    3 => Some(solana_transaction_status::RewardType::Staking),
-                    4 => Some(solana_transaction_status::RewardType::Voting),
-                    _ => None,
-                },
-                commission: reward.commission.map(|commission| commission as u8),
-            }
-        }
-    }
-
-    #[derive(Message)]
-    pub struct NumPartitions {
-        #[prost(uint64, optional, tag = "1")]
-        num_partitions: Option<u64>,
-    }
-
-    #[derive(Message)]
-    pub struct RewardsAndNumPartitions {
-        #[prost(message, repeated, tag = "1")]
-        rewards: Vec<Reward>,
-        #[prost(message, tag = "2")]
-        num_partitions: Option<NumPartitions>,
-    }
-
-    #[derive(Message)]
-    pub struct UnixTimestamp {
-        #[prost(int64, tag = "1")]
-        timestamp: i64,
-    }
-
-    #[derive(Message)]
-    pub struct BlockHeight {
-        #[prost(uint64, tag = "1")]
-        block_height: u64,
-    }
-
-    #[derive(Message)]
-    pub struct BlockMeta {
-        #[prost(uint64, tag = "1")]
-        slot: u64,
-        #[prost(string, tag = "2")]
-        blockhash: String,
-        #[prost(message, tag = "3")]
-        rewards: Option<RewardsAndNumPartitions>,
-        #[prost(message, tag = "4")]
-        block_time: Option<UnixTimestamp>,
-        #[prost(message, tag = "5")]
-        block_height: Option<BlockHeight>,
-        #[prost(uint64, tag = "6")]
-        parent_slot: u64,
-        #[prost(string, tag = "7")]
-        parent_blockhash: String,
-        #[prost(uint64, tag = "8")]
-        executed_transaction_count: u64,
-        #[prost(uint64, tag = "9")]
-        entry_count: u64,
     }
 
     #[test]
-    pub fn test_decode_block_meta() {
-        let blocks = load_predefined_blocks();
+    pub fn test_encode_block_meta() {
+        let blocks_meta = generate_blocks_meta();
 
-        let rewards_and_num_partitions = blocks
-            .iter()
-            .map(
-                |(_slot, block)| solana_transaction_status::RewardsAndNumPartitions {
-                    rewards: block.rewards.to_owned(),
-                    num_partitions: block.num_partitions,
-                },
-            )
-            .collect::<Vec<_>>();
-        let block_metas = blocks
-            .iter()
-            .zip(rewards_and_num_partitions.iter())
-            .map(
-                |((slot, block), rewards_and_num_partitions)| ReplicaBlockInfoV4 {
-                    parent_slot: block.parent_slot,
-                    slot: *slot,
-                    parent_blockhash: &block.previous_blockhash,
-                    blockhash: &block.blockhash,
-                    rewards: rewards_and_num_partitions,
-                    block_time: block.block_time,
-                    block_height: block.block_height,
-                    executed_transaction_count: 0,
-                    entry_count: 0,
-                },
-            )
-            .collect::<Vec<_>>();
-        let protobuf_messages = block_metas
-            .iter()
-            .map(|blockinfo| ProtobufMessage::BlockMeta { blockinfo })
-            .collect::<Vec<_>>();
-        for protobuf_message in protobuf_messages {
-            let mut buf = Vec::new();
-            protobuf_message.encode(&mut buf);
-            if let ProtobufMessage::BlockMeta { blockinfo } = protobuf_message {
-                let decoded = BlockMeta::decode(buf.as_slice())
-                    .expect("failed to decode `BlockMeta` from buf");
-                assert_eq!(decoded.slot, blockinfo.slot);
-                assert_eq!(&decoded.blockhash, blockinfo.blockhash);
-                assert_eq!(
-                    decoded.rewards.map(|rewards| rewards
-                        .rewards
-                        .into_iter()
-                        .map(Into::into)
-                        .collect()),
-                    Some(blockinfo.rewards.rewards.to_owned())
-                ); // TODO: rewards
-                assert_eq!(
-                    decoded.block_time.map(|block_time| block_time.timestamp),
-                    blockinfo.block_time
+        let mut buffer = Vec::new();
+        let created_at = SystemTime::now();
+        for block_meta in blocks_meta {
+            for entry_count in [0, 42] {
+                let replica = block_meta.to_replica(entry_count);
+                let message = ProtobufMessage::BlockMeta {
+                    blockinfo: &replica,
+                };
+                let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+
+                let message = SubscribeUpdate {
+                    filters: vec![],
+                    update_oneof: Some(UpdateOneof::BlockMeta(block_meta.to_prost(entry_count))),
+                    created_at: Some(created_at.into()),
+                };
+                let vec_prost = message.encode_to_vec();
+
+                cmp_vecs(
+                    &vec_richat,
+                    &vec_prost,
+                    &format!("block meta {block_meta:?} with entries count {entry_count}"),
                 );
-                assert_eq!(
-                    decoded
-                        .block_height
-                        .map(|block_height| block_height.block_height),
-                    blockinfo.block_height
-                );
-                assert_eq!(decoded.parent_slot, blockinfo.parent_slot);
-                assert_eq!(&decoded.parent_blockhash, blockinfo.parent_blockhash);
-                assert_eq!(
-                    decoded.executed_transaction_count,
-                    blockinfo.executed_transaction_count
-                );
-                assert_eq!(decoded.entry_count, blockinfo.entry_count)
             }
         }
     }
@@ -562,6 +496,29 @@ mod tests {
         index: u32,
         #[prost(message, tag = "2")]
         instruction: Option<InnerInstruction>,
+    }
+
+    #[derive(Debug, Enumeration)]
+    #[repr(i32)]
+    pub enum RewardType {
+        Fee = 1,
+        Rent = 2,
+        Staking = 3,
+        Voting = 4,
+    }
+
+    #[derive(Message)]
+    pub struct Reward {
+        #[prost(string, tag = "1")]
+        pub pubkey: String,
+        #[prost(int64, tag = "2")]
+        pub lamports: i64,
+        #[prost(uint64, tag = "3")]
+        pub post_balance: u64,
+        #[prost(enumeration = "RewardType", tag = "4")]
+        pub reward_type: i32,
+        #[prost(uint32, optional, tag = "5")]
+        pub commission: Option<u32>,
     }
 
     #[derive(Message)]
