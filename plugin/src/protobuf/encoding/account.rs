@@ -3,57 +3,72 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     prost::encoding::{self, WireType},
     solana_sdk::clock::Slot,
+    std::ops::Deref,
 };
 
 #[derive(Debug)]
 struct Wrapper<'a>(&'a ReplicaAccountInfoV3<'a>);
+
+impl<'a> Deref for Wrapper<'a> {
+    type Target = &'a ReplicaAccountInfoV3<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<'a> prost::Message for Wrapper<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut)
     where
         Self: Sized,
     {
-        bytes_encode(1, self.0.pubkey, buf);
-        if self.0.lamports != 0 {
-            encoding::uint64::encode(2, &self.0.lamports, buf);
+        bytes_encode(1, self.pubkey, buf);
+        if self.lamports != 0 {
+            encoding::uint64::encode(2, &self.lamports, buf);
         };
-        bytes_encode(3, self.0.owner, buf);
-        if self.0.executable {
-            encoding::bool::encode(4, &self.0.executable, buf);
+        bytes_encode(3, self.owner, buf);
+        if self.executable {
+            encoding::bool::encode(4, &self.executable, buf);
         }
-        if self.0.rent_epoch != 0 {
-            encoding::uint64::encode(5, &self.0.rent_epoch, buf);
+        if self.rent_epoch != 0 {
+            encoding::uint64::encode(5, &self.rent_epoch, buf);
         }
-        bytes_encode(6, self.0.data, buf);
-        if self.0.write_version != 0 {
-            encoding::uint64::encode(7, &self.0.write_version, buf);
+        if !self.data.is_empty() {
+            bytes_encode(6, self.data, buf);
         }
-        if let Some(txn) = self.0.txn {
+        if self.write_version != 0 {
+            encoding::uint64::encode(7, &self.write_version, buf);
+        }
+        if let Some(txn) = self.txn {
             bytes_encode(8, txn.signature().as_ref(), buf);
         }
     }
 
     fn encoded_len(&self) -> usize {
-        bytes_encoded_len(1, self.0.pubkey)
-            + if self.0.lamports != 0 {
-                encoding::uint64::encoded_len(2, &self.0.lamports)
+        bytes_encoded_len(1, self.pubkey)
+            + if self.lamports != 0 {
+                encoding::uint64::encoded_len(2, &self.lamports)
             } else {
                 0
             }
-            + bytes_encoded_len(3, self.0.owner)
-            + if self.0.executable {
-                encoding::bool::encoded_len(4, &self.0.executable)
+            + bytes_encoded_len(3, self.owner)
+            + if self.executable {
+                encoding::bool::encoded_len(4, &self.executable)
             } else {
                 0
             }
-            + if self.0.rent_epoch != 0 {
-                encoding::uint64::encoded_len(5, &self.0.rent_epoch)
+            + if self.rent_epoch != 0 {
+                encoding::uint64::encoded_len(5, &self.rent_epoch)
             } else {
                 0
             }
-            + bytes_encoded_len(6, self.0.data)
-            + if self.0.write_version != 0 {
-                encoding::uint64::encoded_len(7, &self.0.write_version)
+            + if !self.data.is_empty() {
+                bytes_encoded_len(6, self.data)
+            } else {
+                0
+            }
+            + if self.write_version != 0 {
+                encoding::uint64::encoded_len(7, &self.write_version)
             } else {
                 0
             }
@@ -85,6 +100,12 @@ impl<'a> prost::Message for Wrapper<'a> {
 pub struct Account<'a> {
     account: &'a ReplicaAccountInfoV3<'a>,
     slot: Slot,
+}
+
+impl<'a> Account<'a> {
+    pub const fn new(slot: Slot, account: &'a ReplicaAccountInfoV3<'a>) -> Self {
+        Self { slot, account }
+    }
 }
 
 impl<'a> prost::Message for Account<'a> {
@@ -121,11 +142,5 @@ impl<'a> prost::Message for Account<'a> {
 
     fn clear(&mut self) {
         unimplemented!()
-    }
-}
-
-impl<'a> Account<'a> {
-    pub const fn new(slot: Slot, account: &'a ReplicaAccountInfoV3<'a>) -> Self {
-        Self { slot, account }
     }
 }

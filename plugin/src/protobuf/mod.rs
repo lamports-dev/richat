@@ -187,7 +187,11 @@ mod tests {
                 "len failed to account {:?} with slot {slot}",
                 account
             );
-            assert_eq!(vec_richat, vec_prost);
+            assert_eq!(
+                vec_richat, vec_prost,
+                "vec failed to account {:?} with slot {slot}",
+                account
+            );
         }
     }
 

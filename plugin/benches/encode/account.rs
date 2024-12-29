@@ -16,6 +16,7 @@ use {
 
 pub fn bench_encode_accounts(criterion: &mut Criterion) {
     let accounts = generate_accounts();
+
     let accounts_replica = accounts
         .iter()
         .map(|acc| acc.to_replica())

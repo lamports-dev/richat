@@ -1,5 +1,5 @@
 use {
-    super::encoding::{self, bytes_encode},
+    super::encoding,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -50,7 +50,6 @@ impl<'a> ProtobufMessage<'a> {
 
     pub fn encode_with_timestamp(&self, buffer: &mut Vec<u8>, created_at: SystemTime) -> Vec<u8> {
         buffer.clear();
-        bytes_encode(1, &[], buffer);
         match self {
             Self::Account { slot, account } => {
                 let account = encoding::Account::new(*slot, account);
