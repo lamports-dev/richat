@@ -76,6 +76,7 @@ pub mod replica {
                 encoding::uint64::encode(5, &index, buf)
             }
         }
+
         fn encoded_len(&self) -> usize {
             let index = self.0.index as u64;
 
@@ -99,9 +100,11 @@ pub mod replica {
                     0
                 }
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -148,13 +151,16 @@ pub mod sanitized_transaction {
             super::signatures::encode_signatures(1, self.0.signatures(), buf);
             super::sanitazed_message::encode_sanitized_message(2, self.0.message(), buf)
         }
+
         fn encoded_len(&self) -> usize {
             super::signatures::signatures_encoded_len(1, self.0.signatures())
                 + super::sanitazed_message::sanitized_message_encoded_len(2, self.0.message())
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -260,6 +266,7 @@ pub mod sanitazed_message {
                 }
             }
         }
+
         fn encoded_len(&self) -> usize {
             match self.0 {
                 SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
@@ -295,9 +302,11 @@ pub mod sanitazed_message {
                 }
             }
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -347,6 +356,7 @@ pub mod message_header {
                 encoding::uint32::encode(3, &num_readonly_unsigned_accounts, buf)
             }
         }
+
         fn encoded_len(&self) -> usize {
             let num_required_signatures = self.0.num_required_signatures as u32;
             let num_readonly_signed_accounts = self.0.num_readonly_signed_accounts as u32;
@@ -365,9 +375,11 @@ pub mod message_header {
                 0
             }
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -471,14 +483,17 @@ pub mod address_table_lookups {
             bytes_encode(2, &self.0.writable_indexes, buf);
             bytes_encode(3, &self.0.readonly_indexes, buf)
         }
+
         fn encoded_len(&self) -> usize {
             bytes_encoded_len(1, self.0.account_key.as_ref())
                 + bytes_encoded_len(2, &self.0.writable_indexes)
                 + bytes_encoded_len(3, &self.0.readonly_indexes)
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -589,6 +604,7 @@ pub mod transaction_status_meta {
                 }
             }
         }
+
         fn encoded_len(&self) -> usize {
             self.0.status.as_ref().err().map_or(0, |error| {
                 super::transaction_error::transaction_error_encoded_len(1, error)
@@ -673,9 +689,11 @@ pub mod transaction_status_meta {
                         }
                     })
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -730,6 +748,7 @@ pub mod transaction_error {
                 }
             })
         }
+
         fn encoded_len(&self) -> usize {
             BUFFER.with(|cell| {
                 let mut borrow_mut = cell.borrow_mut();
@@ -744,6 +763,7 @@ pub mod transaction_error {
                 }
             })
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
@@ -801,6 +821,7 @@ pub mod inner_instructions {
             }
             super::inner_instruction::encode_inner_instruction_vec(2, &self.0.instructions, buf)
         }
+
         fn encoded_len(&self) -> usize {
             let index = self.0.index as u32;
 
@@ -813,9 +834,11 @@ pub mod inner_instructions {
                 &self.0.instructions,
             )
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -873,6 +896,7 @@ pub mod inner_instruction {
                 }
             }
         }
+
         fn encoded_len(&self) -> usize {
             super::compiled_instruction::compiled_instruction_encoded_len(1, &self.0.instruction)
                 + self.0.stack_height.map_or(0, |stack_height| {
@@ -883,9 +907,11 @@ pub mod inner_instruction {
                     }
                 })
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -946,6 +972,7 @@ pub mod compiled_instructions {
             bytes_encode(2, &self.0.accounts, buf);
             bytes_encode(3, &self.0.data, buf)
         }
+
         fn encoded_len(&self) -> usize {
             let program_id_index = self.0.program_id_index as u32;
             (if program_id_index != 0 {
@@ -955,9 +982,11 @@ pub mod compiled_instructions {
             }) + bytes_encoded_len(2, &self.0.accounts)
                 + bytes_encoded_len(3, &self.0.data)
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -1016,6 +1045,7 @@ pub mod compiled_instruction {
             bytes_encode(2, &self.0.accounts, buf);
             bytes_encode(3, &self.0.data, buf)
         }
+
         fn encoded_len(&self) -> usize {
             let program_id_index = self.0.program_id_index as u32;
             (if program_id_index != 0 {
@@ -1025,9 +1055,11 @@ pub mod compiled_instruction {
             }) + bytes_encoded_len(2, &self.0.accounts)
                 + bytes_encoded_len(3, &self.0.data)
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -1091,6 +1123,7 @@ pub mod transaction_token_balance {
                 encoding::string::encode(5, &self.0.program_id, buf)
             }
         }
+
         fn encoded_len(&self) -> usize {
             let account_index = self.0.account_index as u32;
 
@@ -1114,9 +1147,11 @@ pub mod transaction_token_balance {
                     0
                 }
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -1179,6 +1214,7 @@ pub mod ui_token_amount {
                 encoding::string::encode(4, &self.0.ui_amount_string, buf)
             }
         }
+
         fn encoded_len(&self) -> usize {
             let decimals = self.0.decimals as u32;
             self.0.ui_amount.map_or(0, |ui_amount| {
@@ -1201,9 +1237,11 @@ pub mod ui_token_amount {
                 0
             }
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,
@@ -1309,12 +1347,15 @@ mod return_data {
             bytes_encode(1, self.0.program_id.as_ref(), buf);
             bytes_encode(2, &self.0.data, buf)
         }
+
         fn encoded_len(&self) -> usize {
             bytes_encoded_len(1, self.0.program_id.as_ref()) + bytes_encoded_len(2, &self.0.data)
         }
+
         fn clear(&mut self) {
             unimplemented!()
         }
+
         fn merge_field(
             &mut self,
             _tag: u32,

@@ -117,14 +117,17 @@ impl<'a> prost::Message for RewardsAndNumPartitionsWrapper<'a> {
         encode_rewards(1, &self.0.rewards, buf);
         encoding::message::encode(2, &num_partitions, buf)
     }
+
     fn encoded_len(&self) -> usize {
         let num_partitions = NumPartitions(self.0.num_partitions);
 
         rewards_encoded_len(1, &self.0.rewards) + encoding::message::encoded_len(2, &num_partitions)
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -153,6 +156,7 @@ impl prost::Message for BlockTime {
             }
         }
     }
+
     fn encoded_len(&self) -> usize {
         self.0.map_or(0, |block_time| {
             if block_time != 0 {
@@ -162,9 +166,11 @@ impl prost::Message for BlockTime {
             }
         })
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -193,6 +199,7 @@ impl prost::Message for BlockHeight {
             }
         }
     }
+
     fn encoded_len(&self) -> usize {
         self.0.map_or(0, |block_height| {
             if block_height != 0 {
@@ -202,9 +209,11 @@ impl prost::Message for BlockHeight {
             }
         })
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
@@ -233,6 +242,7 @@ impl prost::Message for NumPartitions {
             }
         }
     }
+
     fn encoded_len(&self) -> usize {
         self.0.map_or(0, |num_partitions| {
             if num_partitions != 0 {
@@ -242,9 +252,11 @@ impl prost::Message for NumPartitions {
             }
         })
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,

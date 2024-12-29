@@ -5,7 +5,7 @@ members = [
     "client",
     "plugin",
     "richat",
-    "shared"
+    "shared",
 ]
 
 [workspace.package]

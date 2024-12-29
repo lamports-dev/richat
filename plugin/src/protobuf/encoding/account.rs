@@ -32,6 +32,7 @@ impl<'a> prost::Message for Wrapper<'a> {
             bytes_encode(8, txn.signature().as_ref(), buf);
         }
     }
+
     fn encoded_len(&self) -> usize {
         bytes_encoded_len(1, self.0.pubkey)
             + if self.0.lamports != 0 {
@@ -61,9 +62,11 @@ impl<'a> prost::Message for Wrapper<'a> {
                 .txn
                 .map_or(0, |txn| bytes_encoded_len(8, txn.signature().as_ref()))
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,

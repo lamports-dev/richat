@@ -67,6 +67,7 @@ impl<'a> prost::Message for Wrapper<'a> {
             bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
         }
     }
+
     fn encoded_len(&self) -> usize {
         (if !self.0.pubkey.is_empty() {
             encoding::string::encoded_len(1, &self.0.pubkey)
@@ -88,9 +89,11 @@ impl<'a> prost::Message for Wrapper<'a> {
             bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
         })
     }
+
     fn clear(&mut self) {
         unimplemented!()
     }
+
     fn merge_field(
         &mut self,
         _tag: u32,
