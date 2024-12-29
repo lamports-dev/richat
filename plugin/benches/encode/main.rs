@@ -7,7 +7,6 @@ use {
 mod account;
 mod block_meta;
 mod entry;
-mod predefined;
 mod slot;
 mod transaction;
 

@@ -1,10 +1,10 @@
 use {
-    super::{encode_protobuf_message, predefined::load_predefined_blocks},
+    super::encode_protobuf_message,
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin::protobuf::{fixtures::load_predefined_blocks, ProtobufMessage},
     solana_transaction_status::RewardsAndNumPartitions,
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{

@@ -17,8 +17,8 @@ ci-clippy-fuzz:
 PACKAGES=richat-cli richat-client richat-plugin richat richat-shared
 ci-check:
 	for package in $(PACKAGES) ; do \
-		echo cargo check -p $$package --all-targets ; \
-		cargo check -p $$package --all-targets ; \
+		echo cargo check -p $$package --all-targets --all-features ; \
+		cargo check -p $$package --all-targets --all-features ; \
 	done
 
 ci-test:
