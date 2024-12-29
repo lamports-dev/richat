@@ -30,7 +30,7 @@ struct BlockStatus {
 
 #[derive(Debug)]
 pub struct BlockMetaStorage {
-    messages_tx: mpsc::UnboundedSender<Message>,
+    messages_tx: mpsc::UnboundedSender<Arc<Message>>,
     requests_tx: mpsc::Sender<Request>,
 }
 
@@ -49,7 +49,7 @@ impl BlockMetaStorage {
     }
 
     async fn work(
-        mut messages_rx: mpsc::UnboundedReceiver<Message>,
+        mut messages_rx: mpsc::UnboundedReceiver<Arc<Message>>,
         mut requests_rx: mpsc::Receiver<Request>,
     ) {
         let mut blocks = HashMap::<Slot, BlockMeta>::new();
@@ -61,7 +61,7 @@ impl BlockMetaStorage {
         loop {
             tokio::select! {
                 biased;
-                message = messages_rx.recv() => match message {
+                message = messages_rx.recv() => match message.map(|m| m.as_ref().clone()) {
                     Some(Message::Slot(MessageSlot { commitment, slot, .. })) => {
                         if commitment == CommitmentLevel::Confirmed {
                             let entry = blocks.entry(slot).or_default();
@@ -124,7 +124,7 @@ impl BlockMetaStorage {
         }
     }
 
-    pub fn push(&self, message: Message) {
+    pub fn push(&self, message: Arc<Message>) {
         let _ = self.messages_tx.send(message);
     }
 

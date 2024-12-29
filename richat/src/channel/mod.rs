@@ -196,7 +196,7 @@ impl Sender {
             }
             item.pos = pos;
             item.slot = slot;
-            item.data = Some(message);
+            item.data = Some(Arc::new(message));
             drop(item);
 
             // store new position for receivers
@@ -220,7 +220,7 @@ pub struct Receiver {
 }
 
 impl Receiver {
-    pub fn try_recv(&mut self) -> Result<Option<Message>, RecvError> {
+    pub fn try_recv(&mut self) -> Result<Option<Arc<Message>>, RecvError> {
         let tail = self.shared.tail.load(Ordering::Relaxed);
         if self.head < tail {
             self.head = self.head.wrapping_add(1);
@@ -382,5 +382,5 @@ impl SlotInfo {
 struct Item {
     pos: u64,
     slot: Slot,
-    data: Option<Message>,
+    data: Option<Arc<Message>>,
 }

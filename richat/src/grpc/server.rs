@@ -146,8 +146,8 @@ impl GrpcServer {
             // Update block meta only from first thread
             if index == 0 {
                 if let Some(block_meta_storage) = &self.block_meta {
-                    if matches!(&message, Message::Slot(_) | Message::BlockMeta(_)) {
-                        block_meta_storage.push(message.clone());
+                    if matches!(message.as_ref(), Message::Slot(_) | Message::BlockMeta(_)) {
+                        block_meta_storage.push(Arc::clone(&message));
                     }
                 }
             }
