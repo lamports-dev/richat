@@ -1,11 +1,12 @@
 use {
     super::encode_protobuf_message,
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::ProtobufMessage,
-    solana_sdk::pubkey::Pubkey,
+    richat_plugin::protobuf::{
+        fixtures::{generate_accounts, generate_accounts_replica},
+        ProtobufMessage,
+    },
     std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::{
@@ -16,64 +17,11 @@ use {
     },
 };
 
-pub struct Account {
-    pubkey: Pubkey,
-    lamports: u64,
-    owner: Pubkey,
-    executable: bool,
-    rent_epoch: u64,
-    data: Vec<u8>,
-    write_version: u64,
-}
-
-pub fn generate_accounts() -> Vec<Account> {
-    const PUBKEY: Pubkey = Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
-    const OWNER: Pubkey = Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
-
-    let mut accounts = Vec::new();
-    for lamports in [0, 8123] {
-        for executable in [true, false] {
-            for rent_epoch in [0, 4242] {
-                for data in [
-                    vec![],
-                    vec![42; 165],
-                    vec![42; 1024],
-                    vec![42; 2 * 1024 * 1024],
-                ] {
-                    for write_version in [0, 1] {
-                        accounts.push(Account {
-                            pubkey: PUBKEY,
-                            lamports,
-                            owner: OWNER,
-                            executable,
-                            rent_epoch,
-                            data: data.to_owned(),
-                            write_version,
-                        })
-                    }
-                }
-            }
-        }
-    }
-    accounts
-}
-
 pub fn bench_encode_accounts(criterion: &mut Criterion) {
-    let accounts_data = generate_accounts();
-    let accounts = accounts_data
-        .iter()
-        .map(|account| ReplicaAccountInfoV3 {
-            pubkey: account.pubkey.as_ref(),
-            owner: account.owner.as_ref(),
-            lamports: account.lamports,
-            executable: account.executable,
-            rent_epoch: account.rent_epoch,
-            data: &account.data,
-            write_version: account.write_version,
-            txn: None,
-        })
-        .collect::<Vec<_>>();
-    let grpc_replicas = accounts
+    let accounts = generate_accounts();
+    let accounts_replica = generate_accounts_replica(&accounts);
+
+    let grpc_replicas = accounts_replica
         .iter()
         .cloned()
         .map(|account| {
@@ -95,7 +43,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_accounts")
-        .bench_with_input("richat", &accounts, |criterion, accounts| {
+        .bench_with_input("richat", &accounts_replica, |criterion, accounts| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({

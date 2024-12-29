@@ -6,8 +6,12 @@ pub use message::ProtobufMessage;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures {
     use {
-        prost_011::Message, solana_sdk::clock::Slot, solana_storage_proto::convert::generated,
-        solana_transaction_status::ConfirmedBlock, std::fs,
+        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
+        prost_011::Message,
+        solana_sdk::{clock::Slot, pubkey::Pubkey},
+        solana_storage_proto::convert::generated,
+        solana_transaction_status::ConfirmedBlock,
+        std::fs,
     };
 
     pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
@@ -34,17 +38,82 @@ pub mod fixtures {
             })
             .collect::<Vec<_>>()
     }
+
+    #[derive(Debug)]
+    pub struct Account {
+        pubkey: Pubkey,
+        lamports: u64,
+        owner: Pubkey,
+        executable: bool,
+        rent_epoch: u64,
+        data: Vec<u8>,
+        write_version: u64,
+    }
+
+    pub fn generate_accounts() -> Vec<Account> {
+        const PUBKEY: Pubkey =
+            Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
+        const OWNER: Pubkey =
+            Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
+
+        let mut accounts = Vec::new();
+        for lamports in [0, 8123] {
+            for executable in [true, false] {
+                for rent_epoch in [0, 4242] {
+                    for data in [
+                        vec![],
+                        vec![42; 165],
+                        vec![42; 1024],
+                        vec![42; 2 * 1024 * 1024],
+                    ] {
+                        for write_version in [0, 1] {
+                            accounts.push(Account {
+                                pubkey: PUBKEY,
+                                lamports,
+                                owner: OWNER,
+                                executable,
+                                rent_epoch,
+                                data: data.to_owned(),
+                                write_version,
+                            })
+                        }
+                    }
+                }
+            }
+        }
+
+        accounts
+    }
+
+    pub fn generate_accounts_replica(accounts: &[Account]) -> Vec<ReplicaAccountInfoV3<'_>> {
+        accounts
+            .iter()
+            .map(|account| ReplicaAccountInfoV3 {
+                pubkey: account.pubkey.as_ref(),
+                lamports: account.lamports,
+                owner: account.owner.as_ref(),
+                executable: account.executable,
+                rent_epoch: account.rent_epoch,
+                data: &account.data,
+                write_version: account.write_version,
+                txn: None,
+            })
+            .collect::<Vec<_>>()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use {
-        super::{fixtures::load_predefined_blocks, ProtobufMessage},
+        super::{
+            fixtures::{generate_accounts, generate_accounts_replica, load_predefined_blocks},
+            ProtobufMessage,
+        },
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+            ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         },
         prost::{Enumeration, Message},
-        solana_sdk::{hash::Hash, message::SimpleAddressLoader, pubkey::Pubkey},
+        solana_sdk::{hash::Hash, message::SimpleAddressLoader},
         std::collections::HashSet,
     };
 
@@ -76,58 +145,11 @@ mod tests {
         slot: u64,
     }
 
-    pub fn generate_accounts() -> Vec<Account> {
-        const PUBKEY: Pubkey =
-            Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
-        const OWNER: Pubkey =
-            Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
-
-        let mut accounts = Vec::new();
-        for lamports in [0, 8123] {
-            for executable in [true, false] {
-                for rent_epoch in [0, 4242] {
-                    for data in [
-                        vec![],
-                        vec![42; 165],
-                        vec![42; 1024],
-                        vec![42; 2 * 1024 * 1024],
-                    ] {
-                        for write_version in [0, 1] {
-                            accounts.push(Account {
-                                pubkey: PUBKEY.to_bytes().to_vec(),
-                                lamports,
-                                owner: OWNER.to_bytes().to_vec(),
-                                executable,
-                                rent_epoch,
-                                data: data.to_owned(),
-                                write_version,
-                                signature: vec![],
-                            })
-                        }
-                    }
-                }
-            }
-        }
-        accounts
-    }
-
     #[test]
     pub fn test_decode_account() {
-        let accounts_data = generate_accounts();
-        let accounts = accounts_data
-            .iter()
-            .map(|account| ReplicaAccountInfoV3 {
-                pubkey: &account.pubkey,
-                lamports: account.lamports,
-                owner: &account.owner,
-                executable: account.executable,
-                rent_epoch: account.rent_epoch,
-                data: &account.data,
-                write_version: account.write_version,
-                txn: None,
-            })
-            .collect::<Vec<_>>();
-        let protobuf_messages = accounts
+        let accounts = generate_accounts();
+        let accounts_replicas = generate_accounts_replica(&accounts);
+        let protobuf_messages = accounts_replicas
             .iter()
             .enumerate()
             .map(|(slot, account)| {
