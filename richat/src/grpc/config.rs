@@ -39,14 +39,14 @@ impl Default for ConfigAppsGrpc {
 pub struct ConfigAppsGrpcUnary {
     pub enabled: bool,
     #[serde(deserialize_with = "deserialize_num_str")]
-    pub request_queue_size: usize,
+    pub requests_queue_size: usize,
 }
 
 impl Default for ConfigAppsGrpcUnary {
     fn default() -> Self {
         Self {
             enabled: true,
-            request_queue_size: 100,
+            requests_queue_size: 100,
         }
     }
 }

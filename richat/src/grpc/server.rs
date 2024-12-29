@@ -50,7 +50,7 @@ impl GrpcServer {
         info!("start server at {}", config.server.endpoint);
 
         let (block_meta, block_meta_jh) = if config.unary.enabled {
-            let (meta, jh) = BlockMetaStorage::new(config.unary.request_queue_size);
+            let (meta, jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
             (Some(Arc::new(meta)), jh.boxed())
         } else {
             (None, ready(Ok(())).boxed())
