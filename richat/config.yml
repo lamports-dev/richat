@@ -78,7 +78,7 @@ apps:
     stream_channel_capacity: 100_000
     unary:
       enabled: true
-      concurrency_limit: 100
+      request_queue_size: 100
     filters:
       accounts:
         max: 1

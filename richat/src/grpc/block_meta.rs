@@ -21,7 +21,6 @@ pub struct BlockMeta {
 
 #[derive(Debug, Default)]
 struct BlockStatus {
-    slot: Slot,
     last_valid_block_height: Slot,
 
     processed: bool, // flag, means that we received block meta message
@@ -87,7 +86,6 @@ impl BlockMetaStorage {
                         entry.block_height = block_height;
                         entry.processed = true;
                         let bentry = blockhashes.entry(Arc::clone(&entry.blockhash)).or_default();
-                        bentry.slot = slot;
                         bentry.last_valid_block_height = block_height + MAX_PROCESSING_AGE as u64;
                         bentry.processed = true;
                         processed = processed.max(slot);
@@ -141,8 +139,8 @@ impl BlockMetaStorage {
 
         match rx.await {
             Ok(Some(block)) => Ok(block),
-            Ok(None) => Err(Status::aborted("failed to get block")),
-            Err(_) => Err(Status::aborted("failed to get block metadata")),
+            Ok(None) => Err(Status::aborted("failed to get result")),
+            Err(_) => Err(Status::aborted("failed to wait response")),
         }
     }
 

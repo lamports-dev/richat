@@ -18,7 +18,6 @@ futures = { workspace = true }
 humantime-serde = { workspace = true }
 json5 = { workspace = true }
 lazy_static = { workspace = true }
-pin-project-lite = { workspace = true }
 prometheus = { workspace = true }
 richat-client = { workspace = true }
 richat-shared = { workspace = true }

@@ -3402,7 +3402,6 @@ dependencies = [
  "humantime-serde",
  "json5",
  "lazy_static",
- "pin-project-lite",
  "prometheus",
  "richat-client",
  "richat-shared",

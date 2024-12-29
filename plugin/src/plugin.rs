@@ -34,7 +34,6 @@ pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
     shutdown: Shutdown,
-    // tasks: Vec<(&'static str, BoxFuture<'static, Result<(), JoinError>>)>,
     tasks: Vec<(&'static str, PluginTask)>,
 }
 

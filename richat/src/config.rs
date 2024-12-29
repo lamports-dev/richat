@@ -114,7 +114,7 @@ impl Default for ConfigAppsWorkers {
     fn default() -> Self {
         Self {
             threads: 1,
-            affinity: vec![0],
+            affinity: (0..affinity::get_core_num()).collect(),
         }
     }
 }
@@ -148,7 +148,7 @@ impl ConfigAppsWorkers {
 
             let jh = tokio::spawn(async move {
                 while !th.is_finished() {
-                    let ms = if shutdown.is_set() { 10 } else { 3_000 };
+                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
                     sleep(Duration::from_millis(ms)).await;
                 }
                 th.join().expect("failed to join thread")
