@@ -21,20 +21,20 @@ impl<'a> prost::Message for Entry<'a> {
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
 
         if self.entry.slot != 0 {
-            encoding::uint64::encode(1, &self.entry.slot, buf)
+            encoding::uint64::encode(1, &self.entry.slot, buf);
         }
         if index != 0 {
-            encoding::uint64::encode(2, &index, buf)
+            encoding::uint64::encode(2, &index, buf);
         }
         if self.entry.num_hashes != 0 {
-            encoding::uint64::encode(3, &self.entry.num_hashes, buf)
+            encoding::uint64::encode(3, &self.entry.num_hashes, buf);
         }
         bytes_encode(4, self.entry.hash, buf);
         if self.entry.executed_transaction_count != 0 {
-            encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf)
+            encoding::uint64::encode(5, &self.entry.executed_transaction_count, buf);
         }
         if starting_transaction_index != 0 {
-            encoding::uint64::encode(6, &starting_transaction_index, buf)
+            encoding::uint64::encode(6, &starting_transaction_index, buf);
         }
     }
 

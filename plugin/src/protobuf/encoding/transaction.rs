@@ -19,7 +19,7 @@ impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         replica::encode_replica_transaction_info(1, self.transaction, buf);
         if self.slot != 0 {
-            encoding::uint64::encode(2, &self.slot, buf)
+            encoding::uint64::encode(2, &self.slot, buf);
         }
     }
 
@@ -553,41 +553,45 @@ pub mod transaction_status_meta {
             Self: Sized,
         {
             if let Err(ref err) = self.0.status {
-                super::transaction_error::encode_transaction_error(1, err, buf)
+                super::transaction_error::encode_transaction_error(1, err, buf);
             }
             if self.0.fee != 0 {
-                encoding::uint64::encode(2, &self.0.fee, buf)
+                encoding::uint64::encode(2, &self.0.fee, buf);
             }
             encoding::uint64::encode_repeated(3, &self.0.pre_balances, buf);
             encoding::uint64::encode_repeated(4, &self.0.post_balances, buf);
             if let Some(ref inner_instructions) = self.0.inner_instructions {
-                super::inner_instructions::encode_inner_instructions_vec(5, inner_instructions, buf)
+                super::inner_instructions::encode_inner_instructions_vec(
+                    5,
+                    inner_instructions,
+                    buf,
+                );
             }
             if let Some(ref log_messages) = self.0.log_messages {
-                encoding::string::encode_repeated(6, log_messages, buf)
+                encoding::string::encode_repeated(6, log_messages, buf);
             }
             if let Some(ref pre_token_balances) = self.0.pre_token_balances {
                 super::transaction_token_balance::encode_transaction_token_balances(
                     7,
                     pre_token_balances,
                     buf,
-                )
+                );
             }
             if let Some(ref post_token_balances) = self.0.post_token_balances {
                 super::transaction_token_balance::encode_transaction_token_balances(
                     8,
                     post_token_balances,
                     buf,
-                )
+                );
             }
             if let Some(ref rewards) = self.0.rewards {
-                encode_rewards(9, rewards, buf)
+                encode_rewards(9, rewards, buf);
             }
             if self.0.inner_instructions.is_none() {
-                encoding::bool::encode(10, &self.0.inner_instructions.is_none(), buf)
+                encoding::bool::encode(10, &self.0.inner_instructions.is_none(), buf);
             }
             if self.0.log_messages.is_none() {
-                encoding::bool::encode(11, &self.0.log_messages.is_none(), buf)
+                encoding::bool::encode(11, &self.0.log_messages.is_none(), buf);
             }
             super::loaded_addresses::encode_loaded_writable_addresses(
                 12,
@@ -600,13 +604,13 @@ pub mod transaction_status_meta {
                 buf,
             );
             if let Some(ref return_data) = self.0.return_data {
-                super::return_data::encode_transaction_return_data(14, return_data, buf)
+                super::return_data::encode_transaction_return_data(14, return_data, buf);
             }
             if self.0.return_data.is_none() {
-                encoding::bool::encode(15, &self.0.return_data.is_none(), buf)
+                encoding::bool::encode(15, &self.0.return_data.is_none(), buf);
             }
             if let Some(compute_units_consumed) = self.0.compute_units_consumed {
-                encoding::uint64::encode(16, &compute_units_consumed, buf)
+                encoding::uint64::encode(16, &compute_units_consumed, buf);
             }
         }
 

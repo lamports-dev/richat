@@ -40,7 +40,7 @@ impl<'a> prost::Message for ReplicaWrapper<'a> {
             encoding::uint64::encode(7, &self.write_version, buf);
         }
         if let Some(txn) = self.txn {
-            bytes_encode(8, txn.signature().as_ref(), buf)
+            bytes_encode(8, txn.signature().as_ref(), buf);
         }
     }
 

@@ -26,10 +26,10 @@ impl<'a> prost::Message for BlockMeta<'a> {
         let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
 
         if self.blockinfo.slot != 0 {
-            encoding::uint64::encode(1, &self.blockinfo.slot, buf)
+            encoding::uint64::encode(1, &self.blockinfo.slot, buf);
         }
         if !self.blockinfo.blockhash.is_empty() {
-            bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf)
+            bytes_encode(2, self.blockinfo.blockhash.as_ref(), buf);
         }
         encoding::message::encode(3, &rewards, buf);
         if let Some(block_time) = self.blockinfo.block_time {
@@ -39,16 +39,16 @@ impl<'a> prost::Message for BlockMeta<'a> {
             encoding::message::encode(5, &convert_to::create_block_height(block_height), buf);
         }
         if self.blockinfo.parent_slot != 0 {
-            encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf)
+            encoding::uint64::encode(6, &self.blockinfo.parent_slot, buf);
         }
         if !self.blockinfo.parent_blockhash.is_empty() {
             bytes_encode(7, self.blockinfo.parent_blockhash.as_ref(), buf);
         }
         if self.blockinfo.executed_transaction_count != 0 {
-            encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf)
+            encoding::uint64::encode(8, &self.blockinfo.executed_transaction_count, buf);
         }
         if self.blockinfo.entry_count != 0 {
-            encoding::uint64::encode(9, &self.blockinfo.entry_count, buf)
+            encoding::uint64::encode(9, &self.blockinfo.entry_count, buf);
         }
     }
 

@@ -55,7 +55,7 @@ impl<'a> prost::Message for Wrapper<'a> {
             encoding::string::encode(1, &self.0.pubkey, buf);
         }
         if self.0.lamports != 0 {
-            encoding::int64::encode(2, &self.0.lamports, buf)
+            encoding::int64::encode(2, &self.0.lamports, buf);
         }
         if self.0.post_balance != 0 {
             encoding::uint64::encode(3, &self.0.post_balance, buf);
@@ -119,7 +119,7 @@ pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
 }
 
 pub fn encode_rewards(tag: u32, rewards: &[Reward], buf: &mut impl BufMut) {
-    encoding::message::encode_repeated(tag, to_wrapper(rewards), buf)
+    encoding::message::encode_repeated(tag, to_wrapper(rewards), buf);
 }
 
 pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {

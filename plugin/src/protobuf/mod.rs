@@ -70,7 +70,6 @@ pub mod fixtures {
         pub write_version: u64,
         pub transaction_signature: Option<SanitizedTransaction>,
         pub slot: Slot,
-        pub is_startup: bool,
     }
 
     impl GeneratedAccount {
@@ -104,7 +103,7 @@ pub mod fixtures {
                         .map(|transaction| transaction.signature().as_ref().to_vec()),
                 }),
                 slot: self.slot,
-                is_startup: self.is_startup,
+                is_startup: false,
             }
         }
     }
@@ -117,12 +116,12 @@ pub mod fixtures {
 
         let blocks = load_predefined_blocks();
         let block = blocks
-            .get(0)
+            .first()
             .map(|(_slot, confirmed_block)| confirmed_block)
             .expect("failed to get first `ConfirmedBlock`");
         let versioned_transaction = block
             .transactions
-            .get(0)
+            .first()
             .map(|transaction| transaction.get_transaction())
             .expect("failed to get first `VersionedTransaction`");
         let sanitized_transaction = SanitizedTransaction::try_create(
@@ -157,7 +156,6 @@ pub mod fixtures {
                                         write_version,
                                         transaction_signature: transaction_signature.cloned(),
                                         slot,
-                                        is_startup: false,
                                     })
                                 }
                             }
@@ -460,141 +458,113 @@ mod tests {
 
     #[test]
     pub fn test_encode_account() {
-        let accounts = generate_accounts();
-
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for account in accounts.iter() {
-            let (slot, replica) = account.to_replica();
-
-            let protobuf_message = ProtobufMessage::Account {
+        for gen in generate_accounts() {
+            let (slot, replica) = gen.to_replica();
+            let msg_richat = ProtobufMessage::Account {
                 slot,
                 account: &replica,
             };
-            let subscribe_update = SubscribeUpdate {
+            let vec_richat = msg_richat.encode_with_timestamp(&mut buffer, created_at);
+
+            let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Account(account.to_prost())),
+                update_oneof: Some(UpdateOneof::Account(gen.to_prost())),
                 created_at: Some(created_at.into()),
             };
+            let vec_prost = msg_prost.encode_to_vec();
 
-            assert_eq!(
-                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
-                subscribe_update.encode_to_vec(),
-                "account assert failed: {:?}",
-                account
-            );
+            assert_eq!(vec_richat, vec_prost, "account: {gen:?}",);
         }
     }
 
     #[test]
     pub fn test_encode_block_meta() {
-        let block_metas = generate_block_metas();
-
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for block_meta in block_metas {
-            let replica = block_meta.to_replica();
-
-            let protobuf_message = ProtobufMessage::BlockMeta {
+        for gen in generate_block_metas() {
+            let replica = gen.to_replica();
+            let msg_richat = ProtobufMessage::BlockMeta {
                 blockinfo: &replica,
             };
-            let subscribe_update = SubscribeUpdate {
+            let vec_richat = msg_richat.encode_with_timestamp(&mut buffer, created_at);
+
+            let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::BlockMeta(block_meta.to_prost())),
+                update_oneof: Some(UpdateOneof::BlockMeta(gen.to_prost())),
                 created_at: Some(created_at.into()),
             };
+            let vec_prost = msg_prost.encode_to_vec();
 
-            assert_eq!(
-                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
-                subscribe_update.encode_to_vec(),
-                "block meta assert failed: {:?}",
-                block_meta
-            );
+            assert_eq!(vec_richat, vec_prost, "block meta: {gen:?}",);
         }
     }
 
     #[test]
     pub fn test_encode_entry() {
-        let entries = generate_entries();
-
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for entry in entries {
-            let replica = entry.to_replica();
+        for gen in generate_entries() {
+            let replica = gen.to_replica();
+            let msg_richat = ProtobufMessage::Entry { entry: &replica };
+            let vec_richat = msg_richat.encode_with_timestamp(&mut buffer, created_at);
 
-            let protobuf_message = ProtobufMessage::Entry { entry: &replica };
-            let subscribe_update = SubscribeUpdate {
+            let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Entry(entry.to_prost())),
+                update_oneof: Some(UpdateOneof::Entry(gen.to_prost())),
                 created_at: Some(created_at.into()),
             };
+            let vec_prost = msg_prost.encode_to_vec();
 
-            assert_eq!(
-                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
-                subscribe_update.encode_to_vec(),
-                "entry assert failed: {:?}",
-                entry
-            )
+            assert_eq!(vec_richat, vec_prost, "entry: {gen:?}",)
         }
     }
 
     #[test]
     pub fn test_encode_slot() {
-        let slots = generate_slots();
-
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for slot_message in slots {
-            let (slot, parent, status) = slot_message.to_replica();
-
-            let protobuf_message = ProtobufMessage::Slot {
+        for gen in generate_slots() {
+            let (slot, parent, status) = gen.to_replica();
+            let msg_richat = ProtobufMessage::Slot {
                 slot,
                 parent,
                 status,
             };
-            let subscribe_update = SubscribeUpdate {
+            let vec_richat = msg_richat.encode_with_timestamp(&mut buffer, created_at);
+
+            let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Slot(slot_message.to_prost())),
+                update_oneof: Some(UpdateOneof::Slot(gen.to_prost())),
                 created_at: Some(created_at.into()),
             };
+            let vec_prost = msg_prost.encode_to_vec();
 
-            assert_eq!(
-                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
-                subscribe_update.encode_to_vec(),
-                "slot assert failed: {:?}",
-                slot_message
-            )
+            assert_eq!(vec_richat, vec_prost, "slot: {gen:?}",)
         }
     }
 
     #[test]
     pub fn test_encode_transaction() {
-        let transactions = generate_transactions();
-
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for transaction in transactions {
-            let (slot, replica) = transaction.to_replica();
-            let protobuf_message = ProtobufMessage::Transaction {
+        for gen in generate_transactions() {
+            let (slot, replica) = gen.to_replica();
+            let msg_richat = ProtobufMessage::Transaction {
                 slot,
                 transaction: &replica,
             };
-            let subscribe_update = SubscribeUpdate {
+            let vec_richat = msg_richat.encode_with_timestamp(&mut buffer, created_at);
+
+            let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Transaction(transaction.to_prost())),
+                update_oneof: Some(UpdateOneof::Transaction(gen.to_prost())),
                 created_at: Some(created_at.into()),
             };
+            let vec_prost = msg_prost.encode_to_vec();
 
-            let p1 = protobuf_message.encode_with_timestamp(&mut buffer, created_at);
-            let p2 = subscribe_update.encode_to_vec();
-
-            assert_eq!(
-                p1.len(),
-                p2.len(),
-                "transaction assert failed: {:?}\n\n{:?}",
-                p1,
-                p2
-            )
+            assert_eq!(vec_richat, vec_prost, "transaction: {gen:?}");
         }
     }
 }
