@@ -75,6 +75,7 @@ apps:
     workers:
       threads: 1
       affinity:
+    worker_ping_affinity:
     stream_channel_capacity: 100_000
     unary:
       enabled: true

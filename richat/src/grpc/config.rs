@@ -1,7 +1,8 @@
 use {
     crate::config::{deserialize_pubkey_set, ConfigAppsWorkers},
     richat_shared::{
-        config::deserialize_num_str, transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
+        config::{deserialize_num_str, ConfigTokio},
+        transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
     serde::{de::Deserializer, Deserialize},
     solana_sdk::pubkey::Pubkey,
@@ -14,6 +15,8 @@ use {
 pub struct ConfigAppsGrpc {
     pub server: ConfigAppGrpcServer,
     pub workers: ConfigAppsWorkers,
+    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
+    pub worker_ping_affinity: Option<Vec<usize>>,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub stream_channel_capacity: usize,
     pub unary: ConfigAppsGrpcUnary,
@@ -27,6 +30,7 @@ impl Default for ConfigAppsGrpc {
         Self {
             server: ConfigAppGrpcServer::default(),
             workers: ConfigAppsWorkers::default(),
+            worker_ping_affinity: None,
             stream_channel_capacity: 100_000,
             unary: ConfigAppsGrpcUnary::default(),
             filters: ConfigAppsFilters::default(),
