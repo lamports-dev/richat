@@ -3,7 +3,7 @@ use {
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_blocks_meta, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_block_metas, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -12,7 +12,7 @@ use {
 };
 
 pub fn bench_encode_block_metas(criterion: &mut Criterion) {
-    let blocks_meta = generate_blocks_meta();
+    let blocks_meta = generate_block_metas();
 
     let blocks_meta_replica = blocks_meta
         .iter()

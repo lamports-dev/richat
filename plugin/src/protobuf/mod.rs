@@ -60,7 +60,7 @@ pub mod fixtures {
     }
 
     #[derive(Debug, Clone)]
-    pub struct GenAccount {
+    pub struct GeneratedAccount {
         pub pubkey: Pubkey,
         pub lamports: u64,
         pub owner: Pubkey,
@@ -68,12 +68,12 @@ pub mod fixtures {
         pub rent_epoch: u64,
         pub data: Vec<u8>,
         pub write_version: u64,
-        pub txn_signature: Option<SanitizedTransaction>,
+        pub transaction_signature: Option<SanitizedTransaction>,
         pub slot: Slot,
         pub is_startup: bool,
     }
 
-    impl GenAccount {
+    impl GeneratedAccount {
         pub fn to_replica(&self) -> (Slot, ReplicaAccountInfoV3) {
             let replica = ReplicaAccountInfoV3 {
                 pubkey: self.pubkey.as_ref(),
@@ -83,7 +83,7 @@ pub mod fixtures {
                 rent_epoch: self.rent_epoch,
                 data: &self.data,
                 write_version: self.write_version,
-                txn: self.txn_signature.as_ref(),
+                txn: self.transaction_signature.as_ref(),
             };
             (self.slot, replica)
         }
@@ -99,9 +99,9 @@ pub mod fixtures {
                     data: self.data.clone(),
                     write_version: self.write_version,
                     txn_signature: self
-                        .txn_signature
+                        .transaction_signature
                         .as_ref()
-                        .map(|tx| tx.signature().as_ref().to_vec()),
+                        .map(|transaction| transaction.signature().as_ref().to_vec()),
                 }),
                 slot: self.slot,
                 is_startup: self.is_startup,
@@ -109,16 +109,24 @@ pub mod fixtures {
         }
     }
 
-    pub fn generate_accounts() -> Vec<GenAccount> {
+    pub fn generate_accounts() -> Vec<GeneratedAccount> {
         const PUBKEY: Pubkey =
             Pubkey::from_str_const("28Dncoh8nmzXYEGLUcBA5SUw5WDwDBn15uUCwrWBbyuu");
         const OWNER: Pubkey =
             Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
 
-        let block = &load_predefined_blocks()[0].1;
-        let tx_ver = block.transactions[0].get_transaction();
-        let tx = SanitizedTransaction::try_create(
-            tx_ver,
+        let blocks = load_predefined_blocks();
+        let block = blocks
+            .get(0)
+            .map(|(_slot, confirmed_block)| confirmed_block)
+            .expect("failed to get first `ConfirmedBlock`");
+        let versioned_transaction = block
+            .transactions
+            .get(0)
+            .map(|transaction| transaction.get_transaction())
+            .expect("failed to get first `VersionedTransaction`");
+        let sanitized_transaction = SanitizedTransaction::try_create(
+            versioned_transaction,
             MessageHash::Compute,          // message_hash
             None,                          // is_simple_vote_tx
             SimpleAddressLoader::Disabled, // address_loader
@@ -137,22 +145,20 @@ pub mod fixtures {
                         vec![42; 2 * 1024 * 1024],
                     ] {
                         for write_version in [0, 1] {
-                            for txn_signature in [None, Some(&tx)] {
+                            for transaction_signature in [None, Some(&sanitized_transaction)] {
                                 for slot in [0, 310639056] {
-                                    for is_startup in [true, false] {
-                                        accounts.push(GenAccount {
-                                            pubkey: PUBKEY,
-                                            lamports,
-                                            owner: OWNER,
-                                            executable,
-                                            rent_epoch,
-                                            data: data.to_owned(),
-                                            write_version,
-                                            txn_signature: txn_signature.cloned(),
-                                            slot,
-                                            is_startup,
-                                        })
-                                    }
+                                    accounts.push(GeneratedAccount {
+                                        pubkey: PUBKEY,
+                                        lamports,
+                                        owner: OWNER,
+                                        executable,
+                                        rent_epoch,
+                                        data: data.to_owned(),
+                                        write_version,
+                                        transaction_signature: transaction_signature.cloned(),
+                                        slot,
+                                        is_startup: false,
+                                    })
                                 }
                             }
                         }
@@ -165,14 +171,14 @@ pub mod fixtures {
     }
 
     #[derive(Debug, Clone)]
-    pub struct GenBlockMeta {
+    pub struct GeneratedBlockMeta {
         slot: Slot,
         block: ConfirmedBlock,
         rewards: RewardsAndNumPartitions,
         entry_count: u64,
     }
 
-    impl GenBlockMeta {
+    impl GeneratedBlockMeta {
         pub fn to_replica(&self) -> ReplicaBlockInfoV4 {
             ReplicaBlockInfoV4 {
                 parent_slot: self.block.parent_slot,
@@ -205,7 +211,7 @@ pub mod fixtures {
         }
     }
 
-    pub fn generate_blocks_meta() -> Vec<GenBlockMeta> {
+    pub fn generate_block_metas() -> Vec<GeneratedBlockMeta> {
         load_predefined_blocks()
             .into_iter()
             .flat_map(|(slot, block)| {
@@ -215,13 +221,13 @@ pub mod fixtures {
                 };
 
                 [
-                    GenBlockMeta {
+                    GeneratedBlockMeta {
                         slot,
                         block: block.clone(),
                         rewards: rewards.clone(),
                         entry_count: 0,
                     },
-                    GenBlockMeta {
+                    GeneratedBlockMeta {
                         slot,
                         block,
                         rewards,
@@ -233,7 +239,7 @@ pub mod fixtures {
     }
 
     #[derive(Debug, Clone)]
-    pub struct GenEntry {
+    pub struct GeneratedEntry {
         pub slot: Slot,
         pub index: usize,
         pub num_hashes: u64,
@@ -242,7 +248,7 @@ pub mod fixtures {
         pub starting_transaction_index: usize,
     }
 
-    impl GenEntry {
+    impl GeneratedEntry {
         pub fn to_replica(&self) -> ReplicaEntryInfoV2<'_> {
             ReplicaEntryInfoV2 {
                 slot: self.slot,
@@ -266,7 +272,7 @@ pub mod fixtures {
         }
     }
 
-    pub fn generate_entries() -> Vec<GenEntry> {
+    pub fn generate_entries() -> Vec<GeneratedEntry> {
         const ENTRY_HASHES: [Hash; 4] = [
             Hash::new_from_array([0; 32]),
             Hash::new_from_array([42; 32]),
@@ -281,7 +287,7 @@ pub mod fixtures {
                     for hash in &ENTRY_HASHES {
                         for executed_transaction_count in [0, 32] {
                             for starting_transaction_index in [0, 96, 1067] {
-                                entries.push(GenEntry {
+                                entries.push(GeneratedEntry {
                                     slot,
                                     index,
                                     num_hashes,
@@ -299,13 +305,13 @@ pub mod fixtures {
     }
 
     #[derive(Debug, Clone)]
-    pub struct GenSlot {
+    pub struct GeneratedSlot {
         pub slot: Slot,
         pub parent: Option<Slot>,
         pub status: SlotStatus,
     }
 
-    impl GenSlot {
+    impl GeneratedSlot {
         pub const fn to_replica(&self) -> (Slot, Option<Slot>, &SlotStatus) {
             (self.slot, self.parent, &self.status)
         }
@@ -332,7 +338,7 @@ pub mod fixtures {
         }
     }
 
-    pub fn generate_slots() -> Vec<GenSlot> {
+    pub fn generate_slots() -> Vec<GeneratedSlot> {
         let mut slots = Vec::new();
         for slot in [0, 42, 310629080] {
             for parent in [None, Some(0), Some(42)] {
@@ -346,7 +352,7 @@ pub mod fixtures {
                     SlotStatus::Dead("".to_owned()),
                     SlotStatus::Dead("42".to_owned()),
                 ] {
-                    slots.push(GenSlot {
+                    slots.push(GeneratedSlot {
                         slot,
                         parent,
                         status,
@@ -358,22 +364,22 @@ pub mod fixtures {
     }
 
     #[derive(Debug, Clone)]
-    pub struct GenTransaction {
+    pub struct GeneratedTransaction {
         pub slot: Slot,
         pub signature: Signature,
         pub is_vote: bool,
-        pub tx: SanitizedTransaction,
-        pub tx_status_meta: TransactionStatusMeta,
+        pub sanitized_transaction: SanitizedTransaction,
+        pub transaction_status_meta: TransactionStatusMeta,
         pub index: usize,
     }
 
-    impl GenTransaction {
+    impl GeneratedTransaction {
         pub const fn to_replica(&self) -> (Slot, ReplicaTransactionInfoV2<'_>) {
             let replica = ReplicaTransactionInfoV2 {
                 signature: &self.signature,
                 is_vote: self.is_vote,
-                transaction: &self.tx,
-                transaction_status_meta: &self.tx_status_meta,
+                transaction: &self.sanitized_transaction,
+                transaction_status_meta: &self.transaction_status_meta,
                 index: self.index,
             };
             (self.slot, replica)
@@ -384,8 +390,10 @@ pub mod fixtures {
                 transaction: Some(SubscribeUpdateTransactionInfo {
                     signature: self.signature.as_ref().to_vec(),
                     is_vote: self.is_vote,
-                    transaction: Some(convert_to::create_transaction(&self.tx)),
-                    meta: Some(convert_to::create_transaction_meta(&self.tx_status_meta)),
+                    transaction: Some(convert_to::create_transaction(&self.sanitized_transaction)),
+                    meta: Some(convert_to::create_transaction_meta(
+                        &self.transaction_status_meta,
+                    )),
                     index: self.index as u64,
                 }),
                 slot: self.slot,
@@ -393,16 +401,16 @@ pub mod fixtures {
         }
     }
 
-    pub fn generate_transactions() -> Vec<GenTransaction> {
+    pub fn generate_transactions() -> Vec<GeneratedTransaction> {
         load_predefined_blocks()
             .into_iter()
             .flat_map(|(slot, block)| {
-                let mut txs = block
+                let mut transactions = block
                     .transactions
                     .into_iter()
                     .enumerate()
-                    .map(|(index, tx)| {
-                        let tx_ver = tx.get_transaction();
+                    .map(|(index, transaction)| {
+                        let tx_ver = transaction.get_transaction();
                         let tx_san = SanitizedTransaction::try_create(
                             tx_ver,
                             MessageHash::Compute,          // message_hash
@@ -412,12 +420,12 @@ pub mod fixtures {
                         )
                         .expect("failed to create sanitized transaction");
 
-                        GenTransaction {
+                        GeneratedTransaction {
                             slot,
                             signature: *tx_san.signature(),
                             is_vote: tx_san.is_simple_vote_transaction(),
-                            tx: tx_san,
-                            tx_status_meta: tx
+                            sanitized_transaction: tx_san,
+                            transaction_status_meta: transaction
                                 .get_status_meta()
                                 .expect("failed to get transaction status meta"),
                             index,
@@ -425,11 +433,11 @@ pub mod fixtures {
                     })
                     .collect::<Vec<_>>();
 
-                let mut tx = txs[0].clone();
+                let mut tx = transactions[0].clone();
                 tx.slot = 0;
-                txs.push(tx);
+                transactions.push(tx);
 
-                txs
+                transactions
             })
             .collect::<Vec<_>>()
     }
@@ -440,7 +448,7 @@ mod tests {
     use {
         super::{
             fixtures::{
-                generate_accounts, generate_blocks_meta, generate_entries, generate_slots,
+                generate_accounts, generate_block_metas, generate_entries, generate_slots,
                 generate_transactions,
             },
             ProtobufMessage,
@@ -450,13 +458,6 @@ mod tests {
         yellowstone_grpc_proto::geyser::{subscribe_update::UpdateOneof, SubscribeUpdate},
     };
 
-    fn cmp_vecs(richat: &[u8], prost: &[u8], message: &str) {
-        // assert on len is useless because we check slices,
-        // but error message would be better for future debug
-        assert_eq!(richat.len(), prost.len(), "len failed for: {message}");
-        assert_eq!(richat, prost, "vec failed for: {message}");
-    }
-
     #[test]
     pub fn test_encode_account() {
         let accounts = generate_accounts();
@@ -464,48 +465,50 @@ mod tests {
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
         for account in accounts.iter() {
-            let replica = account.to_replica();
-            let message = ProtobufMessage::Account {
-                slot: replica.0,
-                account: &replica.1,
-            };
-            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+            let (slot, replica) = account.to_replica();
 
-            let message = SubscribeUpdate {
-                filters: vec![],
+            let protobuf_message = ProtobufMessage::Account {
+                slot,
+                account: &replica,
+            };
+            let subscribe_update = SubscribeUpdate {
+                filters: Vec::new(),
                 update_oneof: Some(UpdateOneof::Account(account.to_prost())),
                 created_at: Some(created_at.into()),
             };
-            let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(&vec_richat, &vec_prost, &format!("account {account:?}"));
+            assert_eq!(
+                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
+                subscribe_update.encode_to_vec(),
+                "account assert failed: {:?}",
+                account
+            );
         }
     }
 
     #[test]
     pub fn test_encode_block_meta() {
-        let blocks_meta = generate_blocks_meta();
+        let blocks_meta = generate_block_metas();
 
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
         for block_meta in blocks_meta {
             let replica = block_meta.to_replica();
-            let message = ProtobufMessage::BlockMeta {
+
+            let protobuf_message = ProtobufMessage::BlockMeta {
                 blockinfo: &replica,
             };
-            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
-
-            let message = SubscribeUpdate {
-                filters: vec![],
+            let subscribe_update = SubscribeUpdate {
+                filters: Vec::new(),
                 update_oneof: Some(UpdateOneof::BlockMeta(block_meta.to_prost())),
                 created_at: Some(created_at.into()),
             };
-            let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(
-                &vec_richat,
-                &vec_prost,
-                &format!("block meta {block_meta:?}"),
+            assert_eq!(
+                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
+                subscribe_update.encode_to_vec(),
+                "block meta assert failed: {:?}",
+                block_meta
             );
         }
     }
@@ -518,17 +521,20 @@ mod tests {
         let created_at = SystemTime::now();
         for entry in entries {
             let replica = entry.to_replica();
-            let message = ProtobufMessage::Entry { entry: &replica };
-            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
 
-            let message = SubscribeUpdate {
-                filters: vec![],
+            let protobuf_message = ProtobufMessage::Entry { entry: &replica };
+            let subscribe_update = SubscribeUpdate {
+                filters: Vec::new(),
                 update_oneof: Some(UpdateOneof::Entry(entry.to_prost())),
                 created_at: Some(created_at.into()),
             };
-            let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(&vec_richat, &vec_prost, &format!("entry {entry:?}"));
+            assert_eq!(
+                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
+                subscribe_update.encode_to_vec(),
+                "entry assert failed: {:?}",
+                entry
+            )
         }
     }
 
@@ -538,23 +544,26 @@ mod tests {
 
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for slot in slots {
-            let replica = slot.to_replica();
-            let message = ProtobufMessage::Slot {
-                slot: replica.0,
-                parent: replica.1,
-                status: replica.2,
-            };
-            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
+        for slot_message in slots {
+            let (slot, parent, status) = slot_message.to_replica();
 
-            let message = SubscribeUpdate {
-                filters: vec![],
-                update_oneof: Some(UpdateOneof::Slot(slot.to_prost())),
+            let protobuf_message = ProtobufMessage::Slot {
+                slot,
+                parent,
+                status,
+            };
+            let subscribe_update = SubscribeUpdate {
+                filters: Vec::new(),
+                update_oneof: Some(UpdateOneof::Slot(slot_message.to_prost())),
                 created_at: Some(created_at.into()),
             };
-            let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(&vec_richat, &vec_prost, &format!("slot {slot:?}"));
+            assert_eq!(
+                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
+                subscribe_update.encode_to_vec(),
+                "slot assert failed: {:?}",
+                slot_message
+            )
         }
     }
 
@@ -565,25 +574,23 @@ mod tests {
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
         for transaction in transactions {
-            let replica = transaction.to_replica();
-            let message = ProtobufMessage::Transaction {
-                slot: replica.0,
-                transaction: &replica.1,
+            let (slot, replica) = transaction.to_replica();
+            let protobuf_message = ProtobufMessage::Transaction {
+                slot,
+                transaction: &replica,
             };
-            let vec_richat = message.encode_with_timestamp(&mut buffer, created_at);
-
-            let message = SubscribeUpdate {
-                filters: vec![],
+            let subscribe_update = SubscribeUpdate {
+                filters: Vec::new(),
                 update_oneof: Some(UpdateOneof::Transaction(transaction.to_prost())),
                 created_at: Some(created_at.into()),
             };
-            let vec_prost = message.encode_to_vec();
 
-            cmp_vecs(
-                &vec_richat,
-                &vec_prost,
-                &format!("transaction {transaction:?}"),
-            );
+            assert_eq!(
+                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
+                subscribe_update.encode_to_vec(),
+                "transaction assert failed: {:?}",
+                transaction
+            )
         }
     }
 }
