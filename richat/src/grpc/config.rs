@@ -3,7 +3,7 @@ use {
     richat_shared::{
         config::deserialize_num_str, transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
-    serde::Deserialize,
+    serde::{de::Deserializer, Deserialize},
     solana_sdk::pubkey::Pubkey,
     std::{collections::HashSet, time::Duration},
     thiserror::Error,
@@ -18,7 +18,8 @@ pub struct ConfigAppsGrpc {
     pub stream_channel_capacity: usize,
     pub unary: ConfigAppsGrpcUnary,
     pub filters: ConfigAppsFilters,
-    pub x_token: HashSet<String>,
+    #[serde(deserialize_with = "ConfigAppsGrpc::deserialize_x_token")]
+    pub x_token: HashSet<Vec<u8>>,
 }
 
 impl Default for ConfigAppsGrpc {
@@ -31,6 +32,16 @@ impl Default for ConfigAppsGrpc {
             filters: ConfigAppsFilters::default(),
             x_token: HashSet::default(),
         }
+    }
+}
+
+impl ConfigAppsGrpc {
+    pub fn deserialize_x_token<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Vec::<&str>::deserialize(deserializer)
+            .map(|vec| vec.into_iter().map(|s| s.as_bytes().to_vec()).collect())
     }
 }
 

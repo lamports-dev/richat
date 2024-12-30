@@ -16,7 +16,10 @@ use {
         sync::Arc,
         task::{Context, Poll},
     },
-    tonic::{Request, Response, Result as TonicResult, Status, Streaming},
+    tonic::{
+        service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
+        Streaming,
+    },
     tracing::{error, info},
     yellowstone_grpc_proto::geyser::{
         CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
@@ -46,7 +49,7 @@ impl GrpcServer {
         shutdown: Shutdown,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
         // create gRPC server
-        let (incoming, mut server_builder) = config.server.create_server()?;
+        let (incoming, server_builder) = config.server.create_server()?;
         info!("start server at {}", config.server.endpoint);
 
         let (block_meta, block_meta_jh) = if config.unary.enabled {
@@ -83,6 +86,16 @@ impl GrpcServer {
         // Spawn server
         let server = tokio::spawn(async move {
             if let Err(error) = server_builder
+                .layer(interceptor(move |request: Request<()>| {
+                    if config.x_token.is_empty() {
+                        Ok(request)
+                    } else {
+                        match request.metadata().get("x-token") {
+                            Some(token) if config.x_token.contains(token.as_bytes()) => Ok(request),
+                            _ => Err(Status::unauthenticated("No valid auth token")),
+                        }
+                    }
+                }))
                 .add_service(service)
                 .serve_with_incoming_shutdown(incoming, shutdown)
                 .await

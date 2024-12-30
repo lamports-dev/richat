@@ -169,7 +169,7 @@ impl Sender {
                 };
 
                 state.head = state.head.wrapping_add(1);
-                state.slots.remove(&item.slot);
+                state.remove_slots(Some(slot + 1), item.slot);
                 state.bytes_total -= message.len();
             }
 
@@ -209,7 +209,7 @@ impl Sender {
             };
 
             state.head = state.head.wrapping_add(1);
-            state.slots.remove(&item.slot);
+            state.remove_slots(None, item.slot);
             state.bytes_total -= message.len();
         }
 
@@ -221,7 +221,7 @@ impl Sender {
         let mut item = self.shared.buffer_idx_write(idx);
         if let Some(message) = item.data.take() {
             state.head = state.head.wrapping_add(1);
-            state.slots.remove(&item.slot);
+            state.remove_slots(None, item.slot);
             state.bytes_total -= message.len();
         }
         item.pos = pos;
@@ -417,6 +417,25 @@ struct State {
     bytes_total: usize,
     bytes_max: usize,
     wakers: Vec<Waker>,
+}
+
+impl State {
+    fn remove_slots(&mut self, first_slot: Option<Slot>, remove_upto: Slot) {
+        let mut slot = match first_slot {
+            Some(slot) => slot,
+            None => match self.slots.first_key_value() {
+                Some((slot, _)) => *slot,
+                None => return,
+            },
+        };
+        while slot <= remove_upto {
+            self.slots.remove(&slot);
+            slot = match self.slots.first_key_value() {
+                Some((slot, _)) => *slot,
+                None => return,
+            };
+        }
+    }
 }
 
 struct SlotInfo {
