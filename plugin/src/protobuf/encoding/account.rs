@@ -40,10 +40,7 @@ impl<'a> prost::Message for ReplicaWrapper<'a> {
             encoding::uint64::encode(7, &self.write_version, buf);
         }
         if let Some(txn) = self.txn {
-            let signature = txn.signature().as_ref();
-            if !signature.is_empty() {
-                bytes_encode(8, signature, buf)
-            }
+            bytes_encode(8, txn.signature().as_ref(), buf)
         }
     }
 
@@ -75,14 +72,10 @@ impl<'a> prost::Message for ReplicaWrapper<'a> {
             } else {
                 0
             }
-            + self.0.txn.map_or(0, |txn| {
-                let signature = txn.signature().as_ref();
-                if !signature.is_empty() {
-                    bytes_encoded_len(8, signature)
-                } else {
-                    0
-                }
-            })
+            + self
+                .0
+                .txn
+                .map_or(0, |txn| bytes_encoded_len(8, txn.signature().as_ref()))
     }
 
     fn clear(&mut self) {

@@ -410,9 +410,9 @@ pub mod fixtures {
                     .into_iter()
                     .enumerate()
                     .map(|(index, transaction)| {
-                        let tx_ver = transaction.get_transaction();
-                        let tx_san = SanitizedTransaction::try_create(
-                            tx_ver,
+                        let versioned_transaction = transaction.get_transaction();
+                        let sanitized_transaction = SanitizedTransaction::try_create(
+                            versioned_transaction,
                             MessageHash::Compute,          // message_hash
                             None,                          // is_simple_vote_tx
                             SimpleAddressLoader::Disabled, // address_loader
@@ -422,9 +422,9 @@ pub mod fixtures {
 
                         GeneratedTransaction {
                             slot,
-                            signature: *tx_san.signature(),
-                            is_vote: tx_san.is_simple_vote_transaction(),
-                            sanitized_transaction: tx_san,
+                            signature: *sanitized_transaction.signature(),
+                            is_vote: sanitized_transaction.is_simple_vote_transaction(),
+                            sanitized_transaction,
                             transaction_status_meta: transaction
                                 .get_status_meta()
                                 .expect("failed to get transaction status meta"),
@@ -488,11 +488,11 @@ mod tests {
 
     #[test]
     pub fn test_encode_block_meta() {
-        let blocks_meta = generate_block_metas();
+        let block_metas = generate_block_metas();
 
         let mut buffer = Vec::new();
         let created_at = SystemTime::now();
-        for block_meta in blocks_meta {
+        for block_meta in block_metas {
             let replica = block_meta.to_replica();
 
             let protobuf_message = ProtobufMessage::BlockMeta {
@@ -585,11 +585,15 @@ mod tests {
                 created_at: Some(created_at.into()),
             };
 
+            let p1 = protobuf_message.encode_with_timestamp(&mut buffer, created_at);
+            let p2 = subscribe_update.encode_to_vec();
+
             assert_eq!(
-                protobuf_message.encode_with_timestamp(&mut buffer, created_at),
-                subscribe_update.encode_to_vec(),
-                "transaction assert failed: {:?}",
-                transaction
+                p1.len(),
+                p2.len(),
+                "transaction assert failed: {:?}\n\n{:?}",
+                p1,
+                p2
             )
         }
     }

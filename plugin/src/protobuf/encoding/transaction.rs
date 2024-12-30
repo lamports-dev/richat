@@ -18,12 +18,18 @@ impl<'a> Transaction<'a> {
 impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         replica::encode_replica_transaction_info(1, self.transaction, buf);
-        encoding::uint64::encode(2, &self.slot, buf)
+        if self.slot != 0 {
+            encoding::uint64::encode(2, &self.slot, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
         replica::replica_transaction_info_encoded_len(1, self.transaction)
-            + encoding::uint64::encoded_len(2, &self.slot)
+            + if self.slot != 0 {
+                encoding::uint64::encoded_len(2, &self.slot)
+            } else {
+                0
+            }
     }
 
     fn merge_field(
@@ -600,9 +606,7 @@ pub mod transaction_status_meta {
                 encoding::bool::encode(15, &self.0.return_data.is_none(), buf)
             }
             if let Some(compute_units_consumed) = self.0.compute_units_consumed {
-                if compute_units_consumed != 0 {
-                    encoding::uint64::encode(16, &compute_units_consumed, buf)
-                }
+                encoding::uint64::encode(16, &compute_units_consumed, buf)
             }
         }
 
@@ -683,11 +687,7 @@ pub mod transaction_status_meta {
                     .0
                     .compute_units_consumed
                     .map_or(0, |compute_units_consumed| {
-                        if compute_units_consumed != 0 {
-                            encoding::uint64::encoded_len(16, &compute_units_consumed)
-                        } else {
-                            0
-                        }
+                        encoding::uint64::encoded_len(16, &compute_units_consumed)
                     })
         }
 
@@ -892,20 +892,14 @@ pub mod inner_instruction {
         {
             super::compiled_instruction::encode_compiled_instruction(1, &self.0.instruction, buf);
             if let Some(stack_height) = self.0.stack_height {
-                if stack_height != 0 {
-                    encoding::uint32::encode(2, &stack_height, buf)
-                }
+                encoding::uint32::encode(2, &stack_height, buf)
             }
         }
 
         fn encoded_len(&self) -> usize {
             super::compiled_instruction::compiled_instruction_encoded_len(1, &self.0.instruction)
                 + self.0.stack_height.map_or(0, |stack_height| {
-                    if stack_height != 0 {
-                        encoding::uint32::encoded_len(2, &stack_height)
-                    } else {
-                        0
-                    }
+                    encoding::uint32::encoded_len(2, &stack_height)
                 })
         }
 
@@ -1201,9 +1195,7 @@ pub mod ui_token_amount {
         {
             let decimals = self.0.decimals as u32;
             if let Some(ui_amount) = self.0.ui_amount {
-                if ui_amount != 0. {
-                    encoding::double::encode(1, &ui_amount, buf)
-                }
+                encoding::double::encode(1, &ui_amount, buf)
             }
             if decimals != 0 {
                 encoding::uint32::encode(2, &decimals, buf)
@@ -1218,25 +1210,24 @@ pub mod ui_token_amount {
 
         fn encoded_len(&self) -> usize {
             let decimals = self.0.decimals as u32;
-            self.0.ui_amount.map_or(0, |ui_amount| {
-                if ui_amount != 0. {
-                    encoding::double::encoded_len(1, &ui_amount)
+            self.0
+                .ui_amount
+                .map_or(0, |ui_amount| encoding::double::encoded_len(1, &ui_amount))
+                + if decimals != 0 {
+                    encoding::uint32::encoded_len(2, &decimals)
                 } else {
                     0
                 }
-            }) + if decimals != 0 {
-                encoding::uint32::encoded_len(2, &decimals)
-            } else {
-                0
-            } + if !self.0.amount.is_empty() {
-                encoding::string::encoded_len(3, &self.0.amount)
-            } else {
-                0
-            } + if !self.0.ui_amount_string.is_empty() {
-                encoding::string::encoded_len(4, &self.0.ui_amount_string)
-            } else {
-                0
-            }
+                + if !self.0.amount.is_empty() {
+                    encoding::string::encoded_len(3, &self.0.amount)
+                } else {
+                    0
+                }
+                + if !self.0.ui_amount_string.is_empty() {
+                    encoding::string::encoded_len(4, &self.0.ui_amount_string)
+                } else {
+                    0
+                }
         }
 
         fn clear(&mut self) {
@@ -1274,7 +1265,8 @@ pub mod ui_token_amount {
 
 pub mod loaded_addresses {
     use {
-        super::super::bytes_encode, crate::protobuf::encoding::iter_encoded_len, bytes::BufMut,
+        super::super::{bytes_encode, iter_encoded_len},
+        bytes::BufMut,
         solana_sdk::message::v0::LoadedAddresses,
     };
 
