@@ -1,11 +1,9 @@
 use {
-    super::{encode_protobuf_message, predefined::load_predefined_blocks},
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
+    super::encode_protobuf_message,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::ProtobufMessage,
-    solana_transaction_status::RewardsAndNumPartitions,
+    richat_plugin::protobuf::{fixtures::generate_block_metas, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -14,37 +12,14 @@ use {
 };
 
 pub fn bench_encode_block_metas(criterion: &mut Criterion) {
-    let blocks = load_predefined_blocks();
+    let blocks_meta = generate_block_metas();
 
-    let rewards_and_num_partitions = blocks
+    let blocks_meta_replica = blocks_meta
         .iter()
-        .map(|(_slot, block)| RewardsAndNumPartitions {
-            rewards: block.rewards.to_owned(),
-            num_partitions: block.num_partitions,
-        })
+        .map(|b| b.to_replica())
         .collect::<Vec<_>>();
-    let block_metas = blocks
-        .iter()
-        .zip(rewards_and_num_partitions.iter())
-        .map(
-            |((slot, block), rewards_and_num_partitions)| ReplicaBlockInfoV4 {
-                parent_slot: block.parent_slot,
-                slot: *slot,
-                parent_blockhash: &block.previous_blockhash,
-                blockhash: &block.blockhash,
-                rewards: rewards_and_num_partitions,
-                block_time: block.block_time,
-                block_height: block.block_height,
-                executed_transaction_count: 0,
-                entry_count: 0,
-            },
-        )
-        .collect::<Vec<_>>();
-    let protobuf_block_meta_messages = block_metas
-        .iter()
-        .map(|blockinfo| ProtobufMessage::BlockMeta { blockinfo })
-        .collect::<Vec<_>>();
-    let block_meta_messages = block_metas
+
+    let blocks_meta_grpc = blocks_meta_replica
         .iter()
         .map(MessageBlockMeta::from_geyser)
         .map(Arc::new)
@@ -52,38 +27,20 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_block_meta")
-        .bench_with_input(
-            "richat/encoding-only",
-            &protobuf_block_meta_messages,
-            |criterion, protobuf_block_meta_messages| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for message in protobuf_block_meta_messages {
-                            encode_protobuf_message(message)
-                        }
-                    })
+        .bench_with_input("richat", &blocks_meta_replica, |criterion, block_metas| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for blockinfo in block_metas {
+                        let message = ProtobufMessage::BlockMeta { blockinfo };
+                        encode_protobuf_message(&message)
+                    }
                 })
-            },
-        )
-        .bench_with_input(
-            "richat/full-pipeline",
-            &block_metas,
-            |criterion, block_metas| {
-                criterion.iter(|| {
-                    #[allow(clippy::unit_arg)]
-                    black_box({
-                        for blockinfo in block_metas {
-                            let message = ProtobufMessage::BlockMeta { blockinfo };
-                            encode_protobuf_message(&message)
-                        }
-                    })
-                })
-            },
-        )
+            })
+        })
         .bench_with_input(
             "dragons-mouth/encoding-only",
-            &block_meta_messages,
+            &blocks_meta_grpc,
             |criterion, messages| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter_batched(
@@ -107,7 +64,7 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
         )
         .bench_with_input(
             "dragons-mouth/full-pipeline",
-            &block_metas,
+            &blocks_meta_replica,
             |criterion, block_metas| {
                 let created_at = Timestamp::from(SystemTime::now());
                 criterion.iter(|| {

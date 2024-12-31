@@ -20,6 +20,7 @@ path = "src/bin/config-check.rs"
 [[bench]]
 name = "encode"
 harness = false
+required-features = ["fixtures"]
 
 [dependencies]
 affinity = { workspace = true }
@@ -34,7 +35,7 @@ lazy_static = { workspace = true }
 log = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
-prost_011 = { workspace = true }
+prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
 quinn = { workspace = true }
 richat-shared = { workspace = true }
@@ -44,7 +45,7 @@ smallvec = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
-solana-storage-proto = { workspace = true }
+solana-storage-proto = { workspace = true, optional = true }
 solana-transaction-status = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -54,6 +55,7 @@ yellowstone-grpc-proto = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 prost_011 = { workspace = true }
+solana-storage-proto = { workspace = true }
 yellowstone-grpc-proto = { workspace = true, features = ["plugin"] }
 
 [build-dependencies]
@@ -62,6 +64,9 @@ cargo-lock = { workspace = true }
 git-version = { workspace = true }
 tonic-build = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
+
+[features]
+fixtures = ["dep:prost_011", "dep:solana-storage-proto"]
 
 [lints]
 workspace = true

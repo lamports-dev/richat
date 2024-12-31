@@ -1,5 +1,5 @@
 use {
-    super::encoding::{self, bytes_encode},
+    super::encoding,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -7,6 +7,7 @@ use {
     prost::encoding::message,
     prost_types::Timestamp,
     solana_sdk::clock::Slot,
+    std::time::SystemTime,
 };
 
 #[derive(Debug)]
@@ -44,8 +45,11 @@ impl<'a> ProtobufMessage<'a> {
     }
 
     pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
+        self.encode_with_timestamp(buffer, SystemTime::now())
+    }
+
+    pub fn encode_with_timestamp(&self, buffer: &mut Vec<u8>, created_at: SystemTime) -> Vec<u8> {
         buffer.clear();
-        bytes_encode(1, &[], buffer);
         match self {
             Self::Account { slot, account } => {
                 let account = encoding::Account::new(*slot, account);
@@ -72,8 +76,7 @@ impl<'a> ProtobufMessage<'a> {
                 message::encode(8, &entry, buffer)
             }
         }
-        let now = std::time::SystemTime::now();
-        let timestamp = Timestamp::from(now);
+        let timestamp = Timestamp::from(created_at);
         message::encode(11, &timestamp, buffer);
         buffer.as_slice().to_vec()
     }
