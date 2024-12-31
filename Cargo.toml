@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-authors = ["Lamports Dev"]
+authors = ["Lamports Dev", "Triton One"]
 edition = "2021"
 homepage = "https://lamports.dev"
 repository = "https://github.com/lamports-dev/richat"
