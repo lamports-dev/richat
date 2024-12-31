@@ -7,7 +7,7 @@ use {
         encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
     },
     solana_transaction_status::{Reward, RewardType},
-    std::marker::PhantomData,
+    std::{marker::PhantomData, ops::Deref},
 };
 
 mod account;
@@ -44,48 +44,66 @@ const fn u8_to_static_str(num: u8) -> &'static str {
 
 #[repr(transparent)]
 #[derive(Debug)]
-struct Wrapper<'a>(Reward, PhantomData<&'a ()>);
+struct RewardWrapper<'a>(Reward, PhantomData<&'a ()>);
 
-impl<'a> prost::Message for Wrapper<'a> {
+impl<'a> RewardWrapper<'a> {
+    const fn new(rewards: &[Reward]) -> &[Self] {
+        // SAFETY: the compiler guarantees that
+        // `align_of::<RewardWrapper>() == align_of::<Reward>()`,
+        // `size_of::<RewardWrapper>() == size_of::<Reward>()`,
+        // the alignment of `RewardWrapper` and `Reward` are identical.
+        unsafe { std::mem::transmute(rewards) }
+    }
+}
+
+impl<'a> Deref for RewardWrapper<'a> {
+    type Target = Reward;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> prost::Message for RewardWrapper<'a> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
     {
-        if !self.0.pubkey.is_empty() {
-            encoding::string::encode(1, &self.0.pubkey, buf);
+        if !self.pubkey.is_empty() {
+            encoding::string::encode(1, &self.pubkey, buf);
         }
-        if self.0.lamports != 0 {
-            encoding::int64::encode(2, &self.0.lamports, buf);
+        if self.lamports != 0 {
+            encoding::int64::encode(2, &self.lamports, buf);
         }
-        if self.0.post_balance != 0 {
-            encoding::uint64::encode(3, &self.0.post_balance, buf);
+        if self.post_balance != 0 {
+            encoding::uint64::encode(3, &self.post_balance, buf);
         }
-        if self.0.reward_type.is_some() {
-            encoding::int32::encode(4, &reward_type_as_i32(self.0.reward_type), buf);
+        if self.reward_type.is_some() {
+            encoding::int32::encode(4, &reward_type_as_i32(self.reward_type), buf);
         }
-        if let Some(commission) = self.0.commission {
+        if let Some(commission) = self.commission {
             bytes_encode(5, u8_to_static_str(commission).as_ref(), buf);
         }
     }
 
     fn encoded_len(&self) -> usize {
-        (if !self.0.pubkey.is_empty() {
-            encoding::string::encoded_len(1, &self.0.pubkey)
+        (if !self.pubkey.is_empty() {
+            encoding::string::encoded_len(1, &self.pubkey)
         } else {
             0
-        }) + if self.0.lamports != 0 {
-            encoding::int64::encoded_len(2, &self.0.lamports)
+        }) + if self.lamports != 0 {
+            encoding::int64::encoded_len(2, &self.lamports)
         } else {
             0
-        } + if self.0.post_balance != 0 {
-            encoding::uint64::encoded_len(3, &self.0.post_balance)
+        } + if self.post_balance != 0 {
+            encoding::uint64::encoded_len(3, &self.post_balance)
         } else {
             0
-        } + if self.0.reward_type.is_some() {
-            encoding::int32::encoded_len(4, &reward_type_as_i32(self.0.reward_type))
+        } + if self.reward_type.is_some() {
+            encoding::int32::encoded_len(4, &reward_type_as_i32(self.reward_type))
         } else {
             0
-        } + self.0.commission.map_or(0, |commission| {
+        } + self.commission.map_or(0, |commission| {
             bytes_encoded_len(5, u8_to_static_str(commission).as_ref())
         })
     }
@@ -116,19 +134,6 @@ pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
         Some(RewardType::Staking) => 3,
         Some(RewardType::Voting) => 4,
     }
-}
-
-pub fn encode_rewards(tag: u32, rewards: &[Reward], buf: &mut impl BufMut) {
-    encoding::message::encode_repeated(tag, to_wrapper(rewards), buf);
-}
-
-pub fn rewards_encoded_len(tag: u32, rewards: &[Reward]) -> usize {
-    encoding::message::encoded_len_repeated(tag, to_wrapper(rewards))
-}
-
-const fn to_wrapper(rewards: &[Reward]) -> &[Wrapper] {
-    // SAFETY: the compiler guarantees that `align_of::<Wrapper>() == align_of::<Reward>()`, `size_of::<Wrapper>() == size_of::<Reward>()`, the alignment of `Wrapper` and `Reward` are identical.
-    unsafe { std::mem::transmute(rewards) }
 }
 
 pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {

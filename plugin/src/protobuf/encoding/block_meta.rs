@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, encode_rewards, rewards_encoded_len},
+    super::{bytes_encode, bytes_encoded_len, RewardWrapper},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::{
         bytes::BufMut,
@@ -130,14 +130,14 @@ impl<'a> prost::Message for RewardsAndNumPartitionsWrapper<'a> {
     where
         Self: Sized,
     {
-        encode_rewards(1, &self.rewards, buf);
+        encoding::message::encode_repeated(1, RewardWrapper::new(&self.rewards), buf);
         if let Some(num_partitions) = self.num_partitions {
             encoding::message::encode(2, &convert_to::create_num_partitions(num_partitions), buf);
         }
     }
 
     fn encoded_len(&self) -> usize {
-        rewards_encoded_len(1, &self.rewards)
+        encoding::message::encoded_len_repeated(1, RewardWrapper::new(&self.rewards))
             + if let Some(num_partitions) = self.num_partitions {
                 encoding::message::encoded_len(
                     2,
