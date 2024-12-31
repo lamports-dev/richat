@@ -1026,75 +1026,75 @@ pub mod compiled_instructions {
     }
 }
 
-pub mod compiled_instruction {
-    use {
-        super::super::{bytes_encode, bytes_encoded_len},
-        bytes::BufMut,
-        prost::encoding,
-        solana_sdk::instruction::CompiledInstruction,
-    };
+// pub mod compiled_instruction {
+//     use {
+//         super::super::{bytes_encode, bytes_encoded_len},
+//         bytes::BufMut,
+//         prost::encoding,
+//         solana_sdk::instruction::CompiledInstruction,
+//     };
 
-    #[derive(Debug)]
-    struct Wrapper<'a>(&'a CompiledInstruction);
+//     #[derive(Debug)]
+//     struct Wrapper<'a>(&'a CompiledInstruction);
 
-    impl<'a> prost::Message for Wrapper<'a> {
-        fn encode_raw(&self, buf: &mut impl BufMut)
-        where
-            Self: Sized,
-        {
-            let program_id_index = self.0.program_id_index as u32;
-            if program_id_index != 0 {
-                encoding::uint32::encode(1, &program_id_index, buf)
-            }
-            bytes_encode(2, &self.0.accounts, buf);
-            bytes_encode(3, &self.0.data, buf)
-        }
+//     impl<'a> prost::Message for Wrapper<'a> {
+//         fn encode_raw(&self, buf: &mut impl BufMut)
+//         where
+//             Self: Sized,
+//         {
+//             let program_id_index = self.0.program_id_index as u32;
+//             if program_id_index != 0 {
+//                 encoding::uint32::encode(1, &program_id_index, buf)
+//             }
+//             bytes_encode(2, &self.0.accounts, buf);
+//             bytes_encode(3, &self.0.data, buf)
+//         }
 
-        fn encoded_len(&self) -> usize {
-            let program_id_index = self.0.program_id_index as u32;
-            (if program_id_index != 0 {
-                encoding::uint32::encoded_len(1, &program_id_index)
-            } else {
-                0
-            }) + bytes_encoded_len(2, &self.0.accounts)
-                + bytes_encoded_len(3, &self.0.data)
-        }
+//         fn encoded_len(&self) -> usize {
+//             let program_id_index = self.0.program_id_index as u32;
+//             (if program_id_index != 0 {
+//                 encoding::uint32::encoded_len(1, &program_id_index)
+//             } else {
+//                 0
+//             }) + bytes_encoded_len(2, &self.0.accounts)
+//                 + bytes_encoded_len(3, &self.0.data)
+//         }
 
-        fn clear(&mut self) {
-            unimplemented!()
-        }
+//         fn clear(&mut self) {
+//             unimplemented!()
+//         }
 
-        fn merge_field(
-            &mut self,
-            _tag: u32,
-            _wire_type: encoding::WireType,
-            _buf: &mut impl bytes::Buf,
-            _ctx: encoding::DecodeContext,
-        ) -> Result<(), prost::DecodeError>
-        where
-            Self: Sized,
-        {
-            unimplemented!()
-        }
-    }
+//         fn merge_field(
+//             &mut self,
+//             _tag: u32,
+//             _wire_type: encoding::WireType,
+//             _buf: &mut impl bytes::Buf,
+//             _ctx: encoding::DecodeContext,
+//         ) -> Result<(), prost::DecodeError>
+//         where
+//             Self: Sized,
+//         {
+//             unimplemented!()
+//         }
+//     }
 
-    pub fn encode_compiled_instruction(
-        tag: u32,
-        compiled_instruction: &CompiledInstruction,
-        buf: &mut impl BufMut,
-    ) {
-        let wrapper = Wrapper(compiled_instruction);
-        encoding::message::encode(tag, &wrapper, buf)
-    }
+//     pub fn encode_compiled_instruction(
+//         tag: u32,
+//         compiled_instruction: &CompiledInstruction,
+//         buf: &mut impl BufMut,
+//     ) {
+//         let wrapper = Wrapper(compiled_instruction);
+//         encoding::message::encode(tag, &wrapper, buf)
+//     }
 
-    pub fn compiled_instruction_encoded_len(
-        tag: u32,
-        compiled_instruction: &CompiledInstruction,
-    ) -> usize {
-        let wrapper = Wrapper(compiled_instruction);
-        encoding::message::encoded_len(tag, &wrapper)
-    }
-}
+//     pub fn compiled_instruction_encoded_len(
+//         tag: u32,
+//         compiled_instruction: &CompiledInstruction,
+//     ) -> usize {
+//         let wrapper = Wrapper(compiled_instruction);
+//         encoding::message::encoded_len(tag, &wrapper)
+//     }
+// }
 
 pub mod transaction_token_balance {
     use {
