@@ -1,6 +1,6 @@
 # richat
 
-Next iteration of [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/rpcpool/yellowstone-grpc).
+Next iteration of [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/rpcpool/yellowstone-grpc). Richat is heavily based on `Dragon's Mouth` code with significant architecture changes.
 
 ## Licensing
 
