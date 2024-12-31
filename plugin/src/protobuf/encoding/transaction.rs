@@ -104,11 +104,11 @@ impl<'a> prost::Message for ReplicaWrapper<'a> {
                 4,
                 self.transaction_status_meta,
             )
-        + if index != 0 {
-            encoding::uint64::encoded_len(5, &index)
-        } else {
-            0
-        }
+            + if index != 0 {
+                encoding::uint64::encoded_len(5, &index)
+            } else {
+                0
+            }
     }
 
     fn clear(&mut self) {
