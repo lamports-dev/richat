@@ -1,6 +1,9 @@
 use {
+    super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
-    prost::encoding, solana_sdk::clock::Slot,
+    prost::encoding,
+    solana_sdk::clock::Slot,
+    std::ops::Deref,
 };
 
 #[derive(Debug)]
@@ -17,14 +20,18 @@ impl<'a> Transaction<'a> {
 
 impl<'a> prost::Message for Transaction<'a> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
-        replica::encode_replica_transaction_info(1, self.transaction, buf);
+        // encode_replica_transaction_info(1, self.transaction, buf);
+        let tx = ReplicaWrapper(self.transaction);
+        encoding::message::encode(1, &tx, buf);
         if self.slot != 0 {
             encoding::uint64::encode(2, &self.slot, buf);
         }
     }
 
     fn encoded_len(&self) -> usize {
-        replica::replica_transaction_info_encoded_len(1, self.transaction)
+        // replica::replica_transaction_info_encoded_len(1, self.transaction)
+        let tx = ReplicaWrapper(self.transaction);
+        encoding::message::encoded_len(1, &tx)
             + if self.slot != 0 {
                 encoding::uint64::encoded_len(2, &self.slot)
             } else {
@@ -50,96 +57,75 @@ impl<'a> prost::Message for Transaction<'a> {
     }
 }
 
-pub mod replica {
-    use {
-        super::super::{bytes_encode, bytes_encoded_len},
-        agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
-        bytes::BufMut,
-        prost::encoding,
-    };
+#[derive(Debug)]
+struct ReplicaWrapper<'a>(&'a ReplicaTransactionInfoV2<'a>);
 
-    #[derive(Debug)]
-    struct Wrapper<'a>(&'a ReplicaTransactionInfoV2<'a>);
+impl<'a> Deref for ReplicaWrapper<'a> {
+    type Target = &'a ReplicaTransactionInfoV2<'a>;
 
-    impl<'a> prost::Message for Wrapper<'a> {
-        fn encode_raw(&self, buf: &mut impl bytes::BufMut)
-        where
-            Self: Sized,
-        {
-            let index = self.0.index as u64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
-            bytes_encode(1, self.0.signature.as_ref(), buf);
-            if self.0.is_vote {
-                encoding::bool::encode(2, &self.0.is_vote, buf)
+impl<'a> prost::Message for ReplicaWrapper<'a> {
+    fn encode_raw(&self, buf: &mut impl bytes::BufMut)
+    where
+        Self: Sized,
+    {
+        let index = self.index as u64;
+
+        bytes_encode(1, self.signature.as_ref(), buf);
+        if self.is_vote {
+            encoding::bool::encode(2, &self.is_vote, buf)
+        }
+        sanitized_transaction::encode_sanitized_transaction(3, self.transaction, buf);
+        transaction_status_meta::encode_transaction_status_meta(
+            4,
+            self.transaction_status_meta,
+            buf,
+        );
+        if index != 0 {
+            encoding::uint64::encode(5, &index, buf)
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        let index = self.index as u64;
+
+        bytes_encoded_len(1, self.signature.as_ref())
+            + if self.is_vote {
+                encoding::bool::encoded_len(2, &self.is_vote)
+            } else {
+                0
             }
-            super::sanitized_transaction::encode_sanitized_transaction(3, self.0.transaction, buf);
-            super::transaction_status_meta::encode_transaction_status_meta(
+            + sanitized_transaction::sanitized_transaction_encoded_len(3, self.transaction)
+            + transaction_status_meta::transaction_status_meta_encoded_len(
                 4,
-                self.0.transaction_status_meta,
-                buf,
-            );
-            if index != 0 {
-                encoding::uint64::encode(5, &index, buf)
-            }
-        }
-
-        fn encoded_len(&self) -> usize {
-            let index = self.0.index as u64;
-
-            bytes_encoded_len(1, self.0.signature.as_ref())
-                + if self.0.is_vote {
-                    encoding::bool::encoded_len(2, &self.0.is_vote)
-                } else {
-                    0
-                }
-                + super::sanitized_transaction::sanitized_transaction_encoded_len(
-                    3,
-                    self.0.transaction,
-                )
-                + super::transaction_status_meta::transaction_status_meta_encoded_len(
-                    4,
-                    self.0.transaction_status_meta,
-                )
-                + if index != 0 {
-                    encoding::uint64::encoded_len(5, &index)
-                } else {
-                    0
-                }
-        }
-
-        fn clear(&mut self) {
-            unimplemented!()
-        }
-
-        fn merge_field(
-            &mut self,
-            _tag: u32,
-            _wire_type: encoding::WireType,
-            _buf: &mut impl bytes::Buf,
-            _ctx: encoding::DecodeContext,
-        ) -> Result<(), prost::DecodeError>
-        where
-            Self: Sized,
-        {
-            unimplemented!()
+                self.transaction_status_meta,
+            )
+        + if index != 0 {
+            encoding::uint64::encoded_len(5, &index)
+        } else {
+            0
         }
     }
 
-    pub fn encode_replica_transaction_info(
-        tag: u32,
-        transaction: &ReplicaTransactionInfoV2<'_>,
-        buf: &mut impl BufMut,
-    ) {
-        let wrapper = Wrapper(transaction);
-        encoding::message::encode(tag, &wrapper, buf)
+    fn clear(&mut self) {
+        unimplemented!()
     }
 
-    pub fn replica_transaction_info_encoded_len(
-        tag: u32,
-        transaction: &ReplicaTransactionInfoV2<'_>,
-    ) -> usize {
-        let wrapper = Wrapper(transaction);
-        encoding::message::encoded_len(tag, &wrapper)
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: encoding::WireType,
+        _buf: &mut impl bytes::Buf,
+        _ctx: encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
     }
 }
 
@@ -558,8 +544,8 @@ pub mod transaction_status_meta {
             if self.0.fee != 0 {
                 encoding::uint64::encode(2, &self.0.fee, buf);
             }
-            encoding::uint64::encode_repeated(3, &self.0.pre_balances, buf);
-            encoding::uint64::encode_repeated(4, &self.0.post_balances, buf);
+            encoding::uint64::encode_packed(3, &self.0.pre_balances, buf);
+            encoding::uint64::encode_packed(4, &self.0.post_balances, buf);
             if let Some(ref inner_instructions) = self.0.inner_instructions {
                 super::inner_instructions::encode_inner_instructions_vec(
                     5,
@@ -621,8 +607,8 @@ pub mod transaction_status_meta {
                 encoding::uint64::encoded_len(2, &self.0.fee)
             } else {
                 0
-            } + encoding::uint64::encoded_len_repeated(3, &self.0.pre_balances)
-                + encoding::uint64::encoded_len_repeated(4, &self.0.post_balances)
+            } + encoding::uint64::encoded_len_packed(3, &self.0.pre_balances)
+                + encoding::uint64::encoded_len_packed(4, &self.0.post_balances)
                 + self
                     .0
                     .inner_instructions
@@ -881,7 +867,10 @@ pub mod inner_instructions {
 
 pub mod inner_instruction {
     use {
-        bytes::BufMut, prost::encoding, solana_transaction_status::InnerInstruction,
+        super::{bytes_encode, bytes_encoded_len},
+        bytes::BufMut,
+        prost::encoding,
+        solana_transaction_status::InnerInstruction,
         std::marker::PhantomData,
     };
 
@@ -894,14 +883,30 @@ pub mod inner_instruction {
         where
             Self: Sized,
         {
-            super::compiled_instruction::encode_compiled_instruction(1, &self.0.instruction, buf);
+            // super::compiled_instruction::encode_compiled_instruction(1, &self.0.instruction, buf);
+
+            let program_id_index = self.0.instruction.program_id_index as u32;
+            if program_id_index != 0 {
+                encoding::uint32::encode(1, &program_id_index, buf)
+            }
+            bytes_encode(2, &self.0.instruction.accounts, buf);
+            bytes_encode(3, &self.0.instruction.data, buf);
+
             if let Some(stack_height) = self.0.stack_height {
                 encoding::uint32::encode(2, &stack_height, buf)
             }
         }
 
         fn encoded_len(&self) -> usize {
-            super::compiled_instruction::compiled_instruction_encoded_len(1, &self.0.instruction)
+            // super::compiled_instruction::compiled_instruction_encoded_len(1, &self.0.instruction)
+
+            let program_id_index = self.0.instruction.program_id_index as u32;
+            (if program_id_index != 0 {
+                encoding::uint32::encoded_len(1, &program_id_index)
+            } else {
+                0
+            }) + bytes_encoded_len(2, &self.0.instruction.accounts)
+                + bytes_encoded_len(3, &self.0.instruction.data)
                 + self.0.stack_height.map_or(0, |stack_height| {
                     encoding::uint32::encoded_len(2, &stack_height)
                 })
