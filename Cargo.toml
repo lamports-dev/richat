@@ -51,7 +51,7 @@ quinn = "0.11.6"
 rcgen = "0.13.1"
 richat-client = { path = "client", version = "2.0.0" }
 richat-plugin = { path = "plugin", version = "2.0.0" }
-richat-shared = { path = "shared", version = "2.0.0" }
+richat-shared = { path = "shared", version = "0.0.0" }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"

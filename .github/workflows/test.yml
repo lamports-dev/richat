@@ -6,7 +6,9 @@ on:
   pull_request:
   push:
     branches:
-      - 'master'
+      - master
+      - agave-v2.0
+      - agave-v2.1
   workflow_dispatch:
 
 env:
