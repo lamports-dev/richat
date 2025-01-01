@@ -1,5 +1,5 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, iter_encoded_len, RewardWrapper},
+    super::{bytes_encode, bytes_encoded_len, RewardWrapper},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     bytes::BufMut,
     prost::encoding,
@@ -187,18 +187,13 @@ impl<'a> prost::Message for SanitizedTransactionWrapper<'a> {
 }
 
 fn signatures_encode(tag: u32, signatures: &[Signature], buf: &mut impl BufMut) {
-    let signatures = signatures.iter().map(|signature| signature.as_ref());
-    for value in signatures {
-        bytes_encode(tag, value, buf)
+    for signature in signatures {
+        bytes_encode(tag, signature.as_ref(), buf)
     }
 }
 
 fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
-    iter_encoded_len(
-        tag,
-        signatures.iter().map(|signature| signature.as_ref().len()),
-        signatures.len(),
-    )
+    (encoding::key_len(tag) + encoding::encoded_len_varint(64) + 64) * signatures.len()
 }
 
 #[derive(Debug)]
@@ -372,18 +367,13 @@ impl prost::Message for MessageHeaderWrapper {
 }
 
 fn pubkeys_encode(tag: u32, pubkeys: &[Pubkey], buf: &mut impl BufMut) {
-    let iter = pubkeys.iter().map(|key| key.as_ref());
-    for value in iter {
-        bytes_encode(tag, value, buf);
+    for pubkey in pubkeys {
+        bytes_encode(tag, pubkey.as_ref(), buf);
     }
 }
 
 fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
-    iter_encoded_len(
-        tag,
-        pubkeys.iter().map(|pubkey| pubkey.as_ref().len()),
-        pubkeys.len(),
-    )
+    (encoding::key_len(tag) + encoding::encoded_len_varint(32) + 32) * pubkeys.len()
 }
 
 fn versioned_encode(tag: u32, versioned: bool, buf: &mut impl BufMut) {

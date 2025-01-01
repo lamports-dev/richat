@@ -136,18 +136,6 @@ pub const fn reward_type_as_i32(reward_type: Option<RewardType>) -> i32 {
     }
 }
 
-pub fn iter_encoded_len(tag: u32, iter: impl Iterator<Item = usize>, len: usize) -> usize {
-    key_len(tag) * len
-        + iter
-            .map(|len| len + encoded_len_varint(len as u64))
-            .sum::<usize>()
-}
-
-#[inline]
-pub fn field_encoded_len(tag: u32, len: usize) -> usize {
-    key_len(tag) + len + encoded_len_varint(len as u64)
-}
-
 #[inline]
 pub fn bytes_encode(tag: u32, value: &[u8], buf: &mut impl BufMut) {
     encode_key(tag, WireType::LengthDelimited, buf);
@@ -157,5 +145,5 @@ pub fn bytes_encode(tag: u32, value: &[u8], buf: &mut impl BufMut) {
 
 #[inline]
 pub fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
-    field_encoded_len(tag, value.len())
+    key_len(tag) + encoded_len_varint(value.len() as u64) + value.len()
 }
