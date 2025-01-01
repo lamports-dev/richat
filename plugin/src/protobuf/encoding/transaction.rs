@@ -999,8 +999,10 @@ impl<'a> prost::Message for UiTokenAmountWrapper<'a> {
     where
         Self: Sized,
     {
+        let ui_amount = self.ui_amount.unwrap_or_default();
         let decimals = self.decimals as u32;
-        if let Some(ui_amount) = self.ui_amount {
+
+        if ui_amount != 0f64 {
             encoding::double::encode(1, &ui_amount, buf)
         }
         if decimals != 0 {
@@ -1015,24 +1017,26 @@ impl<'a> prost::Message for UiTokenAmountWrapper<'a> {
     }
 
     fn encoded_len(&self) -> usize {
+        let ui_amount = self.ui_amount.unwrap_or_default();
         let decimals = self.decimals as u32;
-        self.ui_amount
-            .map_or(0, |ui_amount| encoding::double::encoded_len(1, &ui_amount))
-            + if decimals != 0 {
-                encoding::uint32::encoded_len(2, &decimals)
-            } else {
-                0
-            }
-            + if !self.amount.is_empty() {
-                encoding::string::encoded_len(3, &self.amount)
-            } else {
-                0
-            }
-            + if !self.ui_amount_string.is_empty() {
-                encoding::string::encoded_len(4, &self.ui_amount_string)
-            } else {
-                0
-            }
+
+        (if ui_amount != 0f64 {
+            encoding::double::encoded_len(1, &ui_amount)
+        } else {
+            0
+        }) + if decimals != 0 {
+            encoding::uint32::encoded_len(2, &decimals)
+        } else {
+            0
+        } + if !self.amount.is_empty() {
+            encoding::string::encoded_len(3, &self.amount)
+        } else {
+            0
+        } + if !self.ui_amount_string.is_empty() {
+            encoding::string::encoded_len(4, &self.ui_amount_string)
+        } else {
+            0
+        }
     }
 
     fn clear(&mut self) {
