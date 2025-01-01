@@ -1080,11 +1080,18 @@ impl<'a> prost::Message for TransactionReturnDataWrapper<'a> {
         Self: Sized,
     {
         bytes_encode(1, self.program_id.as_ref(), buf);
-        bytes_encode(2, &self.data, buf)
+        if !self.data.is_empty() {
+            bytes_encode(2, &self.data, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
-        bytes_encoded_len(1, self.program_id.as_ref()) + bytes_encoded_len(2, &self.data)
+        bytes_encoded_len(1, self.program_id.as_ref())
+            + if !self.data.is_empty() {
+                bytes_encoded_len(2, &self.data)
+            } else {
+                0
+            }
     }
 
     fn clear(&mut self) {
