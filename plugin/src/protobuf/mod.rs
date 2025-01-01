@@ -14,7 +14,7 @@ pub mod fixtures {
         solana_sdk::{
             clock::Slot,
             hash::Hash,
-            message::SimpleAddressLoader,
+            message::{v0::LoadedAddresses, SimpleAddressLoader},
             pubkey::Pubkey,
             signature::Signature,
             transaction::{MessageHash, SanitizedTransaction},
@@ -393,12 +393,20 @@ pub mod fixtures {
                     .enumerate()
                     .map(|(index, transaction)| {
                         let versioned_transaction = transaction.get_transaction();
+                        let address_loader =
+                            match versioned_transaction.message.address_table_lookups() {
+                                Some(vec_atl) => SimpleAddressLoader::Enabled(LoadedAddresses {
+                                    writable: vec_atl.iter().map(|atl| atl.account_key).collect(),
+                                    readonly: vec_atl.iter().map(|atl| atl.account_key).collect(),
+                                }),
+                                None => SimpleAddressLoader::Disabled,
+                            };
                         let sanitized_transaction = SanitizedTransaction::try_create(
                             versioned_transaction,
-                            MessageHash::Compute,          // message_hash
-                            None,                          // is_simple_vote_tx
-                            SimpleAddressLoader::Disabled, // address_loader
-                            &HashSet::new(),               // reserved_account_keys
+                            MessageHash::Compute, // message_hash
+                            None,                 // is_simple_vote_tx
+                            address_loader,
+                            &HashSet::new(), // reserved_account_keys
                         )
                         .expect("failed to create sanitized transaction");
 
@@ -415,9 +423,11 @@ pub mod fixtures {
                     })
                     .collect::<Vec<_>>();
 
-                let mut tx = transactions[0].clone();
-                tx.slot = 0;
-                transactions.push(tx);
+                if let Some(tx) = transactions.first() {
+                    let mut tx = tx.clone();
+                    tx.slot = 0;
+                    transactions.push(tx);
+                }
 
                 transactions
             })
@@ -549,6 +559,47 @@ mod tests {
             let vec_prost = msg_prost.encode_to_vec();
 
             assert_eq!(vec_richat, vec_prost, "transaction: {gen:?}");
+
+            // use prost::{bytes::Buf, encoding};
+            // fn read(mut buffer: &[u8]) -> &[u8] {
+            //     // read tx global object tag and total len
+            //     assert_eq!(encoding::decode_varint(&mut buffer).unwrap() >> 3, 4);
+            //     let _size = encoding::decode_varint(&mut buffer).unwrap();
+            //     // read tx tag and total len
+            //     assert_eq!(encoding::decode_varint(&mut buffer).unwrap() >> 3, 1);
+            //     let _size = encoding::decode_varint(&mut buffer).unwrap();
+            //     // read signature
+            //     assert_eq!(encoding::decode_varint(&mut buffer).unwrap() >> 3, 1);
+            //     assert_eq!(encoding::decode_varint(&mut buffer).unwrap(), 64);
+            //     buffer.advance(64);
+            //     // read vote
+            //     let mut tag = encoding::decode_varint(&mut buffer).unwrap() >> 3;
+            //     if tag == 2 {
+            //         assert_eq!(encoding::decode_varint(&mut buffer).unwrap(), 1);
+            //         tag = encoding::decode_varint(&mut buffer).unwrap() >> 3;
+            //     }
+            //     // read tx
+            //     assert_eq!(tag, 3);
+            //     let _size = encoding::decode_varint(&mut buffer).unwrap();
+            //     // read signatures
+            //     let tag = loop {
+            //         let tag = encoding::decode_varint(&mut buffer).unwrap() >> 3;
+            //         if tag != 1 {
+            //             break tag;
+            //         }
+            //         assert_eq!(encoding::decode_varint(&mut buffer).unwrap(), 64);
+            //         buffer.advance(64);
+            //     };
+            //     // read tx message
+            //     assert_eq!(tag, 2);
+            //     let size = encoding::decode_varint(&mut buffer).unwrap();
+
+            //     &buffer[0..size as usize]
+            // }
+
+            // let slice_richat = read(vec_richat.as_slice());
+            // let slice_prost = read(vec_prost.as_slice());
+            // assert_eq!(slice_richat, slice_prost, "transaction: {gen:?}");
         }
     }
 }

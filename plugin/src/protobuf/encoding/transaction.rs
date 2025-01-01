@@ -436,14 +436,26 @@ impl<'a> prost::Message for MessageAddressTableLookupWrapper<'a> {
         Self: Sized,
     {
         bytes_encode(1, self.account_key.as_ref(), buf);
-        bytes_encode(2, &self.writable_indexes, buf);
-        bytes_encode(3, &self.readonly_indexes, buf)
+        if !self.writable_indexes.is_empty() {
+            bytes_encode(2, &self.writable_indexes, buf)
+        };
+        if !self.readonly_indexes.is_empty() {
+            bytes_encode(3, &self.readonly_indexes, buf);
+        }
     }
 
     fn encoded_len(&self) -> usize {
         bytes_encoded_len(1, self.account_key.as_ref())
-            + bytes_encoded_len(2, &self.writable_indexes)
-            + bytes_encoded_len(3, &self.readonly_indexes)
+            + if !self.writable_indexes.is_empty() {
+                bytes_encoded_len(2, &self.writable_indexes)
+            } else {
+                0
+            }
+            + if !self.readonly_indexes.is_empty() {
+                bytes_encoded_len(3, &self.readonly_indexes)
+            } else {
+                0
+            }
     }
 
     fn clear(&mut self) {
@@ -777,13 +789,17 @@ impl<'a> prost::Message for InnerInstructionWrapper<'a> {
         let program_id_index = self.instruction.program_id_index as u32;
 
         if program_id_index != 0 {
-            encoding::uint32::encode(1, &program_id_index, buf)
+            encoding::uint32::encode(1, &program_id_index, buf);
         }
-        bytes_encode(2, &self.instruction.accounts, buf);
-        bytes_encode(3, &self.instruction.data, buf);
+        if !self.instruction.accounts.is_empty() {
+            bytes_encode(2, &self.instruction.accounts, buf);
+        }
+        if !self.instruction.data.is_empty() {
+            bytes_encode(3, &self.instruction.data, buf);
+        }
 
         if let Some(stack_height) = self.stack_height {
-            encoding::uint32::encode(4, &stack_height, buf)
+            encoding::uint32::encode(4, &stack_height, buf);
         }
     }
 
@@ -794,11 +810,17 @@ impl<'a> prost::Message for InnerInstructionWrapper<'a> {
             encoding::uint32::encoded_len(1, &program_id_index)
         } else {
             0
-        }) + bytes_encoded_len(2, &self.instruction.accounts)
-            + bytes_encoded_len(3, &self.instruction.data)
-            + self.stack_height.map_or(0, |stack_height| {
-                encoding::uint32::encoded_len(4, &stack_height)
-            })
+        }) + if !self.instruction.accounts.is_empty() {
+            bytes_encoded_len(2, &self.instruction.accounts)
+        } else {
+            0
+        } + if !self.instruction.data.is_empty() {
+            bytes_encoded_len(3, &self.instruction.data)
+        } else {
+            0
+        } + self.stack_height.map_or(0, |stack_height| {
+            encoding::uint32::encoded_len(4, &stack_height)
+        })
     }
 
     fn clear(&mut self) {
@@ -850,8 +872,12 @@ impl<'a> prost::Message for CompiledInstructionWrapper<'a> {
         if program_id_index != 0 {
             encoding::uint32::encode(1, &program_id_index, buf)
         }
-        bytes_encode(2, &self.accounts, buf);
-        bytes_encode(3, &self.data, buf)
+        if !self.accounts.is_empty() {
+            bytes_encode(2, &self.accounts, buf);
+        }
+        if !self.data.is_empty() {
+            bytes_encode(3, &self.data, buf)
+        }
     }
 
     fn encoded_len(&self) -> usize {
@@ -860,8 +886,15 @@ impl<'a> prost::Message for CompiledInstructionWrapper<'a> {
             encoding::uint32::encoded_len(1, &program_id_index)
         } else {
             0
-        }) + bytes_encoded_len(2, &self.accounts)
-            + bytes_encoded_len(3, &self.data)
+        }) + if !self.accounts.is_empty() {
+            bytes_encoded_len(2, &self.accounts)
+        } else {
+            0
+        } + if !self.data.is_empty() {
+            bytes_encoded_len(3, &self.data)
+        } else {
+            0
+        }
     }
 
     fn clear(&mut self) {
@@ -1056,7 +1089,7 @@ fn loaded_writable_addresses_encoded_len(tag: u32, loaded_addresses: &LoadedAddr
             .writable
             .iter()
             .map(|pubkey| pubkey.as_ref().len()),
-        loaded_addresses.len(),
+        loaded_addresses.writable.len(),
     )
 }
 
@@ -1078,7 +1111,7 @@ fn loaded_readonly_addresses_encoded_len(tag: u32, loaded_addresses: &LoadedAddr
             .readonly
             .iter()
             .map(|pubkey| pubkey.as_ref().len()),
-        loaded_addresses.len(),
+        loaded_addresses.readonly.len(),
     )
 }
 
