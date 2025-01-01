@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
@@ -16,7 +16,7 @@ impl Shutdown {
     pub fn new() -> Self {
         let mut state = State {
             shutdown: false,
-            map: HashMap::new(),
+            map: BTreeMap::new(),
         };
         let id = state.get_next_id();
         state.map.insert(id, None);
@@ -94,7 +94,7 @@ impl Future for Shutdown {
 #[derive(Debug)]
 struct State {
     shutdown: bool,
-    map: HashMap<u64, Option<Waker>>,
+    map: BTreeMap<u64, Option<Waker>>,
 }
 
 impl State {
@@ -104,6 +104,6 @@ impl State {
                 return index;
             }
         }
-        0
+        self.map.len() as u64
     }
 }
