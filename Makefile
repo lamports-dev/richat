@@ -1,9 +1,13 @@
 ci-all: \
+	ci-fmt \
 	ci-cargo-deny \
 	ci-clippy \
 	ci-clippy-fuzz \
 	ci-check \
 	ci-test
+
+ci-fmt:
+	cargo +nightly fmt --check
 
 ci-cargo-deny:
 	cargo deny check advisories
