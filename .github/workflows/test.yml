@@ -45,8 +45,11 @@ jobs:
       - name: check features in `richat-client`
         run: cargo check -p richat-client --all-targets
 
-      - name: check features in `richat-plugin`
-        run: cargo check -p richat-plugin --all-targets --all-features
+      - name: check features in `richat-plugin` w/o `encode-prost`
+        run: cargo check -p richat-plugin --all-targets --features="fixtures"
+
+      - name: check features in `richat-plugin` w `encode-prost`
+        run: cargo check -p richat-plugin --all-targets --features="encode-prost fixtures"
 
       - name: check features in `richat`
         run: cargo check -p richat --all-targets

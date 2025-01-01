@@ -39,7 +39,7 @@ impl<'a> prost::Message for Slot<'a> {
         if self.slot != 0u64 {
             encoding::uint64::encode(1u32, &self.slot, buf);
         }
-        if let Some(ref value) = self.parent {
+        if let Some(value) = &self.parent {
             encoding::uint64::encode(2u32, value, buf);
         }
         if status != CommitmentLevel::default() as i32 {

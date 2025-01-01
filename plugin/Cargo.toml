@@ -66,6 +66,7 @@ tonic-build = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [features]
+encode-prost = []
 fixtures = ["dep:prost_011", "dep:solana-storage-proto"]
 
 [lints]

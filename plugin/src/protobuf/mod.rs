@@ -1,7 +1,10 @@
 mod encoding;
 mod message;
 
-pub use message::ProtobufMessage;
+pub use {
+    encoding::{Account, BlockMeta, Entry, Slot, Transaction},
+    message::ProtobufMessage,
+};
 
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures {
