@@ -8,7 +8,7 @@ use {
         clock::Slot,
         instruction::CompiledInstruction,
         message::{
-            v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
+            v0::{LoadedMessage, MessageAddressTableLookup},
             LegacyMessage, MessageHeader, SanitizedMessage,
         },
         pubkey::Pubkey,
@@ -221,7 +221,7 @@ impl<'a> prost::Message for SanitizedMessageWrapper<'a> {
             SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
                 encoding::message::encode(1, &MessageHeaderWrapper(message.header), buf);
                 pubkeys_encode(2, &message.account_keys, buf);
-                recent_blockhash_encode(3, message.recent_blockhash.as_ref(), buf);
+                bytes_encode(3, message.recent_blockhash.as_ref(), buf);
                 encoding::message::encode_repeated(
                     4,
                     CompiledInstructionWrapper::new(&message.instructions),
@@ -237,7 +237,7 @@ impl<'a> prost::Message for SanitizedMessageWrapper<'a> {
             SanitizedMessage::V0(LoadedMessage { message, .. }) => {
                 encoding::message::encode(1, &MessageHeaderWrapper(message.header), buf);
                 pubkeys_encode(2, &message.account_keys, buf);
-                recent_blockhash_encode(3, message.recent_blockhash.as_ref(), buf);
+                bytes_encode(3, message.recent_blockhash.as_ref(), buf);
                 encoding::message::encode_repeated(
                     4,
                     CompiledInstructionWrapper::new(&message.instructions),
@@ -258,7 +258,7 @@ impl<'a> prost::Message for SanitizedMessageWrapper<'a> {
             SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
                 encoding::message::encoded_len(1, &MessageHeaderWrapper(message.header))
                     + pubkeys_encoded_len(2, &message.account_keys)
-                    + recent_blockhash_encoded_len(3, message.recent_blockhash.as_ref())
+                    + bytes_encoded_len(3, message.recent_blockhash.as_ref())
                     + encoding::message::encoded_len_repeated(
                         4,
                         CompiledInstructionWrapper::new(&message.instructions),
@@ -272,7 +272,7 @@ impl<'a> prost::Message for SanitizedMessageWrapper<'a> {
             SanitizedMessage::V0(LoadedMessage { message, .. }) => {
                 encoding::message::encoded_len(1, &MessageHeaderWrapper(message.header))
                     + pubkeys_encoded_len(2, &message.account_keys)
-                    + recent_blockhash_encoded_len(3, message.recent_blockhash.as_ref())
+                    + bytes_encoded_len(3, message.recent_blockhash.as_ref())
                     + encoding::message::encoded_len_repeated(
                         4,
                         CompiledInstructionWrapper::new(&message.instructions),
@@ -384,14 +384,6 @@ fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
         pubkeys.iter().map(|pubkey| pubkey.as_ref().len()),
         pubkeys.len(),
     )
-}
-
-fn recent_blockhash_encode(tag: u32, pubkey: &[u8], buf: &mut impl BufMut) {
-    bytes_encode(tag, pubkey, buf)
-}
-
-fn recent_blockhash_encoded_len(tag: u32, pubkey: &[u8]) -> usize {
-    bytes_encoded_len(tag, pubkey)
 }
 
 fn versioned_encode(tag: u32, versioned: bool, buf: &mut impl BufMut) {
@@ -533,8 +525,8 @@ impl<'a> prost::Message for TransactionStatusMetaWrapper<'a> {
         if self.log_messages.is_none() {
             encoding::bool::encode(11, &self.log_messages.is_none(), buf);
         }
-        loaded_writable_addresses_encode(12, &self.loaded_addresses, buf);
-        loaded_readonly_addresses_encode(13, &self.loaded_addresses, buf);
+        pubkeys_encode(12, &self.loaded_addresses.writable, buf);
+        pubkeys_encode(13, &self.loaded_addresses.readonly, buf);
         if let Some(return_data) = &self.return_data {
             encoding::message::encode(14, &TransactionReturnDataWrapper(return_data), buf);
         }
@@ -598,8 +590,8 @@ impl<'a> prost::Message for TransactionStatusMetaWrapper<'a> {
             } else {
                 0
             }
-            + loaded_writable_addresses_encoded_len(12, &self.loaded_addresses)
-            + loaded_readonly_addresses_encoded_len(13, &self.loaded_addresses)
+            + pubkeys_encoded_len(12, &self.loaded_addresses.writable)
+            + pubkeys_encoded_len(13, &self.loaded_addresses.readonly)
             + self.return_data.as_ref().map_or(0, |return_data| {
                 encoding::message::encoded_len(14, &TransactionReturnDataWrapper(return_data))
             })
@@ -1069,50 +1061,6 @@ impl<'a> prost::Message for UiTokenAmountWrapper<'a> {
     {
         unimplemented!()
     }
-}
-
-fn loaded_writable_addresses_encode(
-    tag: u32,
-    loaded_addresses: &LoadedAddresses,
-    buf: &mut impl BufMut,
-) {
-    let writable_addresses = loaded_addresses.writable.iter().map(|key| key.as_ref());
-    for value in writable_addresses {
-        bytes_encode(tag, value, buf)
-    }
-}
-
-fn loaded_writable_addresses_encoded_len(tag: u32, loaded_addresses: &LoadedAddresses) -> usize {
-    iter_encoded_len(
-        tag,
-        loaded_addresses
-            .writable
-            .iter()
-            .map(|pubkey| pubkey.as_ref().len()),
-        loaded_addresses.writable.len(),
-    )
-}
-
-fn loaded_readonly_addresses_encode(
-    tag: u32,
-    loaded_addresses: &LoadedAddresses,
-    buf: &mut impl BufMut,
-) {
-    let readonly_addresses = loaded_addresses.readonly.iter().map(|key| key.as_ref());
-    for value in readonly_addresses {
-        bytes_encode(tag, value, buf)
-    }
-}
-
-fn loaded_readonly_addresses_encoded_len(tag: u32, loaded_addresses: &LoadedAddresses) -> usize {
-    iter_encoded_len(
-        tag,
-        loaded_addresses
-            .readonly
-            .iter()
-            .map(|pubkey| pubkey.as_ref().len()),
-        loaded_addresses.readonly.len(),
-    )
 }
 
 #[derive(Debug)]
