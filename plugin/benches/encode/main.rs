@@ -1,6 +1,6 @@
 use {
     criterion::{criterion_group, criterion_main},
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
     std::cell::RefCell,
 };
 
@@ -19,7 +19,7 @@ pub fn encode_protobuf_message(message: &ProtobufMessage) {
     BUFFER.with(|cell| {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
-        message.encode(&mut borrow_mut);
+        message.encode(ProtobufEncoder::Raw, &mut borrow_mut);
     })
 }
 

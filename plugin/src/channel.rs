@@ -1,6 +1,10 @@
 // Based on https://github.com/tokio-rs/tokio/blob/master/tokio/src/sync/broadcast.rs
 use {
-    crate::{config::ConfigChannel, metrics, protobuf::ProtobufMessage},
+    crate::{
+        config::ConfigChannel,
+        metrics,
+        protobuf::{ProtobufEncoder, ProtobufMessage},
+    },
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     log::{debug, error},
     smallvec::SmallVec,
@@ -60,11 +64,11 @@ impl Sender {
         Self { shared }
     }
 
-    pub fn push(&self, message: ProtobufMessage) {
+    pub fn push(&self, message: ProtobufMessage, encoder: ProtobufEncoder) {
         // encode message
         let data = BUFFER.with(|cell| {
             let mut buffer = cell.borrow_mut();
-            message.encode(&mut buffer)
+            message.encode(encoder, &mut buffer)
         });
 
         // acquire state lock
@@ -104,7 +108,7 @@ impl Sender {
                     };
                     let data = BUFFER.with(|cell| {
                         let mut buffer = cell.borrow_mut();
-                        message.encode(&mut buffer)
+                        message.encode(encoder, &mut buffer)
                     });
                     messages.push((message, data));
 

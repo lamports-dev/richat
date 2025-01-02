@@ -7,6 +7,12 @@ use {
     std::time::SystemTime,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtobufEncoder {
+    Prost,
+    Raw,
+}
+
 #[derive(Debug)]
 pub enum ProtobufMessage<'a> {
     Account {
@@ -41,21 +47,25 @@ impl<'a> ProtobufMessage<'a> {
         }
     }
 
-    pub fn encode(&self, buffer: &mut Vec<u8>) -> Vec<u8> {
-        self.encode_with_timestamp(buffer, SystemTime::now())
+    pub fn encode(&self, encoder: ProtobufEncoder, buffer: &mut Vec<u8>) -> Vec<u8> {
+        self.encode_with_timestamp(encoder, buffer, SystemTime::now())
     }
 
-    pub fn encode_with_timestamp(&self, buffer: &mut Vec<u8>, created_at: SystemTime) -> Vec<u8> {
+    pub fn encode_with_timestamp(
+        &self,
+        encoder: ProtobufEncoder,
+        buffer: &mut Vec<u8>,
+        created_at: SystemTime,
+    ) -> Vec<u8> {
         buffer.clear();
-        #[cfg(feature = "encode-prost")]
-        self.encode_prost(buffer, created_at);
-        #[cfg(not(feature = "encode-prost"))]
-        self.encode_raw(buffer, created_at);
+        match encoder {
+            ProtobufEncoder::Prost => self.encode_prost(buffer, created_at),
+            ProtobufEncoder::Raw => self.encode_raw(buffer, created_at),
+        };
         buffer.as_slice().to_vec()
     }
 
-    #[cfg(feature = "encode-prost")]
-    fn encode_prost(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
+    pub fn encode_prost(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
         use {
             prost::Message,
             yellowstone_grpc_proto::{
@@ -147,8 +157,7 @@ impl<'a> ProtobufMessage<'a> {
         .expect("failed to encode")
     }
 
-    #[cfg(not(feature = "encode-prost"))]
-    fn encode_raw(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
+    pub fn encode_raw(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
         use {super::encoding, prost::encoding::message, prost_types::Timestamp};
 
         match self {

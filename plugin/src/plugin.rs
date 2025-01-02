@@ -3,7 +3,7 @@ use {
         channel::Sender,
         config::Config,
         metrics,
-        protobuf::ProtobufMessage,
+        protobuf::{ProtobufEncoder, ProtobufMessage},
         transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
@@ -33,6 +33,7 @@ impl fmt::Debug for PluginTask {
 pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
+    encoder: ProtobufEncoder,
     shutdown: Shutdown,
     tasks: Vec<(&'static str, PluginTask)>,
 }
@@ -100,6 +101,7 @@ impl PluginInner {
         Ok(Self {
             runtime,
             messages,
+            encoder: config.channel.encoder,
             shutdown,
             tasks,
         })
@@ -170,7 +172,7 @@ impl GeyserPlugin for Plugin {
             let inner = self.inner.as_ref().expect("initialized");
             inner
                 .messages
-                .push(ProtobufMessage::Account { slot, account });
+                .push(ProtobufMessage::Account { slot, account }, inner.encoder);
         }
 
         Ok(())
@@ -187,11 +189,14 @@ impl GeyserPlugin for Plugin {
         status: SlotStatus,
     ) -> PluginResult<()> {
         let inner = self.inner.as_ref().expect("initialized");
-        inner.messages.push(ProtobufMessage::Slot {
-            slot,
-            parent,
-            status: &status,
-        });
+        inner.messages.push(
+            ProtobufMessage::Slot {
+                slot,
+                parent,
+                status: &status,
+            },
+            inner.encoder,
+        );
 
         Ok(())
     }
@@ -209,9 +214,10 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner
-            .messages
-            .push(ProtobufMessage::Transaction { slot, transaction });
+        inner.messages.push(
+            ProtobufMessage::Transaction { slot, transaction },
+            inner.encoder,
+        );
 
         Ok(())
     }
@@ -226,7 +232,9 @@ impl GeyserPlugin for Plugin {
         };
 
         let inner = self.inner.as_ref().expect("initialized");
-        inner.messages.push(ProtobufMessage::Entry { entry });
+        inner
+            .messages
+            .push(ProtobufMessage::Entry { entry }, inner.encoder);
 
         Ok(())
     }
@@ -248,7 +256,7 @@ impl GeyserPlugin for Plugin {
         let inner = self.inner.as_ref().expect("initialized");
         inner
             .messages
-            .push(ProtobufMessage::BlockMeta { blockinfo });
+            .push(ProtobufMessage::BlockMeta { blockinfo }, inner.encoder);
 
         Ok(())
     }
