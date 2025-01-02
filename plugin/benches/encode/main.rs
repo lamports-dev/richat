@@ -1,27 +1,10 @@
-use {
-    criterion::{criterion_group, criterion_main},
-    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
-    std::cell::RefCell,
-};
+use criterion::{criterion_group, criterion_main};
 
 mod account;
 mod block_meta;
 mod entry;
 mod slot;
 mod transaction;
-
-const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
-thread_local! {
-    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
-}
-
-pub fn encode_protobuf_message(message: &ProtobufMessage, encoder: ProtobufEncoder) -> Vec<u8> {
-    BUFFER.with(|cell| {
-        let mut borrow_mut = cell.borrow_mut();
-        borrow_mut.clear();
-        message.encode(encoder, &mut borrow_mut)
-    })
-}
 
 criterion_group!(
     benches,

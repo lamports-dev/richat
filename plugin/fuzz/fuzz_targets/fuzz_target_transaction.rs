@@ -422,7 +422,6 @@ pub struct FuzzTransactionMessage<'a> {
 }
 
 fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
-    let mut buf = Vec::new();
     let versioned_message = fuzz_message.transaction.transaction.message.into();
     let simple_signer = signer::SimpleSigner;
     let versioned_transaction = VersionedTransaction::try_new(versioned_message, &simple_signer)
@@ -508,6 +507,5 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         slot: fuzz_message.slot,
         transaction: &replica,
     };
-    message.encode(ProtobufEncoder::Raw, &mut buf);
-    assert!(!buf.is_empty())
+    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
 });

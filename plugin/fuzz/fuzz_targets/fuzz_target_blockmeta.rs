@@ -52,7 +52,6 @@ pub struct FuzzBlockMeta<'a> {
 }
 
 fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
-    let mut buf = Vec::new();
     let rewards_and_num_partitions = RewardsAndNumPartitions {
         rewards: fuzz_blockmeta
             .rewards
@@ -81,6 +80,5 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
     let message = ProtobufMessage::BlockMeta {
         blockinfo: &blockinfo,
     };
-    message.encode(ProtobufEncoder::Raw, &mut buf);
-    assert!(!buf.is_empty())
+    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
 });

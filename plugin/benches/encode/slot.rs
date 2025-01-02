@@ -1,5 +1,4 @@
 use {
-    crate::encode_protobuf_message,
     criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
@@ -19,35 +18,33 @@ pub fn bench_encode_slot(criterion: &mut Criterion) {
     criterion
         .benchmark_group("encode_slot")
         .bench_with_input("richat/prost", &slots_replica, |criterion, slots| {
+            let created_at = SystemTime::now();
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for (slot, parent, status) in slots {
-                        encode_protobuf_message(
-                            &ProtobufMessage::Slot {
-                                slot: *slot,
-                                parent: *parent,
-                                status,
-                            },
-                            ProtobufEncoder::Prost,
-                        );
+                        let message = ProtobufMessage::Slot {
+                            slot: *slot,
+                            parent: *parent,
+                            status,
+                        };
+                        message.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
                     }
                 })
             });
         })
         .bench_with_input("richat/raw", &slots_replica, |criterion, slots| {
+            let created_at = SystemTime::now();
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for (slot, parent, status) in slots {
-                        encode_protobuf_message(
-                            &ProtobufMessage::Slot {
-                                slot: *slot,
-                                parent: *parent,
-                                status,
-                            },
-                            ProtobufEncoder::Raw,
-                        );
+                        let message = ProtobufMessage::Slot {
+                            slot: *slot,
+                            parent: *parent,
+                            status,
+                        };
+                        message.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
                     }
                 })
             });

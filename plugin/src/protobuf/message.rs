@@ -1,8 +1,11 @@
 use {
+    super::encoding,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
     },
+    prost::encoding::message,
+    prost_types::Timestamp,
     solana_sdk::clock::Slot,
     std::time::SystemTime,
 };
@@ -47,25 +50,22 @@ impl<'a> ProtobufMessage<'a> {
         }
     }
 
-    pub fn encode(&self, encoder: ProtobufEncoder, buffer: &mut Vec<u8>) -> Vec<u8> {
-        self.encode_with_timestamp(encoder, buffer, SystemTime::now())
+    pub fn encode(&self, encoder: ProtobufEncoder) -> Vec<u8> {
+        self.encode_with_timestamp(encoder, SystemTime::now())
     }
 
     pub fn encode_with_timestamp(
         &self,
         encoder: ProtobufEncoder,
-        buffer: &mut Vec<u8>,
-        created_at: SystemTime,
+        created_at: impl Into<Timestamp>,
     ) -> Vec<u8> {
-        buffer.clear();
         match encoder {
-            ProtobufEncoder::Prost => self.encode_prost(buffer, created_at),
-            ProtobufEncoder::Raw => self.encode_raw(buffer, created_at),
-        };
-        buffer.as_slice().to_vec()
+            ProtobufEncoder::Prost => self.encode_prost(created_at),
+            ProtobufEncoder::Raw => self.encode_raw(created_at),
+        }
     }
 
-    pub fn encode_prost(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
+    pub fn encode_prost(&self, created_at: impl Into<Timestamp>) -> Vec<u8> {
         use {
             prost::Message,
             yellowstone_grpc_proto::{
@@ -153,12 +153,41 @@ impl<'a> ProtobufMessage<'a> {
             }),
             created_at: Some(created_at.into()),
         }
-        .encode(buffer)
-        .expect("failed to encode")
+        .encode_to_vec()
     }
 
-    pub fn encode_raw(&self, buffer: &mut Vec<u8>, created_at: SystemTime) {
-        use {super::encoding, prost::encoding::message, prost_types::Timestamp};
+    pub fn encode_raw(&self, created_at: impl Into<Timestamp>) -> Vec<u8> {
+        let created_at = created_at.into();
+
+        let size = match self {
+            Self::Account { slot, account } => {
+                let account = encoding::Account::new(*slot, account);
+                message::encoded_len(2, &account)
+            }
+            Self::Slot {
+                slot,
+                parent,
+                status,
+            } => {
+                let slot = encoding::Slot::new(*slot, *parent, status);
+                message::encoded_len(3, &slot)
+            }
+            Self::Transaction { slot, transaction } => {
+                let transaction = encoding::Transaction::new(*slot, transaction);
+                message::encoded_len(4, &transaction)
+            }
+            Self::BlockMeta { blockinfo } => {
+                let blockmeta = encoding::BlockMeta::new(blockinfo);
+                message::encoded_len(7, &blockmeta)
+            }
+            Self::Entry { entry } => {
+                let entry = encoding::Entry::new(entry);
+                message::encoded_len(8, &entry)
+            }
+        } + message::encoded_len(11, &created_at);
+
+        let mut vec = Vec::with_capacity(size);
+        let buffer = &mut vec;
 
         match self {
             Self::Account { slot, account } => {
@@ -186,7 +215,8 @@ impl<'a> ProtobufMessage<'a> {
                 message::encode(8, &entry, buffer)
             }
         }
-        let timestamp = Timestamp::from(created_at);
-        message::encode(11, &timestamp, buffer);
+        message::encode(11, &created_at, buffer);
+
+        vec
     }
 }

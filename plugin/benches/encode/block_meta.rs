@@ -1,5 +1,4 @@
 use {
-    super::encode_protobuf_message,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
@@ -31,12 +30,13 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
             "richat/prost",
             &blocks_meta_replica,
             |criterion, block_metas| {
+                let created_at = SystemTime::now();
                 criterion.iter(|| {
                     #[allow(clippy::unit_arg)]
                     black_box({
                         for blockinfo in block_metas {
                             let message = ProtobufMessage::BlockMeta { blockinfo };
-                            encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                            message.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
                         }
                     })
                 })
@@ -46,12 +46,13 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
             "richat/raw",
             &blocks_meta_replica,
             |criterion, block_metas| {
+                let created_at = SystemTime::now();
                 criterion.iter(|| {
                     #[allow(clippy::unit_arg)]
                     black_box({
                         for blockinfo in block_metas {
                             let message = ProtobufMessage::BlockMeta { blockinfo };
-                            encode_protobuf_message(&message, ProtobufEncoder::Raw);
+                            message.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
                         }
                     })
                 })

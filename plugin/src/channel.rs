@@ -10,24 +10,15 @@ use {
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
-        cell::RefCell,
         collections::BTreeMap,
         fmt,
         future::Future,
         pin::Pin,
         sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
         task::{Context, Poll, Waker},
-        thread_local,
     },
     thiserror::Error,
 };
-
-/// 16 MiB, `should be` enough for any message
-const BUFFER_CAPACITY: usize = 16 * 1024 * 1024;
-thread_local! {
-    // except blockinfo with rewards list (what doesn't make sense after partition reward, starts from epoch 706)
-    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
-}
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -66,10 +57,7 @@ impl Sender {
 
     pub fn push(&self, message: ProtobufMessage, encoder: ProtobufEncoder) {
         // encode message
-        let data = BUFFER.with(|cell| {
-            let mut buffer = cell.borrow_mut();
-            message.encode(encoder, &mut buffer)
-        });
+        let data = message.encode(encoder);
 
         // acquire state lock
         let mut state = self.shared.state_lock();
@@ -106,10 +94,7 @@ impl Sender {
                         parent: entry.parent_slot,
                         status,
                     };
-                    let data = BUFFER.with(|cell| {
-                        let mut buffer = cell.borrow_mut();
-                        message.encode(encoder, &mut buffer)
-                    });
+                    let data = message.encode(encoder);
                     messages.push((message, data));
 
                     error!("missed slot status update for {} ({:?})", parent, *status);

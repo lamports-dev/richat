@@ -1,5 +1,4 @@
 use {
-    super::encode_protobuf_message,
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
@@ -25,23 +24,25 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
     criterion
         .benchmark_group("encode_entry")
         .bench_with_input("richat/prost", &entries_replica, |criterion, entries| {
+            let created_at = SystemTime::now();
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for entry in entries {
                         let message = ProtobufMessage::Entry { entry };
-                        encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                        message.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
                     }
                 })
             });
         })
         .bench_with_input("richat/raw", &entries_replica, |criterion, entries| {
+            let created_at = SystemTime::now();
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for entry in entries {
                         let message = ProtobufMessage::Entry { entry };
-                        encode_protobuf_message(&message, ProtobufEncoder::Raw);
+                        message.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
                     }
                 })
             });

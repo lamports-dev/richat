@@ -33,12 +33,10 @@ pub struct FuzzSlot {
 }
 
 fuzz_target!(|fuzz_slot: FuzzSlot| {
-    let mut buf = Vec::new();
     let message = ProtobufMessage::Slot {
         slot: fuzz_slot.slot,
         parent: fuzz_slot.parent,
         status: &fuzz_slot.status.into(),
     };
-    message.encode(ProtobufEncoder::Raw, &mut buf);
-    assert!(!buf.is_empty())
+    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
 });

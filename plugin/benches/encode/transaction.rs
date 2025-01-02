@@ -1,5 +1,4 @@
 use {
-    super::encode_protobuf_message,
     criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
@@ -30,6 +29,7 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
             "richat/prost",
             &transactions_replica,
             |criterion, transactions| {
+                let created_at = SystemTime::now();
                 criterion.iter(|| {
                     #[allow(clippy::unit_arg)]
                     black_box({
@@ -38,7 +38,7 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
                                 slot: *slot,
                                 transaction,
                             };
-                            encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                            message.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
                         }
                     })
                 });
@@ -48,6 +48,7 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
             "richat/raw",
             &transactions_replica,
             |criterion, transactions| {
+                let created_at = SystemTime::now();
                 criterion.iter(|| {
                     #[allow(clippy::unit_arg)]
                     black_box({
@@ -56,7 +57,7 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
                                 slot: *slot,
                                 transaction,
                             };
-                            encode_protobuf_message(&message, ProtobufEncoder::Raw);
+                            message.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
                         }
                     })
                 });

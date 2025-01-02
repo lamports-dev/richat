@@ -17,7 +17,6 @@ pub struct FuzzEntry {
 }
 
 fuzz_target!(|fuzz_entry: FuzzEntry| {
-    let mut buf = Vec::new();
     let message = ProtobufMessage::Entry {
         entry: &ReplicaEntryInfoV2 {
             slot: fuzz_entry.slot,
@@ -28,6 +27,5 @@ fuzz_target!(|fuzz_entry: FuzzEntry| {
             starting_transaction_index: fuzz_entry.starting_transaction_index,
         },
     };
-    message.encode(ProtobufEncoder::Raw, &mut buf);
-    assert!(!buf.is_empty())
+    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
 });
