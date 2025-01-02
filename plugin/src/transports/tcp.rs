@@ -42,7 +42,7 @@ impl TcpServer {
                                 socket
                             }
                             Err(error) => {
-                                error!("failed to accept new connection: {error:?}");
+                                error!("failed to accept new connection: {error}");
                                 break;
                             }
                         };
@@ -50,7 +50,7 @@ impl TcpServer {
                         let messages = messages.clone();
                         tokio::spawn(async move {
                             if let Err(error) = Self::handle_incoming(id, socket, messages).await {
-                                error!("#{id}: connection failed: {error:?}");
+                                error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
                             }
@@ -82,7 +82,7 @@ impl TcpServer {
                     stream.write_all(&message).await?;
                 }
                 Err(error) => {
-                    error!("#{id}: failed to get message: {error:?}");
+                    error!("#{id}: failed to get message: {error}");
                     let msg = QuicSubscribeClose {
                         error: match error {
                             RecvError::Lagged => QuicSubscribeCloseError::Lagged,

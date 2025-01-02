@@ -49,7 +49,7 @@ impl QuicServer {
                             if let Err(error) = Self::handle_incoming(
                                 id, incoming, messages, config.max_recv_streams
                             ).await {
-                                error!("#{id}: connection failed: {error:?}");
+                                error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
                             }
@@ -123,15 +123,15 @@ impl QuicServer {
                     match message {
                         Ok(message) => next_message = Some(message),
                         Err(error) => {
-                            error!("#{id}: failed to get message: {error:?}");
+                            error!("#{id}: failed to get message: {error}");
                             if streams.is_empty() {
                                 match set.join_next().await {
                                     Some(Ok(Ok((msg_id, stream)))) => {
                                         msg_ids.remove(&msg_id);
                                         streams.push_back(stream);
                                     },
-                                    Some(Ok(Err(error))) => anyhow::bail!("failed to send data: {error:?}"),
-                                    Some(Err(error)) => anyhow::bail!("failed to join sending task: {error:?}"),
+                                    Some(Ok(Err(error))) => anyhow::bail!("failed to send data: {error}"),
+                                    Some(Err(error)) => anyhow::bail!("failed to join sending task: {error}"),
                                     None => unreachable!(),
                                 }
                             }
@@ -163,8 +163,8 @@ impl QuicServer {
                         msg_ids.remove(&msg_id);
                         streams.push_back(stream);
                     },
-                    Some(Ok(Err(error))) => anyhow::bail!("failed to send data: {error:?}"),
-                    Some(Err(error)) => anyhow::bail!("failed to join sending task: {error:?}"),
+                    Some(Ok(Err(error))) => anyhow::bail!("failed to send data: {error}"),
+                    Some(Err(error)) => anyhow::bail!("failed to join sending task: {error}"),
                     None => unreachable!(),
                 }
             }

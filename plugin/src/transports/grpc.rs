@@ -94,7 +94,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                 return Err(Status::aborted("stream closed before request received"));
             }
             Err(error) => {
-                error!("#{id}: error receiving request {error:?}");
+                error!("#{id}: error receiving request {error}");
                 return Err(Status::aborted("recv error"));
             }
         };
@@ -152,7 +152,7 @@ impl Stream for ReceiverStream {
             Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
             Ok(None) => Poll::Pending,
             Err(error) => {
-                error!("#{}: failed to get message: {error:?}", self.id);
+                error!("#{}: failed to get message: {error}", self.id);
                 match error {
                     RecvError::Lagged => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
                     RecvError::Closed => Poll::Ready(Some(Err(Status::out_of_range("closed")))),
