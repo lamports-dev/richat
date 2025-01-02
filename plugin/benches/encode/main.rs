@@ -15,11 +15,11 @@ thread_local! {
     static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(BUFFER_CAPACITY));
 }
 
-pub fn encode_protobuf_message(message: &ProtobufMessage) {
+pub fn encode_protobuf_message(message: &ProtobufMessage, encoder: ProtobufEncoder) -> Vec<u8> {
     BUFFER.with(|cell| {
         let mut borrow_mut = cell.borrow_mut();
         borrow_mut.clear();
-        message.encode(ProtobufEncoder::Raw, &mut borrow_mut);
+        message.encode(encoder, &mut borrow_mut)
     })
 }
 

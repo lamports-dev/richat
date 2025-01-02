@@ -3,7 +3,7 @@ use {
     criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_transactions, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_transactions, ProtobufEncoder, ProtobufMessage},
     std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -27,7 +27,7 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
     criterion
         .benchmark_group("encode_transaction")
         .bench_with_input(
-            "richat",
+            "richat/prost",
             &transactions_replica,
             |criterion, transactions| {
                 criterion.iter(|| {
@@ -38,7 +38,25 @@ pub fn bench_encode_transactions(criterion: &mut Criterion) {
                                 slot: *slot,
                                 transaction,
                             };
-                            encode_protobuf_message(&message)
+                            encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                        }
+                    })
+                });
+            },
+        )
+        .bench_with_input(
+            "richat/raw",
+            &transactions_replica,
+            |criterion, transactions| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for (slot, transaction) in transactions {
+                            let message = ProtobufMessage::Transaction {
+                                slot: *slot,
+                                transaction,
+                            };
+                            encode_protobuf_message(&message, ProtobufEncoder::Raw);
                         }
                     })
                 });

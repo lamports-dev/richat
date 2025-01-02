@@ -3,7 +3,7 @@ use {
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_entries, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_entries, ProtobufEncoder, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -24,13 +24,24 @@ pub fn bench_encode_entries(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_entry")
-        .bench_with_input("richat", &entries_replica, |criterion, entries| {
+        .bench_with_input("richat/prost", &entries_replica, |criterion, entries| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for entry in entries {
                         let message = ProtobufMessage::Entry { entry };
-                        encode_protobuf_message(&message)
+                        encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                    }
+                })
+            });
+        })
+        .bench_with_input("richat/raw", &entries_replica, |criterion, entries| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for entry in entries {
+                        let message = ProtobufMessage::Entry { entry };
+                        encode_protobuf_message(&message, ProtobufEncoder::Raw);
                     }
                 })
             });

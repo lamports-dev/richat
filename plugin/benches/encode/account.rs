@@ -1,9 +1,9 @@
 use {
     super::encode_protobuf_message,
-    criterion::{black_box, BatchSize, Criterion},
+    criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_accounts, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_accounts, ProtobufEncoder, ProtobufMessage},
     std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::{
@@ -44,7 +44,7 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_accounts")
-        .bench_with_input("richat", &accounts_replica, |criterion, accounts| {
+        .bench_with_input("richat/prost", &accounts_replica, |criterion, accounts| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
@@ -53,7 +53,21 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
                             slot: *slot,
                             account,
                         };
-                        encode_protobuf_message(&message)
+                        encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                    }
+                })
+            })
+        })
+        .bench_with_input("richat/raw", &accounts_replica, |criterion, accounts| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for (slot, account) in accounts {
+                        let message = ProtobufMessage::Account {
+                            slot: *slot,
+                            account,
+                        };
+                        encode_protobuf_message(&message, ProtobufEncoder::Raw);
                     }
                 })
             })
@@ -63,23 +77,19 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             &grpc_messages,
             |criterion, grpc_messages| {
                 let created_at = Timestamp::from(SystemTime::now());
-                criterion.iter_batched(
-                    || grpc_messages.to_owned(),
-                    |grpc_messages| {
-                        #[allow(clippy::unit_arg)]
-                        black_box({
-                            for (message, data_slice) in grpc_messages {
-                                let update = FilteredUpdate {
-                                    filters: FilteredUpdateFilters::new(),
-                                    message: FilteredUpdateOneof::account(&message, data_slice),
-                                    created_at,
-                                };
-                                update.encode_to_vec();
-                            }
-                        })
-                    },
-                    BatchSize::LargeInput,
-                );
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for (message, data_slice) in grpc_messages {
+                            let update = FilteredUpdate {
+                                filters: FilteredUpdateFilters::new(),
+                                message: FilteredUpdateOneof::account(message, data_slice.clone()),
+                                created_at,
+                            };
+                            update.encode_to_vec();
+                        }
+                    })
+                });
             },
         )
         .bench_with_input(
@@ -87,22 +97,18 @@ pub fn bench_encode_accounts(criterion: &mut Criterion) {
             &grpc_replicas,
             |criterion, grpc_replicas| {
                 let created_at = Timestamp::from(SystemTime::now());
-                criterion.iter_batched(
-                    || grpc_replicas.to_owned(),
-                    |grpc_replicas| {
-                        #[allow(clippy::unit_arg)]
-                        black_box(for ((slot, account), data_slice) in grpc_replicas {
-                            let message = MessageAccount::from_geyser(&account, slot, false);
-                            let update = FilteredUpdate {
-                                filters: FilteredUpdateFilters::new(),
-                                message: FilteredUpdateOneof::account(&message, data_slice),
-                                created_at,
-                            };
-                            update.encode_to_vec();
-                        })
-                    },
-                    BatchSize::LargeInput,
-                );
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box(for ((slot, account), data_slice) in grpc_replicas {
+                        let message = MessageAccount::from_geyser(account, *slot, false);
+                        let update = FilteredUpdate {
+                            filters: FilteredUpdateFilters::new(),
+                            message: FilteredUpdateOneof::account(&message, data_slice.clone()),
+                            created_at,
+                        };
+                        update.encode_to_vec();
+                    })
+                });
             },
         );
 }

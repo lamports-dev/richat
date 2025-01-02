@@ -3,7 +3,7 @@ use {
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_block_metas, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_block_metas, ProtobufEncoder, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -27,17 +27,36 @@ pub fn bench_encode_block_metas(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_block_meta")
-        .bench_with_input("richat", &blocks_meta_replica, |criterion, block_metas| {
-            criterion.iter(|| {
-                #[allow(clippy::unit_arg)]
-                black_box({
-                    for blockinfo in block_metas {
-                        let message = ProtobufMessage::BlockMeta { blockinfo };
-                        encode_protobuf_message(&message)
-                    }
+        .bench_with_input(
+            "richat/prost",
+            &blocks_meta_replica,
+            |criterion, block_metas| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for blockinfo in block_metas {
+                            let message = ProtobufMessage::BlockMeta { blockinfo };
+                            encode_protobuf_message(&message, ProtobufEncoder::Prost);
+                        }
+                    })
                 })
-            })
-        })
+            },
+        )
+        .bench_with_input(
+            "richat/raw",
+            &blocks_meta_replica,
+            |criterion, block_metas| {
+                criterion.iter(|| {
+                    #[allow(clippy::unit_arg)]
+                    black_box({
+                        for blockinfo in block_metas {
+                            let message = ProtobufMessage::BlockMeta { blockinfo };
+                            encode_protobuf_message(&message, ProtobufEncoder::Raw);
+                        }
+                    })
+                })
+            },
+        )
         .bench_with_input(
             "dragons-mouth/encoding-only",
             &blocks_meta_grpc,

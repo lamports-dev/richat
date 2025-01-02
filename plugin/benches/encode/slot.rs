@@ -3,7 +3,7 @@ use {
     criterion::{black_box, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_slots, ProtobufMessage},
+    richat_plugin::protobuf::{fixtures::generate_slots, ProtobufEncoder, ProtobufMessage},
     std::time::SystemTime,
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
@@ -18,16 +18,36 @@ pub fn bench_encode_slot(criterion: &mut Criterion) {
 
     criterion
         .benchmark_group("encode_slot")
-        .bench_with_input("richat", &slots_replica, |criterion, slots| {
+        .bench_with_input("richat/prost", &slots_replica, |criterion, slots| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
                     for (slot, parent, status) in slots {
-                        encode_protobuf_message(&ProtobufMessage::Slot {
-                            slot: *slot,
-                            parent: *parent,
-                            status,
-                        });
+                        encode_protobuf_message(
+                            &ProtobufMessage::Slot {
+                                slot: *slot,
+                                parent: *parent,
+                                status,
+                            },
+                            ProtobufEncoder::Prost,
+                        );
+                    }
+                })
+            });
+        })
+        .bench_with_input("richat/raw", &slots_replica, |criterion, slots| {
+            criterion.iter(|| {
+                #[allow(clippy::unit_arg)]
+                black_box({
+                    for (slot, parent, status) in slots {
+                        encode_protobuf_message(
+                            &ProtobufMessage::Slot {
+                                slot: *slot,
+                                parent: *parent,
+                                status,
+                            },
+                            ProtobufEncoder::Raw,
+                        );
                     }
                 })
             });
