@@ -7,7 +7,7 @@ use {
     clap::{Parser, Subcommand},
     futures::stream::{BoxStream, StreamExt, TryStreamExt},
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
-    prost::Message,
+    prost::Message as _,
     richat_client::{
         error::ReceiveError,
         grpc::GrpcClient,
@@ -22,10 +22,12 @@ use {
     solana_sdk::{
         clock::Slot,
         hash::Hash,
-        message::{v0::LoadedAddresses, SimpleAddressLoader},
+        message::{
+            v0::LoadedAddresses, LegacyMessage, Message, SanitizedMessage, SimpleAddressLoader,
+        },
         pubkey::Pubkey,
         signature::Signature,
-        transaction::{MessageHash, SanitizedTransaction, Transaction},
+        transaction::{MessageHash, SanitizedTransaction},
     },
     solana_transaction_status::UiTransactionEncoding,
     std::{
@@ -428,9 +430,14 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
                 .txn_signature
                 .as_ref()
                 .map(|signature| {
-                    let mut tx = Transaction::default();
-                    tx.signatures.push(signature.as_slice().try_into()?);
-                    Ok::<_, anyhow::Error>(SanitizedTransaction::from_transaction_for_tests(tx))
+                    Ok::<_, anyhow::Error>(SanitizedTransaction::new_for_tests(
+                        SanitizedMessage::Legacy(LegacyMessage::new(
+                            Message::default(),
+                            &HashSet::new(),
+                        )),
+                        vec![signature.as_slice().try_into()?],
+                        false,
+                    ))
                 })
                 .transpose()
                 .context("failed to create txn")?;
@@ -483,14 +490,15 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
                 }),
                 None => SimpleAddressLoader::Disabled,
             };
-            let sanitized_transaction = SanitizedTransaction::try_create(
+            let Ok(sanitized_transaction) = SanitizedTransaction::try_create(
                 versioned_transaction,
                 MessageHash::Compute, // message_hash
                 None,                 // is_simple_vote_tx
                 address_loader,
                 &HashSet::new(), // reserved_account_keys
-            )
-            .expect("failed to create sanitized transaction");
+            ) else {
+                return Ok(None);
+            };
 
             let value = tx.meta.clone().ok_or(anyhow::anyhow!("no meta message"))?;
             let transaction_status_meta =

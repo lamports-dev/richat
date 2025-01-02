@@ -24,7 +24,7 @@ richat-client = { workspace = true }
 richat-plugin = { workspace = true }
 richat-shared = { workspace = true }
 serde_json = { workspace = true }
-solana-sdk = { workspace = true }
+solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
