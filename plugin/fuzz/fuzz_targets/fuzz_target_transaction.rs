@@ -4,7 +4,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     arbitrary::Arbitrary,
     libfuzzer_sys::fuzz_target,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
     solana_sdk::{
         hash::Hash,
         instruction::CompiledInstruction,
@@ -508,6 +508,6 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         slot: fuzz_message.slot,
         transaction: &replica,
     };
-    message.encode(&mut buf);
+    message.encode(ProtobufEncoder::Raw, &mut buf);
     assert!(!buf.is_empty())
 });

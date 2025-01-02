@@ -4,7 +4,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     arbitrary::Arbitrary,
     libfuzzer_sys::fuzz_target,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
     solana_transaction_status::{RewardType, RewardsAndNumPartitions},
 };
 
@@ -81,6 +81,6 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
     let message = ProtobufMessage::BlockMeta {
         blockinfo: &blockinfo,
     };
-    message.encode(&mut buf);
+    message.encode(ProtobufEncoder::Raw, &mut buf);
     assert!(!buf.is_empty())
 });

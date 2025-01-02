@@ -2,7 +2,8 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
-    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    libfuzzer_sys::fuzz_target,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
 };
 
 #[derive(arbitrary::Arbitrary, Debug)]
@@ -27,6 +28,6 @@ fuzz_target!(|fuzz_entry: FuzzEntry| {
             starting_transaction_index: fuzz_entry.starting_transaction_index,
         },
     };
-    message.encode(&mut buf);
+    message.encode(ProtobufEncoder::Raw, &mut buf);
     assert!(!buf.is_empty())
 });

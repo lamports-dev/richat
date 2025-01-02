@@ -2,7 +2,8 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
-    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    libfuzzer_sys::fuzz_target,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
     solana_sdk::pubkey::PUBKEY_BYTES,
 };
 
@@ -38,6 +39,6 @@ fuzz_target!(|fuzz_message: FuzzAccountMessage| {
         },
         slot: fuzz_message.slot,
     };
-    message.encode(&mut buf);
+    message.encode(ProtobufEncoder::Raw, &mut buf);
     assert!(!buf.is_empty())
 });

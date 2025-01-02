@@ -1,8 +1,10 @@
 #![no_main]
 
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target, richat_plugin::protobuf::ProtobufMessage,
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    arbitrary::Arbitrary,
+    libfuzzer_sys::fuzz_target,
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
 };
 
 #[derive(Clone, Copy, Arbitrary, Debug)]
@@ -37,6 +39,6 @@ fuzz_target!(|fuzz_slot: FuzzSlot| {
         parent: fuzz_slot.parent,
         status: &fuzz_slot.status.into(),
     };
-    message.encode(&mut buf);
+    message.encode(ProtobufEncoder::Raw, &mut buf);
     assert!(!buf.is_empty())
 });
