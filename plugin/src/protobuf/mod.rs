@@ -16,7 +16,7 @@ pub mod fixtures {
         prost_011::Message,
         solana_sdk::{
             clock::Slot,
-            hash::Hash,
+            hash::{Hash, HASH_BYTES},
             message::{v0::LoadedAddresses, SimpleAddressLoader},
             pubkey::Pubkey,
             signature::Signature,
@@ -280,10 +280,10 @@ pub mod fixtures {
 
     pub fn generate_entries() -> Vec<GeneratedEntry> {
         const ENTRY_HASHES: [Hash; 4] = [
-            Hash::new_from_array([0; 32]),
-            Hash::new_from_array([42; 32]),
-            Hash::new_from_array([98; 32]),
-            Hash::new_from_array([255; 32]),
+            Hash::new_from_array([0; HASH_BYTES]),
+            Hash::new_from_array([42; HASH_BYTES]),
+            Hash::new_from_array([98; HASH_BYTES]),
+            Hash::new_from_array([255; HASH_BYTES]),
         ];
 
         let mut entries = Vec::new();

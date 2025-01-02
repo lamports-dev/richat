@@ -11,8 +11,8 @@ use {
             v0::{LoadedMessage, MessageAddressTableLookup},
             LegacyMessage, MessageHeader, SanitizedMessage,
         },
-        pubkey::Pubkey,
-        signature::Signature,
+        pubkey::{Pubkey, PUBKEY_BYTES},
+        signature::{Signature, SIGNATURE_BYTES},
         transaction::{SanitizedTransaction, TransactionError},
         transaction_context::TransactionReturnData,
     },
@@ -193,7 +193,10 @@ fn signatures_encode(tag: u32, signatures: &[Signature], buf: &mut impl BufMut) 
 }
 
 fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
-    (encoding::key_len(tag) + encoding::encoded_len_varint(64) + 64) * signatures.len()
+    (encoding::key_len(tag)
+        + encoding::encoded_len_varint(SIGNATURE_BYTES as u64)
+        + SIGNATURE_BYTES)
+        * signatures.len()
 }
 
 #[derive(Debug)]
@@ -373,7 +376,8 @@ fn pubkeys_encode(tag: u32, pubkeys: &[Pubkey], buf: &mut impl BufMut) {
 }
 
 fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
-    (encoding::key_len(tag) + encoding::encoded_len_varint(32) + 32) * pubkeys.len()
+    (encoding::key_len(tag) + encoding::encoded_len_varint(PUBKEY_BYTES as u64) + PUBKEY_BYTES)
+        * pubkeys.len()
 }
 
 fn versioned_encode(tag: u32, versioned: bool, buf: &mut impl BufMut) {

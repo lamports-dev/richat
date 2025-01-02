@@ -3,12 +3,12 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target,
-    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
+    richat_plugin::protobuf::ProtobufMessage,
     solana_transaction_status::{RewardType, RewardsAndNumPartitions},
+    std::time::SystemTime,
 };
 
-#[derive(Clone, Copy, Arbitrary, Debug)]
+#[derive(Debug, Clone, Copy, Arbitrary)]
 #[repr(i32)]
 pub enum FuzzRewardType {
     Fee = 1,
@@ -28,7 +28,7 @@ impl From<FuzzRewardType> for RewardType {
     }
 }
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug, Arbitrary)]
 pub struct FuzzReward {
     pubkey: String,
     lamports: i64,
@@ -37,7 +37,7 @@ pub struct FuzzReward {
     commission: Option<u8>,
 }
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug, Arbitrary)]
 pub struct FuzzBlockMeta<'a> {
     parent_slot: u64,
     parent_blockhash: &'a str,
@@ -51,7 +51,7 @@ pub struct FuzzBlockMeta<'a> {
     entry_count: u64,
 }
 
-fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
+libfuzzer_sys::fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
     let rewards_and_num_partitions = RewardsAndNumPartitions {
         rewards: fuzz_blockmeta
             .rewards
@@ -77,8 +77,19 @@ fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
         executed_transaction_count: fuzz_blockmeta.executed_transaction_count,
         entry_count: fuzz_blockmeta.entry_count,
     };
+
     let message = ProtobufMessage::BlockMeta {
         blockinfo: &blockinfo,
     };
-    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
+    let created_at = SystemTime::now();
+
+    let vec_prost = message.encode_prost(created_at);
+    let vec_raw = message.encode_raw(created_at);
+
+    assert_eq!(
+        vec_prost,
+        vec_raw,
+        "prost hex: {}",
+        const_hex::encode(&vec_prost)
+    );
 });

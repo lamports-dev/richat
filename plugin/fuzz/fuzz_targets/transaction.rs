@@ -3,8 +3,7 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target,
-    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
+    richat_plugin::protobuf::ProtobufMessage,
     solana_sdk::{
         hash::Hash,
         instruction::CompiledInstruction,
@@ -16,11 +15,11 @@ use {
             VersionedTransaction,
         },
     },
-    std::collections::HashSet,
+    std::{collections::HashSet, time::SystemTime},
 };
 
 pub mod signer {
-    use solana_sdk::{pubkey::Pubkey, signature::Signature, signers::Signers};
+    use solana_sdk::{pubkey::Pubkey, signature::Signature, signer::SignerError, signers::Signers};
 
     pub struct SimpleSigner;
 
@@ -28,25 +27,26 @@ pub mod signer {
         fn pubkeys(&self) -> Vec<Pubkey> {
             vec![Pubkey::new_unique()]
         }
-        fn try_pubkeys(&self) -> std::result::Result<Vec<Pubkey>, solana_sdk::signer::SignerError> {
+
+        fn try_pubkeys(&self) -> Result<Vec<Pubkey>, SignerError> {
             Ok(vec![Pubkey::new_unique()])
         }
+
         fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
             vec![Signature::new_unique()]
         }
-        fn try_sign_message(
-            &self,
-            _message: &[u8],
-        ) -> std::result::Result<Vec<Signature>, solana_sdk::signer::SignerError> {
+
+        fn try_sign_message(&self, _message: &[u8]) -> Result<Vec<Signature>, SignerError> {
             Ok(vec![Signature::new_unique()])
         }
+
         fn is_interactive(&self) -> bool {
             false
         }
     }
 }
 
-#[derive(Arbitrary, Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub struct FuzzCompiledInstruction {
     program_id_index: u8,
     accounts: Vec<u8>,
@@ -63,7 +63,7 @@ impl From<FuzzCompiledInstruction> for CompiledInstruction {
     }
 }
 
-#[derive(Arbitrary, Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub struct FuzzLoadedAddresses {
     writable: Vec<[u8; PUBKEY_BYTES]>,
     readonly: Vec<[u8; PUBKEY_BYTES]>,
@@ -90,8 +90,7 @@ pub mod sanitized {
     use {
         arbitrary::Arbitrary,
         solana_sdk::{
-            hash::Hash,
-            keccak::HASH_BYTES,
+            hash::{Hash, HASH_BYTES},
             message::{
                 legacy,
                 v0::{self, MessageAddressTableLookup},
@@ -102,7 +101,7 @@ pub mod sanitized {
         std::borrow::Cow,
     };
 
-    #[derive(Arbitrary, Debug, Clone)]
+    #[derive(Debug, Clone, Arbitrary)]
     pub struct FuzzLegacyMessageInner {
         pub header: FuzzMessageHeader,
         pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
@@ -125,7 +124,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug, Clone)]
+    #[derive(Debug, Clone, Arbitrary)]
     pub struct FuzzMessageAddressTableLookup {
         pub account_key: [u8; PUBKEY_BYTES],
         pub writable_indexes: Vec<u8>,
@@ -142,7 +141,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug, Clone)]
+    #[derive(Debug, Clone, Arbitrary)]
     pub struct FuzzMessageHeader {
         pub num_required_signatures: u8,
         pub num_readonly_signed_accounts: u8,
@@ -159,7 +158,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug, Clone)]
+    #[derive(Debug, Clone, Arbitrary)]
     pub struct FuzzLoadedMessageInner {
         pub header: FuzzMessageHeader,
         pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
@@ -188,7 +187,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzLegacyMessage<'a> {
         pub message: Cow<'a, FuzzLegacyMessageInner>,
         pub is_writable_account_cache: Vec<bool>,
@@ -203,7 +202,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzLoadedMessage<'a> {
         pub message: Cow<'a, FuzzLoadedMessageInner>,
         pub loaded_addresses: Cow<'a, super::FuzzLoadedAddresses>,
@@ -220,7 +219,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub enum FuzzSanitizedMessage<'a> {
         Legacy(FuzzLegacyMessage<'a>),
         V0(FuzzLoadedMessage<'a>),
@@ -237,7 +236,7 @@ pub mod sanitized {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzSanitizedTransaction<'a> {
         pub message: FuzzSanitizedMessage<'a>,
         pub message_hash: [u8; HASH_BYTES],
@@ -259,12 +258,12 @@ pub mod status_meta {
         },
     };
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub enum FuzzTransactionError {
         Zero,
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzInnerInstruction {
         pub instruction: super::FuzzCompiledInstruction,
         pub stack_height: Option<u32>,
@@ -279,7 +278,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzInnerInstructions {
         pub index: u8,
         pub instructions: Vec<FuzzInnerInstruction>,
@@ -294,7 +293,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzUiTokenAmount {
         pub ui_amount: Option<f64>,
         pub decimals: u8,
@@ -313,7 +312,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzTransactionTokenBalance {
         pub account_index: u8,
         pub mint: String,
@@ -334,7 +333,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub enum FuzzRewardType {
         Fee,
         Rent,
@@ -353,7 +352,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzReward {
         pub pubkey: String,
         pub lamports: i64,
@@ -374,7 +373,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzTransactionReturnData {
         pub program_id: [u8; PUBKEY_BYTES],
         pub data: Vec<u8>,
@@ -389,7 +388,7 @@ pub mod status_meta {
         }
     }
 
-    #[derive(Arbitrary, Debug)]
+    #[derive(Debug, Arbitrary)]
     pub struct FuzzTransactionStatusMeta {
         pub status: Result<(), FuzzTransactionError>,
         pub fee: u64,
@@ -406,7 +405,7 @@ pub mod status_meta {
     }
 }
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug, Arbitrary)]
 pub struct FuzzTransaction<'a> {
     pub signature: [u8; SIGNATURE_BYTES],
     pub is_vote: bool,
@@ -415,13 +414,13 @@ pub struct FuzzTransaction<'a> {
     pub index: usize,
 }
 
-#[derive(Arbitrary, Debug)]
+#[derive(Debug, Arbitrary)]
 pub struct FuzzTransactionMessage<'a> {
     pub slot: u64,
     pub transaction: FuzzTransaction<'a>,
 }
 
-fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
+libfuzzer_sys::fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
     let versioned_message = fuzz_message.transaction.transaction.message.into();
     let simple_signer = signer::SimpleSigner;
     let versioned_transaction = VersionedTransaction::try_new(versioned_message, &simple_signer)
@@ -437,6 +436,7 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         &HashSet::new(),
     )
     .expect("failed to define `SanitizedTransaction`");
+
     let inner_instructions = fuzz_message
         .transaction
         .transaction_status_meta
@@ -496,6 +496,7 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
             .transaction_status_meta
             .compute_units_consumed,
     };
+
     let replica = ReplicaTransactionInfoV2 {
         signature: &Signature::from(fuzz_message.transaction.signature),
         is_vote: fuzz_message.transaction.is_vote,
@@ -503,9 +504,20 @@ fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
         transaction_status_meta: &transaction_status_meta,
         index: fuzz_message.transaction.index,
     };
+
     let message = ProtobufMessage::Transaction {
         slot: fuzz_message.slot,
         transaction: &replica,
     };
-    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
+    let created_at = SystemTime::now();
+
+    let vec_prost = message.encode_prost(created_at);
+    let vec_raw = message.encode_raw(created_at);
+
+    assert_eq!(
+        vec_prost,
+        vec_raw,
+        "prost hex: {}",
+        const_hex::encode(&vec_prost)
+    );
 });

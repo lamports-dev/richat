@@ -13,36 +13,36 @@ cargo-fuzz = true
 members = ["."]
 
 [[bin]]
-name = "fuzz_target_account"
-path = "fuzz_targets/fuzz_target_account.rs"
+name = "account"
+path = "fuzz_targets/account.rs"
 test = true
 doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_target_blockmeta"
-path = "fuzz_targets/fuzz_target_blockmeta.rs"
+name = "blockmeta"
+path = "fuzz_targets/blockmeta.rs"
 test = true
 doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_target_entry"
-path = "fuzz_targets/fuzz_target_entry.rs"
+name = "entry"
+path = "fuzz_targets/entry.rs"
 test = true
 doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_target_slot"
-path = "fuzz_targets/fuzz_target_slot.rs"
+name = "slot"
+path = "fuzz_targets/slot.rs"
 test = true
 doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_target_transaction"
-path = "fuzz_targets/fuzz_target_transaction.rs"
+name = "transaction"
+path = "fuzz_targets/transaction.rs"
 test = true
 doc = false
 bench = false
@@ -50,11 +50,12 @@ bench = false
 [dependencies]
 agave-geyser-plugin-interface = "~2.0.15"
 arbitrary = { version = "1.4.1", features = ["derive"] }
+const-hex = "1.14.0"
 libfuzzer-sys = "0.4.8"
 prost = "0.11.9"
 richat-plugin = { path = ".." }
 solana-account-decoder = "~2.0.15"
-solana-sdk = "~2.0.15"
+solana-sdk = { version = "~2.0.15", features = ["dev-context-only-utils"] }
 solana-storage-proto = "~2.0.15"
 solana-transaction-status = "~2.0.15"
 

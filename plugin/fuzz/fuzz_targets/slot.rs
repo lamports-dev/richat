@@ -1,13 +1,11 @@
 #![no_main]
 
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    arbitrary::Arbitrary,
-    libfuzzer_sys::fuzz_target,
-    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
+    richat_plugin::protobuf::ProtobufMessage, std::time::SystemTime,
 };
 
-#[derive(Clone, Copy, Arbitrary, Debug)]
+#[derive(Debug, Clone, Copy, Arbitrary)]
 #[repr(i32)]
 pub enum FuzzSlotStatus {
     Processed = 0,
@@ -32,11 +30,21 @@ pub struct FuzzSlot {
     status: FuzzSlotStatus,
 }
 
-fuzz_target!(|fuzz_slot: FuzzSlot| {
+libfuzzer_sys::fuzz_target!(|fuzz_slot: FuzzSlot| {
     let message = ProtobufMessage::Slot {
         slot: fuzz_slot.slot,
         parent: fuzz_slot.parent,
         status: &fuzz_slot.status.into(),
     };
-    assert!(!message.encode(ProtobufEncoder::Raw).is_empty())
+    let created_at = SystemTime::now();
+
+    let vec_prost = message.encode_prost(created_at);
+    let vec_raw = message.encode_raw(created_at);
+
+    assert_eq!(
+        vec_prost,
+        vec_raw,
+        "prost hex: {}",
+        const_hex::encode(&vec_prost)
+    );
 });
