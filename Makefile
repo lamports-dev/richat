@@ -24,7 +24,7 @@ ci-check:
 		echo cargo check -p $$package --all-targets --all-features ; \
 		cargo check -p $$package --all-targets --all-features ; \
 	done
-	cargo check -p richat-plugin --all-targets --features="fixtures"
+	cargo check -p richat-plugin --all-targets --all-features
 
 ci-test:
 	cargo test --all-targets
