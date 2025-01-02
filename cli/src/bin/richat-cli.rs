@@ -1,4 +1,8 @@
 use {
+    agave_geyser_plugin_interface::geyser_plugin_interface::{
+        ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+        SlotStatus,
+    },
     anyhow::Context,
     clap::{Parser, Subcommand},
     futures::stream::{BoxStream, StreamExt, TryStreamExt},
@@ -10,16 +14,26 @@ use {
         quic::{QuicClient, QuicClientBuilder},
         tcp::TcpClient,
     },
+    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
     richat_shared::transports::{
         grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
     },
     serde_json::{json, Value},
-    solana_sdk::{clock::Slot, hash::Hash, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{
+        clock::Slot,
+        hash::Hash,
+        message::{v0::LoadedAddresses, SimpleAddressLoader},
+        pubkey::Pubkey,
+        signature::Signature,
+        transaction::{MessageHash, SanitizedTransaction, Transaction},
+    },
     solana_transaction_status::UiTransactionEncoding,
     std::{
+        collections::HashSet,
         env,
         net::SocketAddr,
         path::PathBuf,
+        sync::Arc,
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
     tonic::service::Interceptor,
@@ -28,12 +42,13 @@ use {
         convert_from,
         geyser::{
             subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeUpdate,
-            SubscribeUpdateAccountInfo, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
+            SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
+            SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
     },
 };
 
-type SubscribeStream = BoxStream<'static, Result<SubscribeUpdate, ReceiveError>>;
+type SubscribeStreamInput = BoxStream<'static, Result<Vec<u8>, ReceiveError>>;
 
 #[derive(Debug, Parser)]
 #[clap(author, version, about = "Richat Cli Tool")]
@@ -60,10 +75,17 @@ enum ArgsAppSelect {
 struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
+
+    /// Verify messages with prost
+    #[clap(long, default_value_t = false)]
+    verify: bool,
 }
 
 impl ArgsAppStream {
-    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(
+        self,
+        replay_from_slot: Option<Slot>,
+    ) -> anyhow::Result<SubscribeStreamInput> {
         match self.action {
             ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot).await,
             ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
@@ -117,7 +139,10 @@ struct ArgsAppStreamQuic {
 }
 
 impl ArgsAppStreamQuic {
-    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(
+        self,
+        replay_from_slot: Option<Slot>,
+    ) -> anyhow::Result<SubscribeStreamInput> {
         let builder = QuicClient::builder()
             .set_local_addr(Some(self.local_addr))
             .set_expected_rtt(self.expected_rtt)
@@ -144,7 +169,7 @@ impl ArgsAppStreamQuic {
             .context("failed to subscribe")?;
         info!("subscribed");
 
-        Ok(stream.into_parsed().boxed())
+        Ok(stream.boxed())
     }
 }
 
@@ -156,7 +181,10 @@ struct ArgsAppStreamTcp {
 }
 
 impl ArgsAppStreamTcp {
-    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(
+        self,
+        replay_from_slot: Option<Slot>,
+    ) -> anyhow::Result<SubscribeStreamInput> {
         let client = TcpClient::build()
             .connect(&self.endpoint)
             .await
@@ -169,7 +197,7 @@ impl ArgsAppStreamTcp {
             .context("failed to subscribe")?;
         info!("subscribed");
 
-        Ok(stream.into_parsed().boxed())
+        Ok(stream.boxed())
     }
 }
 
@@ -280,7 +308,10 @@ impl ArgsAppStreamGrpc {
         builder.connect().await.map_err(Into::into)
     }
 
-    async fn subscribe(self, replay_from_slot: Option<Slot>) -> anyhow::Result<SubscribeStream> {
+    async fn subscribe(
+        self,
+        replay_from_slot: Option<Slot>,
+    ) -> anyhow::Result<SubscribeStreamInput> {
         let endpoint = self.endpoint.clone();
         let mut client = self.connect().await.context("failed to connect")?;
         info!("connected to {endpoint} over gRPC");
@@ -294,7 +325,7 @@ impl ArgsAppStreamGrpc {
             .context("failed to subscribe")?;
         info!("subscribed");
 
-        Ok(stream.into_parsed().map_err(Into::into).boxed())
+        Ok(stream.map_err(Into::into).boxed())
     }
 }
 
@@ -382,6 +413,143 @@ fn print_update(kind: &str, created_at: SystemTime, filters: &[String], value: V
     );
 }
 
+fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>> {
+    let Some(created_at) = msg.created_at else {
+        return Ok(None);
+    };
+
+    Ok(Some(match &msg.update_oneof {
+        Some(UpdateOneof::Account(SubscribeUpdateAccount {
+            slot,
+            account: Some(account),
+            ..
+        })) => {
+            let txn = account
+                .txn_signature
+                .as_ref()
+                .map(|signature| {
+                    let mut tx = Transaction::default();
+                    tx.signatures.push(signature.as_slice().try_into()?);
+                    Ok::<_, anyhow::Error>(SanitizedTransaction::from_transaction_for_tests(tx))
+                })
+                .transpose()
+                .context("failed to create txn")?;
+            let msg = ProtobufMessage::Account {
+                slot: *slot,
+                account: &ReplicaAccountInfoV3 {
+                    pubkey: account.pubkey.as_ref(),
+                    lamports: account.lamports,
+                    owner: account.owner.as_ref(),
+                    executable: account.executable,
+                    rent_epoch: account.rent_epoch,
+                    data: &account.data,
+                    write_version: account.write_version,
+                    txn: txn.as_ref(),
+                },
+            };
+            msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
+        }
+        Some(UpdateOneof::Slot(SubscribeUpdateSlot {
+            slot,
+            parent,
+            status,
+        })) => {
+            let msg = ProtobufMessage::Slot {
+                slot: *slot,
+                parent: *parent,
+                status: &match CommitmentLevel::try_from(*status) {
+                    Ok(CommitmentLevel::Processed) => SlotStatus::Processed,
+                    Ok(CommitmentLevel::Confirmed) => SlotStatus::Confirmed,
+                    Ok(CommitmentLevel::Finalized) => SlotStatus::Rooted,
+                    Err(value) => anyhow::bail!("invalid status: {value}"),
+                },
+            };
+            msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
+        }
+        Some(UpdateOneof::Transaction(SubscribeUpdateTransaction {
+            transaction: Some(tx),
+            slot,
+        })) => {
+            let value = tx
+                .transaction
+                .clone()
+                .ok_or(anyhow::anyhow!("no tx message"))?;
+            let versioned_transaction =
+                convert_from::create_tx_versioned(value).map_err(|error| anyhow::anyhow!(error))?;
+            let address_loader = match versioned_transaction.message.address_table_lookups() {
+                Some(vec_atl) => SimpleAddressLoader::Enabled(LoadedAddresses {
+                    writable: vec_atl.iter().map(|atl| atl.account_key).collect(),
+                    readonly: vec_atl.iter().map(|atl| atl.account_key).collect(),
+                }),
+                None => SimpleAddressLoader::Disabled,
+            };
+            let sanitized_transaction = SanitizedTransaction::try_create(
+                versioned_transaction,
+                MessageHash::Compute, // message_hash
+                None,                 // is_simple_vote_tx
+                address_loader,
+                &HashSet::new(), // reserved_account_keys
+            )
+            .expect("failed to create sanitized transaction");
+
+            let value = tx.meta.clone().ok_or(anyhow::anyhow!("no meta message"))?;
+            let transaction_status_meta =
+                convert_from::create_tx_meta(value).map_err(|error| anyhow::anyhow!(error))?;
+
+            let msg = ProtobufMessage::Transaction {
+                slot: *slot,
+                transaction: &ReplicaTransactionInfoV2 {
+                    signature: &tx
+                        .signature
+                        .as_slice()
+                        .try_into()
+                        .context("failed to create signature")?,
+                    is_vote: tx.is_vote,
+                    transaction: &sanitized_transaction,
+                    transaction_status_meta: &transaction_status_meta,
+                    index: tx.index as usize,
+                },
+            };
+            msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
+        }
+        Some(UpdateOneof::Entry(entry)) => {
+            let msg = ProtobufMessage::Entry {
+                entry: &ReplicaEntryInfoV2 {
+                    slot: entry.slot,
+                    index: entry.index as usize,
+                    num_hashes: entry.num_hashes,
+                    hash: entry.hash.as_ref(),
+                    executed_transaction_count: entry.executed_transaction_count,
+                    starting_transaction_index: entry.starting_transaction_index as usize,
+                },
+            };
+            msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
+        }
+        Some(UpdateOneof::BlockMeta(meta)) => {
+            let msg = ProtobufMessage::BlockMeta {
+                blockinfo: &ReplicaBlockInfoV4 {
+                    parent_slot: meta.parent_slot,
+                    slot: meta.slot,
+                    parent_blockhash: &meta.parent_blockhash,
+                    blockhash: &meta.blockhash,
+                    rewards: &convert_from::create_rewards_obj(
+                        meta.rewards
+                            .clone()
+                            .ok_or(anyhow::anyhow!("no rewards message"))?,
+                    )
+                    .map_err(|error| anyhow::anyhow!(error))?,
+                    block_time: meta.block_time.map(|b| b.timestamp),
+                    block_height: meta.block_height.map(|b| b.block_height),
+                    executed_transaction_count: meta.executed_transaction_count,
+                    entry_count: meta.entries_count,
+                },
+            };
+            msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
+        }
+        _ => return Ok(None),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env::set_var(
@@ -391,15 +559,8 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let args = Args::parse();
-    let replay_from_slot = args.replay_from_slot;
-    let Some(mut stream) = match args.action {
-        ArgsAppSelect::Stream(args) => args.subscribe(replay_from_slot).await.map(Some),
-    }?
-    else {
-        return Ok(());
-    };
 
-    let pb_multi = MultiProgress::new();
+    let pb_multi = Arc::new(MultiProgress::new());
     let mut pb_accounts_c = 0;
     let pb_accounts = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("accounts"))?;
     let mut pb_slots_c = 0;
@@ -419,6 +580,35 @@ async fn main() -> anyhow::Result<()> {
     let mut pb_total_c = 0;
     let pb_total = crate_progress_bar(&pb_multi, ProgressBarTpl::Total)?;
 
+    let replay_from_slot = args.replay_from_slot;
+    let Some(stream) = match args.action {
+        ArgsAppSelect::Stream(args) => args.subscribe(replay_from_slot).await.map(|stream| {
+            let pb_multi = Arc::clone(&pb_multi);
+            Some(stream.and_then(move |vec| {
+                let pb_multi = Arc::clone(&pb_multi);
+                async move {
+                    let msg = SubscribeUpdate::decode(vec.as_slice())?;
+                    match convert_prost_to_raw(&msg) {
+                        Ok(Some(vec_raw)) if vec != vec_raw => pb_multi.println(format!(
+                            "encoding doesn't match: {}",
+                            const_hex::encode(&vec)
+                        )),
+                        Err(error) => {
+                            pb_multi.println(format!("failed to encode with raw: {error:?}"))
+                        }
+                        _ => Ok(()),
+                    }
+                    .unwrap();
+                    Ok(msg)
+                }
+            }))
+        }),
+    }?
+    else {
+        return Ok(());
+    };
+
+    tokio::pin!(stream);
     while let Some(message) = stream.next().await {
         match message {
             Ok(msg) => {

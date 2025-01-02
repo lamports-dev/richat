@@ -11,6 +11,7 @@ keywords = { workspace = true }
 publish = { workspace = true }
 
 [dependencies]
+agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
 bs58 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -20,6 +21,7 @@ futures = { workspace = true }
 indicatif = { workspace = true }
 prost = { workspace = true }
 richat-client = { workspace = true }
+richat-plugin = { workspace = true }
 richat-shared = { workspace = true }
 serde_json = { workspace = true }
 solana-sdk = { workspace = true }

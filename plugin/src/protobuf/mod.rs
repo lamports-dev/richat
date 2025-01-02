@@ -125,12 +125,19 @@ pub mod fixtures {
             .first()
             .map(|transaction| transaction.get_transaction())
             .expect("failed to get first `VersionedTransaction`");
+        let address_loader = match versioned_transaction.message.address_table_lookups() {
+            Some(vec_atl) => SimpleAddressLoader::Enabled(LoadedAddresses {
+                writable: vec_atl.iter().map(|atl| atl.account_key).collect(),
+                readonly: vec_atl.iter().map(|atl| atl.account_key).collect(),
+            }),
+            None => SimpleAddressLoader::Disabled,
+        };
         let sanitized_transaction = SanitizedTransaction::try_create(
             versioned_transaction,
-            MessageHash::Compute,          // message_hash
-            None,                          // is_simple_vote_tx
-            SimpleAddressLoader::Disabled, // address_loader
-            &HashSet::new(),               // reserved_account_keys
+            MessageHash::Compute, // message_hash
+            None,                 // is_simple_vote_tx
+            address_loader,
+            &HashSet::new(), // reserved_account_keys
         )
         .expect("failed to create sanitized transaction");
 

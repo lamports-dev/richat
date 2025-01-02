@@ -3333,6 +3333,7 @@ dependencies = [
 name = "richat-cli"
 version = "1.0.0"
 dependencies = [
+ "agave-geyser-plugin-interface",
  "anyhow",
  "bs58",
  "clap",
@@ -3342,6 +3343,7 @@ dependencies = [
  "indicatif",
  "prost 0.13.4",
  "richat-client",
+ "richat-plugin",
  "richat-shared",
  "serde_json",
  "solana-sdk",
