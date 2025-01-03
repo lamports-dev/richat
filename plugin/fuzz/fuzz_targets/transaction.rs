@@ -4,50 +4,74 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     arbitrary::Arbitrary,
     richat_plugin::protobuf::ProtobufMessage,
+    solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
-        hash::Hash,
-        instruction::CompiledInstruction,
-        message::{v0::LoadedAddresses, SimpleAddressLoader},
+        hash::{Hash, HASH_BYTES},
+        instruction::{CompiledInstruction, InstructionError},
+        message::{
+            legacy, v0, LegacyMessage, MessageHeader, SimpleAddressLoader, VersionedMessage,
+        },
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
+        signer::SignerError,
+        signers::Signers,
         transaction::{
             SanitizedTransaction, SanitizedVersionedTransaction, TransactionError,
             VersionedTransaction,
         },
+        transaction_context::TransactionReturnData,
     },
-    std::{collections::HashSet, time::SystemTime},
+    solana_transaction_status::{
+        InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
+        TransactionTokenBalance,
+    },
+    std::{borrow::Cow, collections::HashSet, time::SystemTime},
 };
 
-pub mod signer {
-    use solana_sdk::{pubkey::Pubkey, signature::Signature, signer::SignerError, signers::Signers};
+#[derive(Debug)]
+struct SimpleSigner;
 
-    pub struct SimpleSigner;
+impl Signers for SimpleSigner {
+    fn pubkeys(&self) -> Vec<Pubkey> {
+        vec![Pubkey::new_unique()]
+    }
 
-    impl Signers for SimpleSigner {
-        fn pubkeys(&self) -> Vec<Pubkey> {
-            vec![Pubkey::new_unique()]
-        }
+    fn try_pubkeys(&self) -> Result<Vec<Pubkey>, SignerError> {
+        Ok(vec![Pubkey::new_unique()])
+    }
 
-        fn try_pubkeys(&self) -> Result<Vec<Pubkey>, SignerError> {
-            Ok(vec![Pubkey::new_unique()])
-        }
+    fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
+        vec![Signature::new_unique()]
+    }
 
-        fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
-            vec![Signature::new_unique()]
-        }
+    fn try_sign_message(&self, _message: &[u8]) -> Result<Vec<Signature>, SignerError> {
+        Ok(vec![Signature::new_unique()])
+    }
 
-        fn try_sign_message(&self, _message: &[u8]) -> Result<Vec<Signature>, SignerError> {
-            Ok(vec![Signature::new_unique()])
-        }
+    fn is_interactive(&self) -> bool {
+        false
+    }
+}
 
-        fn is_interactive(&self) -> bool {
-            false
+#[derive(Debug, Clone, Arbitrary)]
+struct FuzzMessageHeader {
+    num_required_signatures: u8,
+    num_readonly_signed_accounts: u8,
+    num_readonly_unsigned_accounts: u8,
+}
+
+impl From<FuzzMessageHeader> for MessageHeader {
+    fn from(value: FuzzMessageHeader) -> Self {
+        MessageHeader {
+            num_required_signatures: value.num_required_signatures,
+            num_readonly_signed_accounts: value.num_readonly_signed_accounts,
+            num_readonly_unsigned_accounts: value.num_readonly_unsigned_accounts,
         }
     }
 }
 
 #[derive(Debug, Clone, Arbitrary)]
-pub struct FuzzCompiledInstruction {
+struct FuzzCompiledInstruction {
     program_id_index: u8,
     accounts: Vec<u8>,
     data: Vec<u8>,
@@ -64,12 +88,96 @@ impl From<FuzzCompiledInstruction> for CompiledInstruction {
 }
 
 #[derive(Debug, Clone, Arbitrary)]
-pub struct FuzzLoadedAddresses {
+struct FuzzLegacyMessageInner {
+    header: FuzzMessageHeader,
+    account_keys: Vec<[u8; PUBKEY_BYTES]>,
+    recent_blockhash: [u8; HASH_BYTES],
+    instructions: Vec<FuzzCompiledInstruction>,
+}
+
+impl From<FuzzLegacyMessageInner> for legacy::Message {
+    fn from(fuzz: FuzzLegacyMessageInner) -> Self {
+        Self {
+            header: fuzz.header.into(),
+            account_keys: fuzz
+                .account_keys
+                .into_iter()
+                .map(Pubkey::new_from_array)
+                .collect(),
+            recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+            instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzLegacyMessage {
+    message: FuzzLegacyMessageInner,
+    is_writable_account_cache: Vec<bool>,
+}
+
+impl From<FuzzLegacyMessage> for LegacyMessage<'static> {
+    fn from(fuzz: FuzzLegacyMessage) -> Self {
+        Self {
+            message: Cow::Owned(fuzz.message.into()),
+            is_writable_account_cache: fuzz.is_writable_account_cache,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct FuzzLoadedMessageInner {
+    header: FuzzMessageHeader,
+    account_keys: Vec<[u8; PUBKEY_BYTES]>,
+    recent_blockhash: [u8; HASH_BYTES],
+    instructions: Vec<FuzzCompiledInstruction>,
+    address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct FuzzMessageAddressTableLookup {
+    account_key: [u8; PUBKEY_BYTES],
+    writable_indexes: Vec<u8>,
+    readonly_indexes: Vec<u8>,
+}
+
+impl From<FuzzMessageAddressTableLookup> for v0::MessageAddressTableLookup {
+    fn from(fuzz: FuzzMessageAddressTableLookup) -> Self {
+        Self {
+            account_key: Pubkey::new_from_array(fuzz.account_key),
+            writable_indexes: fuzz.writable_indexes,
+            readonly_indexes: fuzz.readonly_indexes,
+        }
+    }
+}
+
+impl From<FuzzLoadedMessageInner> for v0::Message {
+    fn from(fuzz: FuzzLoadedMessageInner) -> Self {
+        Self {
+            header: fuzz.header.into(),
+            account_keys: fuzz
+                .account_keys
+                .into_iter()
+                .map(Pubkey::new_from_array)
+                .collect(),
+            recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
+            instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
+            address_table_lookups: fuzz
+                .address_table_lookups
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct FuzzLoadedAddresses {
     writable: Vec<[u8; PUBKEY_BYTES]>,
     readonly: Vec<[u8; PUBKEY_BYTES]>,
 }
 
-impl From<FuzzLoadedAddresses> for LoadedAddresses {
+impl From<FuzzLoadedAddresses> for v0::LoadedAddresses {
     fn from(fuzz: FuzzLoadedAddresses) -> Self {
         Self {
             writable: fuzz
@@ -86,422 +194,480 @@ impl From<FuzzLoadedAddresses> for LoadedAddresses {
     }
 }
 
-pub mod sanitized {
-    use {
-        arbitrary::Arbitrary,
-        solana_sdk::{
-            hash::{Hash, HASH_BYTES},
-            message::{
-                legacy,
-                v0::{self, MessageAddressTableLookup},
-                LegacyMessage, MessageHeader, VersionedMessage,
-            },
-            pubkey::{Pubkey, PUBKEY_BYTES},
-        },
-        std::borrow::Cow,
-    };
-
-    #[derive(Debug, Clone, Arbitrary)]
-    pub struct FuzzLegacyMessageInner {
-        pub header: FuzzMessageHeader,
-        pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
-        pub recent_blockhash: [u8; HASH_BYTES],
-        pub instructions: Vec<super::FuzzCompiledInstruction>,
-    }
-
-    impl From<FuzzLegacyMessageInner> for legacy::Message {
-        fn from(fuzz: FuzzLegacyMessageInner) -> Self {
-            Self {
-                header: fuzz.header.into(),
-                account_keys: fuzz
-                    .account_keys
-                    .into_iter()
-                    .map(Pubkey::new_from_array)
-                    .collect(),
-                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
-                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Arbitrary)]
-    pub struct FuzzMessageAddressTableLookup {
-        pub account_key: [u8; PUBKEY_BYTES],
-        pub writable_indexes: Vec<u8>,
-        pub readonly_indexes: Vec<u8>,
-    }
-
-    impl From<FuzzMessageAddressTableLookup> for MessageAddressTableLookup {
-        fn from(fuzz: FuzzMessageAddressTableLookup) -> Self {
-            Self {
-                account_key: Pubkey::new_from_array(fuzz.account_key),
-                writable_indexes: fuzz.writable_indexes,
-                readonly_indexes: fuzz.readonly_indexes,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Arbitrary)]
-    pub struct FuzzMessageHeader {
-        pub num_required_signatures: u8,
-        pub num_readonly_signed_accounts: u8,
-        pub num_readonly_unsigned_accounts: u8,
-    }
-
-    impl From<FuzzMessageHeader> for MessageHeader {
-        fn from(value: FuzzMessageHeader) -> Self {
-            MessageHeader {
-                num_required_signatures: value.num_required_signatures,
-                num_readonly_signed_accounts: value.num_readonly_signed_accounts,
-                num_readonly_unsigned_accounts: value.num_readonly_unsigned_accounts,
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Arbitrary)]
-    pub struct FuzzLoadedMessageInner {
-        pub header: FuzzMessageHeader,
-        pub account_keys: Vec<[u8; PUBKEY_BYTES]>,
-        pub recent_blockhash: [u8; HASH_BYTES],
-        pub instructions: Vec<super::FuzzCompiledInstruction>,
-        pub address_table_lookups: Vec<FuzzMessageAddressTableLookup>,
-    }
-
-    impl From<FuzzLoadedMessageInner> for v0::Message {
-        fn from(fuzz: FuzzLoadedMessageInner) -> Self {
-            Self {
-                header: fuzz.header.into(),
-                account_keys: fuzz
-                    .account_keys
-                    .into_iter()
-                    .map(Pubkey::new_from_array)
-                    .collect(),
-                recent_blockhash: Hash::new_from_array(fuzz.recent_blockhash),
-                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
-                address_table_lookups: fuzz
-                    .address_table_lookups
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzLegacyMessage<'a> {
-        pub message: Cow<'a, FuzzLegacyMessageInner>,
-        pub is_writable_account_cache: Vec<bool>,
-    }
-
-    impl<'a> From<FuzzLegacyMessage<'a>> for LegacyMessage<'static> {
-        fn from(fuzz: FuzzLegacyMessage<'a>) -> Self {
-            Self {
-                message: Cow::Owned(fuzz.message.into_owned().into()),
-                is_writable_account_cache: fuzz.is_writable_account_cache,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzLoadedMessage<'a> {
-        pub message: Cow<'a, FuzzLoadedMessageInner>,
-        pub loaded_addresses: Cow<'a, super::FuzzLoadedAddresses>,
-        pub is_writable_account_cache: Vec<bool>,
-    }
-
-    impl<'a> From<FuzzLoadedMessage<'a>> for v0::LoadedMessage<'static> {
-        fn from(fuzz: FuzzLoadedMessage<'a>) -> v0::LoadedMessage<'static> {
-            v0::LoadedMessage {
-                message: Cow::Owned(fuzz.message.into_owned().into()),
-                loaded_addresses: Cow::Owned(fuzz.loaded_addresses.into_owned().into()),
-                is_writable_account_cache: fuzz.is_writable_account_cache,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub enum FuzzSanitizedMessage<'a> {
-        Legacy(FuzzLegacyMessage<'a>),
-        V0(FuzzLoadedMessage<'a>),
-    }
-
-    impl<'a> From<FuzzSanitizedMessage<'a>> for VersionedMessage {
-        fn from(fuzz: FuzzSanitizedMessage<'a>) -> Self {
-            match fuzz {
-                FuzzSanitizedMessage::Legacy(legacy) => {
-                    Self::Legacy(legacy.message.into_owned().into())
-                }
-                FuzzSanitizedMessage::V0(v0) => Self::V0(v0.message.into_owned().into()),
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzSanitizedTransaction<'a> {
-        pub message: FuzzSanitizedMessage<'a>,
-        pub message_hash: [u8; HASH_BYTES],
-        pub is_simple_vote_tx: bool,
-        pub signatures: Vec<&'a [u8]>,
-    }
+#[derive(Debug, Arbitrary)]
+struct FuzzLoadedMessage {
+    message: FuzzLoadedMessageInner,
+    loaded_addresses: FuzzLoadedAddresses,
+    is_writable_account_cache: Vec<bool>,
 }
 
-pub mod status_meta {
-    use {
-        arbitrary::Arbitrary,
-        solana_account_decoder::parse_token::UiTokenAmount,
-        solana_sdk::{
-            pubkey::{Pubkey, PUBKEY_BYTES},
-            transaction_context::TransactionReturnData,
-        },
-        solana_transaction_status::{
-            InnerInstruction, InnerInstructions, Reward, RewardType, TransactionTokenBalance,
-        },
-    };
-
-    #[derive(Debug, Arbitrary)]
-    pub enum FuzzTransactionError {
-        Zero,
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzInnerInstruction {
-        pub instruction: super::FuzzCompiledInstruction,
-        pub stack_height: Option<u32>,
-    }
-
-    impl From<FuzzInnerInstruction> for InnerInstruction {
-        fn from(fuzz: FuzzInnerInstruction) -> Self {
-            Self {
-                instruction: fuzz.instruction.into(),
-                stack_height: fuzz.stack_height,
-            }
+impl From<FuzzLoadedMessage> for v0::LoadedMessage<'static> {
+    fn from(fuzz: FuzzLoadedMessage) -> v0::LoadedMessage<'static> {
+        Self {
+            message: Cow::Owned(fuzz.message.into()),
+            loaded_addresses: Cow::Owned(fuzz.loaded_addresses.into()),
+            is_writable_account_cache: fuzz.is_writable_account_cache,
         }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzInnerInstructions {
-        pub index: u8,
-        pub instructions: Vec<FuzzInnerInstruction>,
-    }
-
-    impl From<FuzzInnerInstructions> for InnerInstructions {
-        fn from(fuzz: FuzzInnerInstructions) -> Self {
-            Self {
-                index: fuzz.index,
-                instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzUiTokenAmount {
-        pub ui_amount: Option<f64>,
-        pub decimals: u8,
-        pub amount: String,
-        pub ui_amount_string: String,
-    }
-
-    impl From<FuzzUiTokenAmount> for UiTokenAmount {
-        fn from(fuzz: FuzzUiTokenAmount) -> Self {
-            Self {
-                ui_amount: fuzz.ui_amount,
-                amount: fuzz.amount,
-                decimals: fuzz.decimals,
-                ui_amount_string: fuzz.ui_amount_string,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzTransactionTokenBalance {
-        pub account_index: u8,
-        pub mint: String,
-        pub ui_token_amount: FuzzUiTokenAmount,
-        pub owner: String,
-        pub program_id: String,
-    }
-
-    impl From<FuzzTransactionTokenBalance> for TransactionTokenBalance {
-        fn from(fuzz: FuzzTransactionTokenBalance) -> Self {
-            Self {
-                account_index: fuzz.account_index,
-                mint: fuzz.mint,
-                ui_token_amount: fuzz.ui_token_amount.into(),
-                owner: fuzz.owner,
-                program_id: fuzz.program_id,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub enum FuzzRewardType {
-        Fee,
-        Rent,
-        Staking,
-        Voting,
-    }
-
-    impl From<FuzzRewardType> for RewardType {
-        fn from(fuzz: FuzzRewardType) -> Self {
-            match fuzz {
-                FuzzRewardType::Fee => RewardType::Fee,
-                FuzzRewardType::Rent => RewardType::Rent,
-                FuzzRewardType::Staking => RewardType::Staking,
-                FuzzRewardType::Voting => RewardType::Voting,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzReward {
-        pub pubkey: String,
-        pub lamports: i64,
-        pub post_balance: u64,
-        pub reward_type: Option<FuzzRewardType>,
-        pub commission: Option<u8>,
-    }
-
-    impl From<FuzzReward> for Reward {
-        fn from(fuzz: FuzzReward) -> Self {
-            Self {
-                pubkey: fuzz.pubkey,
-                lamports: fuzz.lamports,
-                post_balance: fuzz.post_balance,
-                reward_type: fuzz.reward_type.map(Into::into),
-                commission: fuzz.commission,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzTransactionReturnData {
-        pub program_id: [u8; PUBKEY_BYTES],
-        pub data: Vec<u8>,
-    }
-
-    impl From<FuzzTransactionReturnData> for TransactionReturnData {
-        fn from(fuzz: FuzzTransactionReturnData) -> Self {
-            TransactionReturnData {
-                program_id: Pubkey::new_from_array(fuzz.program_id),
-                data: fuzz.data,
-            }
-        }
-    }
-
-    #[derive(Debug, Arbitrary)]
-    pub struct FuzzTransactionStatusMeta {
-        pub status: Result<(), FuzzTransactionError>,
-        pub fee: u64,
-        pub pre_balances: Vec<u64>,
-        pub post_balances: Vec<u64>,
-        pub inner_instructions: Option<Vec<FuzzInnerInstructions>>,
-        pub log_messages: Option<Vec<String>>,
-        pub pre_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
-        pub post_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
-        pub rewards: Option<Vec<FuzzReward>>,
-        pub loaded_addresses: super::FuzzLoadedAddresses,
-        pub return_data: Option<FuzzTransactionReturnData>,
-        pub compute_units_consumed: Option<u64>,
     }
 }
 
 #[derive(Debug, Arbitrary)]
-pub struct FuzzTransaction<'a> {
-    pub signature: [u8; SIGNATURE_BYTES],
-    pub is_vote: bool,
-    pub transaction: sanitized::FuzzSanitizedTransaction<'a>,
-    pub transaction_status_meta: status_meta::FuzzTransactionStatusMeta,
-    pub index: usize,
+enum FuzzSanitizedMessage {
+    Legacy(FuzzLegacyMessage),
+    V0(FuzzLoadedMessage),
+}
+
+impl From<FuzzSanitizedMessage> for VersionedMessage {
+    fn from(fuzz: FuzzSanitizedMessage) -> Self {
+        match fuzz {
+            FuzzSanitizedMessage::Legacy(legacy) => Self::Legacy(legacy.message.into()),
+            FuzzSanitizedMessage::V0(v0) => Self::V0(v0.message.into()),
+        }
+    }
 }
 
 #[derive(Debug, Arbitrary)]
-pub struct FuzzTransactionMessage<'a> {
-    pub slot: u64,
-    pub transaction: FuzzTransaction<'a>,
+struct FuzzSanitizedTransaction {
+    message: FuzzSanitizedMessage,
+    message_hash: [u8; HASH_BYTES],
+    is_simple_vote_tx: bool,
+    // signatures: Vec<[u8; SIGNATURE_BYTES]>,
+}
+
+impl TryFrom<FuzzSanitizedTransaction> for SanitizedTransaction {
+    type Error = ();
+
+    fn try_from(fuzz: FuzzSanitizedTransaction) -> Result<Self, Self::Error> {
+        let address_loader = match &fuzz.message {
+            FuzzSanitizedMessage::Legacy(_) => SimpleAddressLoader::Disabled,
+            FuzzSanitizedMessage::V0(msg) => {
+                SimpleAddressLoader::Enabled(msg.loaded_addresses.clone().into())
+            }
+        };
+
+        let versioned_transaction =
+            VersionedTransaction::try_new(fuzz.message.into(), &SimpleSigner).map_err(|_| ())?;
+        let sanitized_versioned_transaction =
+            SanitizedVersionedTransaction::try_new(versioned_transaction).map_err(|_| ())?;
+
+        SanitizedTransaction::try_new(
+            sanitized_versioned_transaction,
+            Hash::new_from_array(fuzz.message_hash),
+            fuzz.is_simple_vote_tx,
+            address_loader,
+            &HashSet::new(),
+        )
+        .map_err(|_| ())
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+enum FuzzInstructionError {
+    GenericError,
+    InvalidArgument,
+    InvalidInstructionData,
+    InvalidAccountData,
+    AccountDataTooSmall,
+    InsufficientFunds,
+    IncorrectProgramId,
+    MissingRequiredSignature,
+    AccountAlreadyInitialized,
+    UninitializedAccount,
+    UnbalancedInstruction,
+    ModifiedProgramId,
+    ExternalAccountLamportSpend,
+    ExternalAccountDataModified,
+    ReadonlyLamportChange,
+    ReadonlyDataModified,
+    DuplicateAccountIndex,
+    ExecutableModified,
+    RentEpochModified,
+    NotEnoughAccountKeys,
+    AccountDataSizeChanged,
+    AccountNotExecutable,
+    AccountBorrowFailed,
+    AccountBorrowOutstanding,
+    DuplicateAccountOutOfSync,
+    Custom(u32),
+    InvalidError,
+    ExecutableDataModified,
+    ExecutableLamportChange,
+    ExecutableAccountNotRentExempt,
+    UnsupportedProgramId,
+    CallDepth,
+    MissingAccount,
+    ReentrancyNotAllowed,
+    MaxSeedLengthExceeded,
+    InvalidSeeds,
+    InvalidRealloc,
+    ComputationalBudgetExceeded,
+    PrivilegeEscalation,
+    ProgramEnvironmentSetupFailure,
+    ProgramFailedToComplete,
+    ProgramFailedToCompile,
+    Immutable,
+    IncorrectAuthority,
+    BorshIoError(String),
+    AccountNotRentExempt,
+    InvalidAccountOwner,
+    ArithmeticOverflow,
+    UnsupportedSysvar,
+    IllegalOwner,
+    MaxAccountsDataAllocationsExceeded,
+    MaxAccountsExceeded,
+    MaxInstructionTraceLengthExceeded,
+    BuiltinProgramsMustConsumeComputeUnits,
+}
+
+impl From<FuzzInstructionError> for InstructionError {
+    fn from(fuzz: FuzzInstructionError) -> Self {
+        use FuzzInstructionError::*;
+        match fuzz {
+            GenericError => Self::GenericError,
+            InvalidArgument => Self::InvalidArgument,
+            InvalidInstructionData => Self::InvalidInstructionData,
+            InvalidAccountData => Self::InvalidAccountData,
+            AccountDataTooSmall => Self::AccountDataTooSmall,
+            InsufficientFunds => Self::InsufficientFunds,
+            IncorrectProgramId => Self::IncorrectProgramId,
+            MissingRequiredSignature => Self::MissingRequiredSignature,
+            AccountAlreadyInitialized => Self::AccountAlreadyInitialized,
+            UninitializedAccount => Self::UninitializedAccount,
+            UnbalancedInstruction => Self::UnbalancedInstruction,
+            ModifiedProgramId => Self::ModifiedProgramId,
+            ExternalAccountLamportSpend => Self::ExternalAccountLamportSpend,
+            ExternalAccountDataModified => Self::ExternalAccountDataModified,
+            ReadonlyLamportChange => Self::ReadonlyLamportChange,
+            ReadonlyDataModified => Self::ReadonlyDataModified,
+            DuplicateAccountIndex => Self::DuplicateAccountIndex,
+            ExecutableModified => Self::ExecutableModified,
+            RentEpochModified => Self::RentEpochModified,
+            NotEnoughAccountKeys => Self::NotEnoughAccountKeys,
+            AccountDataSizeChanged => Self::AccountDataSizeChanged,
+            AccountNotExecutable => Self::AccountNotExecutable,
+            AccountBorrowFailed => Self::AccountBorrowFailed,
+            AccountBorrowOutstanding => Self::AccountBorrowOutstanding,
+            DuplicateAccountOutOfSync => Self::DuplicateAccountOutOfSync,
+            Custom(value) => Self::Custom(value),
+            InvalidError => Self::InvalidError,
+            ExecutableDataModified => Self::ExecutableDataModified,
+            ExecutableLamportChange => Self::ExecutableLamportChange,
+            ExecutableAccountNotRentExempt => Self::ExecutableAccountNotRentExempt,
+            UnsupportedProgramId => Self::UnsupportedProgramId,
+            CallDepth => Self::CallDepth,
+            MissingAccount => Self::MissingAccount,
+            ReentrancyNotAllowed => Self::ReentrancyNotAllowed,
+            MaxSeedLengthExceeded => Self::MaxSeedLengthExceeded,
+            InvalidSeeds => Self::InvalidSeeds,
+            InvalidRealloc => Self::InvalidRealloc,
+            ComputationalBudgetExceeded => Self::ComputationalBudgetExceeded,
+            PrivilegeEscalation => Self::PrivilegeEscalation,
+            ProgramEnvironmentSetupFailure => Self::ProgramEnvironmentSetupFailure,
+            ProgramFailedToComplete => Self::ProgramFailedToComplete,
+            ProgramFailedToCompile => Self::ProgramFailedToCompile,
+            Immutable => Self::Immutable,
+            IncorrectAuthority => Self::IncorrectAuthority,
+            BorshIoError(value) => Self::BorshIoError(value),
+            AccountNotRentExempt => Self::AccountNotRentExempt,
+            InvalidAccountOwner => Self::InvalidAccountOwner,
+            ArithmeticOverflow => Self::ArithmeticOverflow,
+            UnsupportedSysvar => Self::UnsupportedSysvar,
+            IllegalOwner => Self::IllegalOwner,
+            MaxAccountsDataAllocationsExceeded => Self::MaxAccountsDataAllocationsExceeded,
+            MaxAccountsExceeded => Self::MaxAccountsExceeded,
+            MaxInstructionTraceLengthExceeded => Self::MaxInstructionTraceLengthExceeded,
+            BuiltinProgramsMustConsumeComputeUnits => Self::BuiltinProgramsMustConsumeComputeUnits,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+enum FuzzTransactionError {
+    AccountInUse,
+    AccountLoadedTwice,
+    AccountNotFound,
+    ProgramAccountNotFound,
+    InsufficientFundsForFee,
+    InvalidAccountForFee,
+    AlreadyProcessed,
+    BlockhashNotFound,
+    InstructionError(u8, FuzzInstructionError),
+    CallChainTooDeep,
+    MissingSignatureForFee,
+    InvalidAccountIndex,
+    SignatureFailure,
+    InvalidProgramForExecution,
+    SanitizeFailure,
+    ClusterMaintenance,
+    AccountBorrowOutstanding,
+    WouldExceedMaxBlockCostLimit,
+    UnsupportedVersion,
+    InvalidWritableAccount,
+    WouldExceedMaxAccountCostLimit,
+    WouldExceedAccountDataBlockLimit,
+    TooManyAccountLocks,
+    AddressLookupTableNotFound,
+    InvalidAddressLookupTableOwner,
+    InvalidAddressLookupTableData,
+    InvalidAddressLookupTableIndex,
+    InvalidRentPayingAccount,
+    WouldExceedMaxVoteCostLimit,
+    WouldExceedAccountDataTotalLimit,
+    DuplicateInstruction(u8),
+    InsufficientFundsForRent { account_index: u8 },
+    MaxLoadedAccountsDataSizeExceeded,
+    InvalidLoadedAccountsDataSizeLimit,
+    ResanitizationNeeded,
+    ProgramExecutionTemporarilyRestricted { account_index: u8 },
+    UnbalancedTransaction,
+    ProgramCacheHitMaxLimit,
+}
+
+impl From<FuzzTransactionError> for TransactionError {
+    fn from(fuzz: FuzzTransactionError) -> Self {
+        use FuzzTransactionError::*;
+        match fuzz {
+            AccountInUse => Self::AccountInUse,
+            AccountLoadedTwice => Self::AccountLoadedTwice,
+            AccountNotFound => Self::AccountNotFound,
+            ProgramAccountNotFound => Self::ProgramAccountNotFound,
+            InsufficientFundsForFee => Self::InsufficientFundsForFee,
+            InvalidAccountForFee => Self::InvalidAccountForFee,
+            AlreadyProcessed => Self::AlreadyProcessed,
+            BlockhashNotFound => Self::BlockhashNotFound,
+            InstructionError(value, instruction_error) => {
+                Self::InstructionError(value, instruction_error.into())
+            }
+            CallChainTooDeep => Self::CallChainTooDeep,
+            MissingSignatureForFee => Self::MissingSignatureForFee,
+            InvalidAccountIndex => Self::InvalidAccountIndex,
+            SignatureFailure => Self::SignatureFailure,
+            InvalidProgramForExecution => Self::InvalidProgramForExecution,
+            SanitizeFailure => Self::SanitizeFailure,
+            ClusterMaintenance => Self::ClusterMaintenance,
+            AccountBorrowOutstanding => Self::AccountBorrowOutstanding,
+            WouldExceedMaxBlockCostLimit => Self::WouldExceedMaxBlockCostLimit,
+            UnsupportedVersion => Self::UnsupportedVersion,
+            InvalidWritableAccount => Self::InvalidWritableAccount,
+            WouldExceedMaxAccountCostLimit => Self::WouldExceedMaxAccountCostLimit,
+            WouldExceedAccountDataBlockLimit => Self::WouldExceedAccountDataBlockLimit,
+            TooManyAccountLocks => Self::TooManyAccountLocks,
+            AddressLookupTableNotFound => Self::AddressLookupTableNotFound,
+            InvalidAddressLookupTableOwner => Self::InvalidAddressLookupTableOwner,
+            InvalidAddressLookupTableData => Self::InvalidAddressLookupTableData,
+            InvalidAddressLookupTableIndex => Self::InvalidAddressLookupTableIndex,
+            InvalidRentPayingAccount => Self::InvalidRentPayingAccount,
+            WouldExceedMaxVoteCostLimit => Self::WouldExceedMaxVoteCostLimit,
+            WouldExceedAccountDataTotalLimit => Self::WouldExceedAccountDataTotalLimit,
+            DuplicateInstruction(value) => Self::DuplicateInstruction(value),
+            InsufficientFundsForRent { account_index } => {
+                Self::InsufficientFundsForRent { account_index }
+            }
+            MaxLoadedAccountsDataSizeExceeded => Self::MaxLoadedAccountsDataSizeExceeded,
+            InvalidLoadedAccountsDataSizeLimit => Self::InvalidLoadedAccountsDataSizeLimit,
+            ResanitizationNeeded => Self::ResanitizationNeeded,
+            ProgramExecutionTemporarilyRestricted { account_index } => {
+                Self::ProgramExecutionTemporarilyRestricted { account_index }
+            }
+            UnbalancedTransaction => Self::UnbalancedTransaction,
+            ProgramCacheHitMaxLimit => Self::ProgramCacheHitMaxLimit,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzInnerInstruction {
+    instruction: FuzzCompiledInstruction,
+    stack_height: Option<u32>,
+}
+
+impl From<FuzzInnerInstruction> for InnerInstruction {
+    fn from(fuzz: FuzzInnerInstruction) -> Self {
+        Self {
+            instruction: fuzz.instruction.into(),
+            stack_height: fuzz.stack_height,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzInnerInstructions {
+    index: u8,
+    instructions: Vec<FuzzInnerInstruction>,
+}
+
+impl From<FuzzInnerInstructions> for InnerInstructions {
+    fn from(fuzz: FuzzInnerInstructions) -> Self {
+        Self {
+            index: fuzz.index,
+            instructions: fuzz.instructions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzUiTokenAmount {
+    ui_amount: Option<f64>,
+    decimals: u8,
+    amount: String,
+    ui_amount_string: String,
+}
+
+impl From<FuzzUiTokenAmount> for UiTokenAmount {
+    fn from(fuzz: FuzzUiTokenAmount) -> Self {
+        Self {
+            ui_amount: fuzz.ui_amount,
+            amount: fuzz.amount,
+            decimals: fuzz.decimals,
+            ui_amount_string: fuzz.ui_amount_string,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzTransactionTokenBalance {
+    account_index: u8,
+    mint: String,
+    ui_token_amount: FuzzUiTokenAmount,
+    owner: String,
+    program_id: String,
+}
+
+impl From<FuzzTransactionTokenBalance> for TransactionTokenBalance {
+    fn from(fuzz: FuzzTransactionTokenBalance) -> Self {
+        Self {
+            account_index: fuzz.account_index,
+            mint: fuzz.mint,
+            ui_token_amount: fuzz.ui_token_amount.into(),
+            owner: fuzz.owner,
+            program_id: fuzz.program_id,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+enum FuzzRewardType {
+    Fee,
+    Rent,
+    Staking,
+    Voting,
+}
+
+impl From<FuzzRewardType> for RewardType {
+    fn from(fuzz: FuzzRewardType) -> Self {
+        match fuzz {
+            FuzzRewardType::Fee => RewardType::Fee,
+            FuzzRewardType::Rent => RewardType::Rent,
+            FuzzRewardType::Staking => RewardType::Staking,
+            FuzzRewardType::Voting => RewardType::Voting,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzReward {
+    pubkey: String,
+    lamports: i64,
+    post_balance: u64,
+    reward_type: Option<FuzzRewardType>,
+    commission: Option<u8>,
+}
+
+impl From<FuzzReward> for Reward {
+    fn from(fuzz: FuzzReward) -> Self {
+        Self {
+            pubkey: fuzz.pubkey,
+            lamports: fuzz.lamports,
+            post_balance: fuzz.post_balance,
+            reward_type: fuzz.reward_type.map(Into::into),
+            commission: fuzz.commission,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzTransactionReturnData {
+    program_id: [u8; PUBKEY_BYTES],
+    data: Vec<u8>,
+}
+
+impl From<FuzzTransactionReturnData> for TransactionReturnData {
+    fn from(fuzz: FuzzTransactionReturnData) -> Self {
+        Self {
+            program_id: Pubkey::new_from_array(fuzz.program_id),
+            data: fuzz.data,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzTransactionStatusMeta {
+    status: Result<(), FuzzTransactionError>,
+    fee: u64,
+    pre_balances: Vec<u64>,
+    post_balances: Vec<u64>,
+    inner_instructions: Option<Vec<FuzzInnerInstructions>>,
+    log_messages: Option<Vec<String>>,
+    pre_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
+    post_token_balances: Option<Vec<FuzzTransactionTokenBalance>>,
+    rewards: Option<Vec<FuzzReward>>,
+    loaded_addresses: FuzzLoadedAddresses,
+    return_data: Option<FuzzTransactionReturnData>,
+    compute_units_consumed: Option<u64>,
+}
+
+impl From<FuzzTransactionStatusMeta> for TransactionStatusMeta {
+    fn from(fuzz: FuzzTransactionStatusMeta) -> Self {
+        Self {
+            status: fuzz.status.map_err(Into::into),
+            fee: fuzz.fee,
+            pre_balances: fuzz.pre_balances,
+            post_balances: fuzz.post_balances,
+            inner_instructions: fuzz
+                .inner_instructions
+                .map(|inner_instructions| inner_instructions.into_iter().map(Into::into).collect()),
+            log_messages: fuzz.log_messages,
+            pre_token_balances: fuzz
+                .pre_token_balances
+                .map(|pre_token_balances| pre_token_balances.into_iter().map(Into::into).collect()),
+            post_token_balances: fuzz.post_token_balances.map(|post_token_balances| {
+                post_token_balances.into_iter().map(Into::into).collect()
+            }),
+            rewards: fuzz
+                .rewards
+                .map(|rewards| rewards.into_iter().map(Into::into).collect()),
+            loaded_addresses: fuzz.loaded_addresses.into(),
+            return_data: fuzz.return_data.map(Into::into),
+            compute_units_consumed: fuzz.compute_units_consumed,
+        }
+    }
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzTransaction {
+    signature: [u8; SIGNATURE_BYTES],
+    is_vote: bool,
+    transaction: FuzzSanitizedTransaction,
+    transaction_status_meta: FuzzTransactionStatusMeta,
+    index: usize,
+}
+
+#[derive(Debug, Arbitrary)]
+struct FuzzTransactionMessage {
+    slot: u64,
+    transaction: FuzzTransaction,
 }
 
 libfuzzer_sys::fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
-    let versioned_message = fuzz_message.transaction.transaction.message.into();
-    let simple_signer = signer::SimpleSigner;
-    let versioned_transaction = VersionedTransaction::try_new(versioned_message, &simple_signer)
-        .expect("failed to define `VersionedTransaction`");
-    let sanitized_versioned_transaction =
-        SanitizedVersionedTransaction::try_new(versioned_transaction)
-            .expect("failed to define `SanitizedVersionedTransaction`");
-    let sanitized_transaction = SanitizedTransaction::try_new(
-        sanitized_versioned_transaction,
-        Hash::new_from_array(fuzz_message.transaction.transaction.message_hash),
-        fuzz_message.transaction.transaction.is_simple_vote_tx,
-        SimpleAddressLoader::Disabled,
-        &HashSet::new(),
-    )
-    .expect("failed to define `SanitizedTransaction`");
-
-    let inner_instructions = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .inner_instructions
-        .map(|inner_instructions| inner_instructions.into_iter().map(Into::into).collect());
-    let pre_token_balances = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .pre_token_balances
-        .map(|pre_token_balances| pre_token_balances.into_iter().map(Into::into).collect());
-    let post_token_balances = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .post_token_balances
-        .map(|post_token_balances| post_token_balances.into_iter().map(Into::into).collect());
-    let rewards = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .rewards
-        .map(|rewards| rewards.into_iter().map(Into::into).collect::<Vec<_>>());
-    let loaded_addresses = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .loaded_addresses
-        .into();
-    let return_data = fuzz_message
-        .transaction
-        .transaction_status_meta
-        .return_data
-        .map(Into::into);
-    let transaction_status_meta = solana_transaction_status::TransactionStatusMeta {
-        status: match fuzz_message.transaction.transaction_status_meta.status {
-            Ok(_) => Ok(()),
-            Err(_) => Err(TransactionError::UnsupportedVersion),
-        },
-        fee: fuzz_message.transaction.transaction_status_meta.fee,
-        pre_balances: fuzz_message
-            .transaction
-            .transaction_status_meta
-            .pre_balances,
-        post_balances: fuzz_message
-            .transaction
-            .transaction_status_meta
-            .post_balances,
-        inner_instructions,
-        log_messages: fuzz_message
-            .transaction
-            .transaction_status_meta
-            .log_messages,
-        pre_token_balances,
-        post_token_balances,
-        rewards,
-        loaded_addresses,
-        return_data,
-        compute_units_consumed: fuzz_message
-            .transaction
-            .transaction_status_meta
-            .compute_units_consumed,
+    let Ok(transaction) = fuzz_message.transaction.transaction.try_into() else {
+        return;
     };
 
     let replica = ReplicaTransactionInfoV2 {
         signature: &Signature::from(fuzz_message.transaction.signature),
         is_vote: fuzz_message.transaction.is_vote,
-        transaction: &sanitized_transaction,
-        transaction_status_meta: &transaction_status_meta,
+        transaction: &transaction,
+        transaction_status_meta: &fuzz_message.transaction.transaction_status_meta.into(),
         index: fuzz_message.transaction.index,
     };
 
