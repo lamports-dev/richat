@@ -128,6 +128,10 @@ impl QuicServer {
                         Ok(message) => next_message = Some(message),
                         Err(error) => {
                             error!("#{id}: failed to get message: {error}");
+                            if error == RecvError::Lagged {
+                                metrics::connections_lagged_inc(metrics::ConnectionsTransport::Quic);
+                            }
+
                             if streams.is_empty() {
                                 match set.join_next().await {
                                     Some(Ok(Ok((msg_id, stream)))) => {

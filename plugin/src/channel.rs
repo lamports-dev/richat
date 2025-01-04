@@ -322,7 +322,7 @@ impl Receiver {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum RecvError {
     #[error("channel lagged")]
     Lagged,

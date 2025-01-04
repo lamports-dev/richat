@@ -88,6 +88,10 @@ impl TcpServer {
                 }
                 Err(error) => {
                     error!("#{id}: failed to get message: {error}");
+                    if error == RecvError::Lagged {
+                        metrics::connections_lagged_inc(metrics::ConnectionsTransport::Quic);
+                    }
+
                     let msg = QuicSubscribeClose {
                         error: match error {
                             RecvError::Lagged => QuicSubscribeCloseError::Lagged,

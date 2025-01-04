@@ -45,6 +45,11 @@ lazy_static::lazy_static! {
         Opts::new("connections_total", "Total number of connections"),
         &["transport"]
     ).unwrap();
+
+    static ref CONNECTIONS_LAGGED_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("connections_lagged_total", "Total number of lagged connections"),
+        &["transport"]
+    ).unwrap();
 }
 
 pub async fn spawn_server(
@@ -67,6 +72,7 @@ pub async fn spawn_server(
         register!(CHANNEL_SLOTS_TOTAL);
         register!(CHANNEL_BYTES_TOTAL);
         register!(CONNECTIONS_TOTAL);
+        register!(CONNECTIONS_LAGGED_TOTAL);
 
         VERSION
             .with_label_values(&[
@@ -151,4 +157,10 @@ pub fn connections_total_dec(transport: ConnectionsTransport) {
     CONNECTIONS_TOTAL
         .with_label_values(&[transport.as_str()])
         .dec();
+}
+
+pub fn connections_lagged_inc(transport: ConnectionsTransport) {
+    CONNECTIONS_LAGGED_TOTAL
+        .with_label_values(&[transport.as_str()])
+        .inc();
 }
