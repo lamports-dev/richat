@@ -1,5 +1,8 @@
 use {
-    crate::channel::{Receiver, RecvError, Sender, SubscribeError},
+    crate::{
+        channel::{Receiver, RecvError, Sender, SubscribeError},
+        metrics,
+    },
     log::{error, info},
     prost::Message,
     richat_shared::transports::{
@@ -49,11 +52,13 @@ impl TcpServer {
 
                         let messages = messages.clone();
                         tokio::spawn(async move {
+                            metrics::connections_total_add(metrics::ConnectionsTransport::Tcp);
                             if let Err(error) = Self::handle_incoming(id, socket, messages).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
                             }
+                            metrics::connections_total_dec(metrics::ConnectionsTransport::Tcp);
                         });
                         id += 1;
                     }

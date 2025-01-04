@@ -1,5 +1,8 @@
 use {
-    crate::channel::{Receiver, RecvError, Sender, SubscribeError},
+    crate::{
+        channel::{Receiver, RecvError, Sender, SubscribeError},
+        metrics,
+    },
     futures::future::{pending, FutureExt},
     log::{error, info},
     prost::Message,
@@ -53,6 +56,7 @@ impl QuicServer {
                             } else {
                                 info!("#{id}: connection closed");
                             }
+                            metrics::connections_total_dec(metrics::ConnectionsTransport::Quic);
                         });
                         id += 1;
                     }

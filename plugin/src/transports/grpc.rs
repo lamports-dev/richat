@@ -132,7 +132,7 @@ pub struct ReceiverStream {
 
 impl ReceiverStream {
     fn new(rx: Receiver, id: u64) -> Self {
-        metrics::grpc_connection_new();
+        metrics::connections_total_add(metrics::ConnectionsTransport::Grpc);
         Self { rx, id }
     }
 }
@@ -140,7 +140,7 @@ impl ReceiverStream {
 impl Drop for ReceiverStream {
     fn drop(&mut self) {
         info!("#{}: send stream closed", self.id);
-        metrics::grpc_connection_drop();
+        metrics::connections_total_dec(metrics::ConnectionsTransport::Grpc);
     }
 }
 

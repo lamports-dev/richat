@@ -40,9 +40,10 @@ lazy_static::lazy_static! {
         "channel_bytes_total", "Total size of all messages in channel"
     ).unwrap();
 
-    // gRPC
-    static ref GRPC_CONNECTIONS_TOTAL: IntGauge = IntGauge::new(
-        "grpc_connections_total", "Total number of connections"
+    // Connections
+    static ref CONNECTIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("connections_total", "Total number of connections"),
+        &["transport"]
     ).unwrap();
 }
 
@@ -65,7 +66,7 @@ pub async fn spawn_server(
         register!(CHANNEL_MESSAGES_TOTAL);
         register!(CHANNEL_SLOTS_TOTAL);
         register!(CHANNEL_BYTES_TOTAL);
-        register!(GRPC_CONNECTIONS_TOTAL);
+        register!(CONNECTIONS_TOTAL);
 
         VERSION
             .with_label_values(&[
@@ -123,10 +124,31 @@ pub fn channel_bytes_set(count: usize) {
     CHANNEL_BYTES_TOTAL.set(count as i64)
 }
 
-pub fn grpc_connection_new() {
-    GRPC_CONNECTIONS_TOTAL.inc();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionsTransport {
+    Grpc,
+    Quic,
+    Tcp,
 }
 
-pub fn grpc_connection_drop() {
-    GRPC_CONNECTIONS_TOTAL.dec();
+impl ConnectionsTransport {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Grpc => "grpc",
+            Self::Quic => "quic",
+            Self::Tcp => "tcp",
+        }
+    }
+}
+
+pub fn connections_total_add(transport: ConnectionsTransport) {
+    CONNECTIONS_TOTAL
+        .with_label_values(&[transport.as_str()])
+        .inc();
+}
+
+pub fn connections_total_dec(transport: ConnectionsTransport) {
+    CONNECTIONS_TOTAL
+        .with_label_values(&[transport.as_str()])
+        .dec();
 }
