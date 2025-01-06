@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
-        metrics,
+        metrics::{self, ConnectionsTransport},
     },
     log::{error, info},
     prost::Message,
@@ -80,9 +80,12 @@ impl TcpServer {
             return Ok(());
         };
 
+        let mut slot_lag = metrics::connections_slot_lag_start(ConnectionsTransport::Tcp)
+            .ok_or(anyhow::anyhow!("metrics not initialized"))?;
         loop {
             match rx.recv().await {
-                Ok(message) => {
+                Ok((slot, message)) => {
+                    slot_lag.observe(slot);
                     stream.write_u64(message.len() as u64).await?;
                     stream.write_all(&message).await?;
                 }

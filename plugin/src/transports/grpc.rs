@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
-        metrics,
+        metrics::{self, ConnectionSlotLag, ConnectionsTransport},
         version::VERSION,
     },
     futures::stream::Stream,
@@ -105,7 +105,11 @@ impl gen::geyser_server::Geyser for GrpcServer {
                     .map(|slot| format!("slot {slot}").into())
                     .unwrap_or(Cow::Borrowed("latest"));
                 info!("#{id}: subscribed from {pos}");
-                Ok(Response::new(ReceiverStream::new(rx, id)))
+                if let Some(rx) = ReceiverStream::new(rx, id) {
+                    Ok(Response::new(rx))
+                } else {
+                    Err(Status::internal("metrics not initialized"))
+                }
             }
             Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),
             Err(SubscribeError::SlotNotAvailable { first_available }) => Err(
@@ -128,12 +132,14 @@ impl gen::geyser_server::Geyser for GrpcServer {
 pub struct ReceiverStream {
     rx: Receiver,
     id: u64,
+    slot_lag: ConnectionSlotLag,
 }
 
 impl ReceiverStream {
-    fn new(rx: Receiver, id: u64) -> Self {
+    fn new(rx: Receiver, id: u64) -> Option<Self> {
         metrics::connections_total_add(metrics::ConnectionsTransport::Grpc);
-        Self { rx, id }
+        let slot_lag = metrics::connections_slot_lag_start(ConnectionsTransport::Grpc)?;
+        Some(Self { rx, id, slot_lag })
     }
 }
 
@@ -149,7 +155,10 @@ impl Stream for ReceiverStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.rx.recv_ref(cx.waker()) {
-            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
+            Ok(Some((slot, data))) => {
+                self.slot_lag.observe(slot);
+                Poll::Ready(Some(Ok(data)))
+            }
             Ok(None) => Poll::Pending,
             Err(error) => {
                 error!("#{}: failed to get message: {error}", self.id);

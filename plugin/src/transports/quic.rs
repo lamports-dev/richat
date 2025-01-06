@@ -1,7 +1,7 @@
 use {
     crate::{
-        channel::{Receiver, RecvError, Sender, SubscribeError},
-        metrics,
+        channel::{Receiver, ReceiverItem, RecvError, Sender, SubscribeError},
+        metrics::{self, ConnectionsTransport},
     },
     futures::future::{pending, FutureExt},
     log::{error, info},
@@ -16,7 +16,6 @@ use {
         collections::{BTreeSet, VecDeque},
         future::Future,
         io,
-        sync::Arc,
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -61,6 +60,7 @@ impl QuicServer {
                         id += 1;
                     }
                     () = &mut shutdown => {
+                        endpoint.close(0u32.into(), b"shutdown");
                         info!("shutdown");
                         break
                     },
@@ -89,14 +89,17 @@ impl QuicServer {
             streams.push_back(conn.open_uni().await?);
         }
 
+        let mut slot_lag = metrics::connections_slot_lag_start(ConnectionsTransport::Quic)
+            .ok_or(anyhow::anyhow!("metrics not initialized"))?;
         let mut msg_id = 0;
         let mut msg_ids = BTreeSet::new();
-        let mut next_message: Option<Arc<Vec<u8>>> = None;
+        let mut next_message: Option<ReceiverItem> = None;
         let mut set = JoinSet::new();
         loop {
             if msg_id - msg_ids.first().copied().unwrap_or(msg_id) < max_backlog {
-                if let Some(message) = next_message.take() {
+                if let Some((slot, message)) = next_message.take() {
                     if let Some(mut stream) = streams.pop_front() {
+                        slot_lag.observe(slot);
                         msg_ids.insert(msg_id);
                         set.spawn(async move {
                             stream.write_u64(msg_id).await?;
@@ -106,7 +109,7 @@ impl QuicServer {
                         });
                         msg_id += 1;
                     } else {
-                        next_message = Some(message);
+                        next_message = Some((slot, message));
                     }
                 }
             }
