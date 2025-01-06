@@ -62,11 +62,6 @@ impl Sender {
         // acquire state lock
         let mut state = self.shared.state_lock();
 
-        // update tip for slot lag metric
-        if let ProtobufMessage::Slot { slot, .. } = &message {
-            metrics::connections_slot_lag_new_tip(*slot);
-        }
-
         // In March 2023 in Triton One we noticed that sometimes we do not receive
         // slots with Confirmed status, I'm not sure that this still a case but for
         // safety I added this hack
@@ -281,7 +276,7 @@ pub enum SubscribeError {
     SlotNotAvailable { first_available: Slot },
 }
 
-pub type ReceiverItem = (Slot, Arc<Vec<u8>>);
+pub type ReceiverItem = Arc<Vec<u8>>;
 
 #[derive(Debug)]
 pub struct Receiver {
@@ -325,8 +320,7 @@ impl Receiver {
         }
 
         self.next = self.next.wrapping_add(1);
-        let data = item.data.clone().ok_or(RecvError::Lagged)?;
-        Ok(Some((item.slot, data)))
+        item.data.clone().ok_or(RecvError::Lagged).map(Some)
     }
 }
 

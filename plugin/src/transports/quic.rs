@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::{Receiver, ReceiverItem, RecvError, Sender, SubscribeError},
-        metrics::{self, ConnectionsTransport},
+        metrics,
     },
     futures::future::{pending, FutureExt},
     log::{error, info},
@@ -89,17 +89,14 @@ impl QuicServer {
             streams.push_back(conn.open_uni().await?);
         }
 
-        let mut slot_lag = metrics::connections_slot_lag_start(ConnectionsTransport::Quic)
-            .ok_or(anyhow::anyhow!("metrics not initialized"))?;
         let mut msg_id = 0;
         let mut msg_ids = BTreeSet::new();
         let mut next_message: Option<ReceiverItem> = None;
         let mut set = JoinSet::new();
         loop {
             if msg_id - msg_ids.first().copied().unwrap_or(msg_id) < max_backlog {
-                if let Some((slot, message)) = next_message.take() {
+                if let Some(message) = next_message.take() {
                     if let Some(mut stream) = streams.pop_front() {
-                        slot_lag.observe(slot);
                         msg_ids.insert(msg_id);
                         set.spawn(async move {
                             stream.write_u64(msg_id).await?;
@@ -109,7 +106,7 @@ impl QuicServer {
                         });
                         msg_id += 1;
                     } else {
-                        next_message = Some((slot, message));
+                        next_message = Some(message);
                     }
                 }
             }

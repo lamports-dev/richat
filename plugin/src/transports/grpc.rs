@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::{Receiver, RecvError, Sender, SubscribeError},
-        metrics::{self, ConnectionSlotLag, ConnectionsTransport},
+        metrics,
         version::VERSION,
     },
     futures::stream::Stream,
@@ -132,14 +132,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
 pub struct ReceiverStream {
     rx: Receiver,
     id: u64,
-    slot_lag: ConnectionSlotLag,
 }
 
 impl ReceiverStream {
     fn new(rx: Receiver, id: u64) -> Option<Self> {
         metrics::connections_total_add(metrics::ConnectionsTransport::Grpc);
-        let slot_lag = metrics::connections_slot_lag_start(ConnectionsTransport::Grpc)?;
-        Some(Self { rx, id, slot_lag })
+        Some(Self { rx, id })
     }
 }
 
@@ -155,10 +153,7 @@ impl Stream for ReceiverStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.rx.recv_ref(cx.waker()) {
-            Ok(Some((slot, data))) => {
-                self.slot_lag.observe(slot);
-                Poll::Ready(Some(Ok(data)))
-            }
+            Ok(Some(data)) => Poll::Ready(Some(Ok(data))),
             Ok(None) => Poll::Pending,
             Err(error) => {
                 error!("#{}: failed to get message: {error}", self.id);
