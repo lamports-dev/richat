@@ -153,7 +153,7 @@ impl Stream for ReceiverStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.rx.recv_ref(cx.waker()) {
-            Ok(Some(data)) => Poll::Ready(Some(Ok(data))),
+            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
             Ok(None) => Poll::Pending,
             Err(error) => {
                 error!("#{}: failed to get message: {error}", self.id);
