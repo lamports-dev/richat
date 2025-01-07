@@ -1,0 +1,16 @@
+[package]
+name = "richat-filter"
+version = "2.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+description = "Richat Filters"
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+publish = { workspace = true }
+
+[dependencies]
+
+[lints]
+workspace = true
