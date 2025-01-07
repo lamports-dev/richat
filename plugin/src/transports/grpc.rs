@@ -105,11 +105,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                     .map(|slot| format!("slot {slot}").into())
                     .unwrap_or(Cow::Borrowed("latest"));
                 info!("#{id}: subscribed from {pos}");
-                if let Some(rx) = ReceiverStream::new(rx, id) {
-                    Ok(Response::new(rx))
-                } else {
-                    Err(Status::internal("metrics not initialized"))
-                }
+                Ok(Response::new(ReceiverStream::new(rx, id)))
             }
             Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),
             Err(SubscribeError::SlotNotAvailable { first_available }) => Err(
@@ -135,9 +131,9 @@ pub struct ReceiverStream {
 }
 
 impl ReceiverStream {
-    fn new(rx: Receiver, id: u64) -> Option<Self> {
+    fn new(rx: Receiver, id: u64) -> Self {
         metrics::connections_total_add(metrics::ConnectionsTransport::Grpc);
-        Some(Self { rx, id })
+        Self { rx, id }
     }
 }
 
