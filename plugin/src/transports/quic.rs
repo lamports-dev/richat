@@ -13,9 +13,10 @@ use {
     },
     std::{
         borrow::Cow,
-        collections::{BTreeSet, VecDeque},
+        collections::{BTreeSet, HashSet, VecDeque},
         future::Future,
         io,
+        sync::Arc,
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -36,6 +37,9 @@ impl QuicServer {
         info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
+            let max_recv_streams = config.max_recv_streams;
+            let x_tokens = Arc::new(config.x_tokens);
+
             let mut id = 0;
             tokio::pin!(shutdown);
             loop {
@@ -47,10 +51,11 @@ impl QuicServer {
                         };
 
                         let messages = messages.clone();
+                        let x_tokens = Arc::clone(&x_tokens);
                         tokio::spawn(async move {
                             metrics::connections_total_add(metrics::ConnectionsTransport::Quic);
                             if let Err(error) = Self::handle_incoming(
-                                id, incoming, messages, config.max_recv_streams
+                                id, incoming, messages, max_recv_streams, x_tokens
                             ).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
@@ -75,12 +80,13 @@ impl QuicServer {
         incoming: Incoming,
         messages: Sender,
         max_recv_streams: u32,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
     ) -> anyhow::Result<()> {
         let conn = incoming.await?;
         info!("#{id}: new connection from {:?}", conn.remote_address());
 
         let Some((recv_streams, max_backlog, mut rx)) =
-            Self::handle_request(id, &conn, messages, max_recv_streams).await?
+            Self::handle_request(id, &conn, messages, max_recv_streams, x_tokens).await?
         else {
             return Ok(());
         };
@@ -191,6 +197,7 @@ impl QuicServer {
         conn: &Connection,
         messages: Sender,
         max_recv_streams: u32,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
     ) -> anyhow::Result<Option<(u32, u64, Receiver)>> {
         let (mut send, mut recv) = conn.accept_bi().await?;
 
@@ -198,13 +205,49 @@ impl QuicServer {
         let mut buf = vec![0; size as usize];
         recv.read_exact(buf.as_mut_slice()).await?;
 
-        let QuicSubscribeRequest {
+        let request = QuicSubscribeRequest::decode(buf.as_slice())?;
+        let (msg, result) =
+            Self::validate_request(id, messages, request, max_recv_streams, x_tokens);
+
+        let buf = msg.encode_to_vec();
+        send.write_u64(buf.len() as u64).await?;
+        send.write_all(&buf).await?;
+        send.flush().await?;
+
+        Ok(result)
+    }
+
+    fn validate_request(
+        id: u64,
+        messages: Sender,
+        QuicSubscribeRequest {
             request,
             recv_streams,
             max_backlog,
-        } = QuicSubscribeRequest::decode(buf.as_slice())?;
-        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
-        let (msg, result) = if recv_streams == 0 || recv_streams > max_recv_streams {
+            x_token,
+        }: QuicSubscribeRequest,
+        max_recv_streams: u32,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
+    ) -> (QuicSubscribeResponse, Option<(u32, u64, Receiver)>) {
+        // verify access token
+        if !x_tokens.is_empty() {
+            if let Some(error) = match x_token {
+                Some(x_token) if !x_tokens.contains(&x_token) => {
+                    Some(QuicSubscribeResponseError::XTokenRequired as i32)
+                }
+                None => Some(QuicSubscribeResponseError::XTokenInvalid as i32),
+                _ => None,
+            } {
+                let msg = QuicSubscribeResponse {
+                    error: Some(error),
+                    ..Default::default()
+                };
+                return (msg, None);
+            }
+        }
+
+        // validate number of streams
+        if recv_streams == 0 || recv_streams > max_recv_streams {
             let code = if recv_streams == 0 {
                 QuicSubscribeResponseError::ZeroRecvStreams
             } else {
@@ -215,46 +258,40 @@ impl QuicServer {
                 max_recv_streams: Some(max_recv_streams),
                 ..Default::default()
             };
-            (msg, None)
-        } else {
-            match messages.subscribe(replay_from_slot) {
-                Ok(rx) => {
-                    let pos = replay_from_slot
-                        .map(|slot| format!("slot {slot}").into())
-                        .unwrap_or(Cow::Borrowed("latest"));
-                    info!("#{id}: subscribed from {pos}");
-                    (
-                        QuicSubscribeResponse::default(),
-                        Some((
-                            recv_streams,
-                            max_backlog.map(|x| x as u64).unwrap_or(u64::MAX),
-                            rx,
-                        )),
-                    )
-                }
-                Err(SubscribeError::NotInitialized) => {
-                    let msg = QuicSubscribeResponse {
-                        error: Some(QuicSubscribeResponseError::NotInitialized as i32),
-                        ..Default::default()
-                    };
-                    (msg, None)
-                }
-                Err(SubscribeError::SlotNotAvailable { first_available }) => {
-                    let msg = QuicSubscribeResponse {
-                        error: Some(QuicSubscribeResponseError::SlotNotAvailable as i32),
-                        first_available_slot: Some(first_available),
-                        ..Default::default()
-                    };
-                    (msg, None)
-                }
+            return (msg, None);
+        }
+
+        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
+        match messages.subscribe(replay_from_slot) {
+            Ok(rx) => {
+                let pos = replay_from_slot
+                    .map(|slot| format!("slot {slot}").into())
+                    .unwrap_or(Cow::Borrowed("latest"));
+                info!("#{id}: subscribed from {pos}");
+                (
+                    QuicSubscribeResponse::default(),
+                    Some((
+                        recv_streams,
+                        max_backlog.map(|x| x as u64).unwrap_or(u64::MAX),
+                        rx,
+                    )),
+                )
             }
-        };
-
-        let buf = msg.encode_to_vec();
-        send.write_u64(buf.len() as u64).await?;
-        send.write_all(&buf).await?;
-        send.flush().await?;
-
-        Ok(result)
+            Err(SubscribeError::NotInitialized) => {
+                let msg = QuicSubscribeResponse {
+                    error: Some(QuicSubscribeResponseError::NotInitialized as i32),
+                    ..Default::default()
+                };
+                (msg, None)
+            }
+            Err(SubscribeError::SlotNotAvailable { first_available }) => {
+                let msg = QuicSubscribeResponse {
+                    error: Some(QuicSubscribeResponseError::SlotNotAvailable as i32),
+                    first_available_slot: Some(first_available),
+                    ..Default::default()
+                };
+                (msg, None)
+            }
+        }
     }
 }

@@ -10,6 +10,7 @@ message QuicSubscribeRequest {
   GrpcSubscribeRequest request = 1;
   uint32 recv_streams = 2;
   optional uint32 max_backlog = 3;
+  optional bytes x_token = 4;
 }
 
 message QuicSubscribeResponse {
@@ -23,6 +24,8 @@ enum QuicSubscribeResponseError {
   EXCEED_RECV_STREAMS = 1;
   NOT_INITIALIZED = 2;
   SLOT_NOT_AVAILABLE = 3;
+  X_TOKEN_REQUIRED = 4;
+  X_TOKEN_INVALID = 5;
 }
 
 message QuicSubscribeClose {

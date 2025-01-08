@@ -157,3 +157,11 @@ where
         None => Ok(None),
     }
 }
+
+pub fn deserialize_x_token_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<&str>::deserialize(deserializer)
+        .map(|vec| vec.into_iter().map(|s| s.as_bytes().to_vec()).collect())
+}

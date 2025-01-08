@@ -78,6 +78,10 @@ struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
 
+    /// Access token
+    #[clap(long)]
+    x_token: Option<String>,
+
     /// Verify messages with prost
     #[clap(long, default_value_t = false)]
     verify: bool,
@@ -88,8 +92,9 @@ impl ArgsAppStream {
         self,
         replay_from_slot: Option<Slot>,
     ) -> anyhow::Result<SubscribeStreamInput> {
+        let x_token = self.x_token.map(|xt| xt.into_bytes());
         match self.action {
-            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot).await,
+            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot, x_token).await,
             ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
             ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot).await,
         }
@@ -144,6 +149,7 @@ impl ArgsAppStreamQuic {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let builder = QuicClient::builder()
             .set_local_addr(Some(self.local_addr))
@@ -166,7 +172,7 @@ impl ArgsAppStreamQuic {
         info!("connected to {} over Quic", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot)
+            .subscribe(replay_from_slot, x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");

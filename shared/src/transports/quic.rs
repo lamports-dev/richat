@@ -3,6 +3,7 @@ pub use crate::transports::proto::{
     QuicSubscribeResponseError,
 };
 use {
+    crate::config::deserialize_x_token_set,
     quinn::{
         crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
         Endpoint, VarInt,
@@ -13,6 +14,7 @@ use {
         Deserialize,
     },
     std::{
+        collections::HashSet,
         fs, io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
@@ -40,6 +42,8 @@ pub struct ConfigQuicServer {
     /// Max number of outgoing streams
     #[serde(default = "ConfigQuicServer::default_max_recv_streams")]
     pub max_recv_streams: u32,
+    #[serde(deserialize_with = "deserialize_x_token_set")]
+    pub x_tokens: HashSet<Vec<u8>>,
 }
 
 impl ConfigQuicServer {
