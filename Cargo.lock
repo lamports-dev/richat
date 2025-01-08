@@ -3484,6 +3484,15 @@ dependencies = [
 [[package]]
 name = "richat-filter"
 version = "2.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "richat-shared",
+ "serde",
+ "solana-sdk",
+ "thiserror 2.0.7",
+ "yellowstone-grpc-proto",
+]
 
 [[package]]
 name = "richat-plugin"

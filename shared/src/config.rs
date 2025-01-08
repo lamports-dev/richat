@@ -3,6 +3,7 @@ use {
         de::{self, Deserializer},
         Deserialize,
     },
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
     std::{
         collections::HashSet,
         fmt::Display,
@@ -164,4 +165,34 @@ where
 {
     Vec::<&str>::deserialize(deserializer)
         .map(|vec| vec.into_iter().map(|s| s.as_bytes().to_vec()).collect())
+}
+
+pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<&str>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
+        })
+        .collect::<Result<_, _>>()
+}
+
+pub fn deserialize_pubkey_vec<'de, D>(deserializer: D) -> Result<Vec<Pubkey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_pubkey_set(deserializer).map(|set| set.into_iter().collect())
+}
+
+pub fn deserialize_maybe_signature<'de, D>(deserializer: D) -> Result<Option<Signature>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let sig: Option<&str> = Deserialize::deserialize(deserializer)?;
+    sig.map(|sig| sig.parse().map_err(de::Error::custom))
+        .transpose()
 }
