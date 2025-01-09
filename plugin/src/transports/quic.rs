@@ -6,7 +6,7 @@ use {
     futures::future::{pending, FutureExt},
     log::{error, info},
     prost::Message,
-    quinn::{Connection, Incoming},
+    quinn::{Connection, Incoming, SendStream},
     richat_shared::transports::quic::{
         ConfigQuicServer, QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeRequest,
         QuicSubscribeResponse, QuicSubscribeResponseError,
@@ -87,7 +87,8 @@ impl QuicServer {
         let conn = incoming.await?;
         info!("#{id}: new connection from {:?}", conn.remote_address());
 
-        let Some((recv_streams, max_backlog, mut rx)) = Self::handle_request(
+        // Read request and subscribe
+        let (mut send, response, maybe_rx) = Self::handle_request(
             id,
             &conn,
             messages,
@@ -95,16 +96,25 @@ impl QuicServer {
             max_request_size,
             x_tokens,
         )
-        .await?
-        else {
+        .await?;
+
+        // Send response
+        let buf = response.encode_to_vec();
+        send.write_u64(buf.len() as u64).await?;
+        send.write_all(&buf).await?;
+        send.flush().await?;
+
+        let Some((recv_streams, max_backlog, mut rx)) = maybe_rx else {
             return Ok(());
         };
 
+        // Open connections
         let mut streams = VecDeque::with_capacity(recv_streams as usize);
         while streams.len() < recv_streams as usize {
             streams.push_back(conn.open_uni().await?);
         }
 
+        // Send loop
         let mut msg_id = 0;
         let mut msg_ids = BTreeSet::new();
         let mut next_message: Option<ReceiverItem> = None;
@@ -208,44 +218,33 @@ impl QuicServer {
         max_recv_streams: u32,
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
-    ) -> anyhow::Result<Option<(u32, u64, Receiver)>> {
-        let (mut send, mut recv) = conn.accept_bi().await?;
+    ) -> anyhow::Result<(
+        SendStream,
+        QuicSubscribeResponse,
+        Option<(u32, u64, Receiver)>,
+    )> {
+        let (send, mut recv) = conn.accept_bi().await?;
 
+        // Read request
         let size = recv.read_u64().await?;
         if size > max_request_size {
             let msg = QuicSubscribeResponse {
                 error: Some(QuicSubscribeResponseError::RequestSizeTooLarge as i32),
                 ..Default::default()
             };
-            // (msg, None)
+            return Ok((send, msg, None));
         }
-        let mut buf = vec![0; size as usize];
+        let mut buf = vec![0; size as usize]; // TODO: use MaybeUninit
         recv.read_exact(buf.as_mut_slice()).await?;
 
-        let request = QuicSubscribeRequest::decode(buf.as_slice())?;
-        let (msg, result) =
-            Self::validate_request(id, messages, request, max_recv_streams, x_tokens);
-
-        let buf = msg.encode_to_vec();
-        send.write_u64(buf.len() as u64).await?;
-        send.write_all(&buf).await?;
-        send.flush().await?;
-
-        Ok(result)
-    }
-
-    fn validate_request(
-        id: u64,
-        messages: Sender,
-        QuicSubscribeRequest {
+        // Decode request
+        let QuicSubscribeRequest {
             request,
             recv_streams,
             max_backlog,
             x_token,
-        }: QuicSubscribeRequest,
-        max_recv_streams: u32,
-        x_tokens: Arc<HashSet<Vec<u8>>>,
-    ) -> (QuicSubscribeResponse, Option<(u32, u64, Receiver)>) {
+        } = Message::decode(buf.as_slice())?;
+
         // verify access token
         if !x_tokens.is_empty() {
             if let Some(error) = match x_token {
@@ -259,7 +258,7 @@ impl QuicServer {
                     error: Some(error),
                     ..Default::default()
                 };
-                return (msg, None);
+                return Ok((send, msg, None));
             }
         }
 
@@ -275,17 +274,18 @@ impl QuicServer {
                 max_recv_streams: Some(max_recv_streams),
                 ..Default::default()
             };
-            return (msg, None);
+            return Ok((send, msg, None));
         }
 
         let replay_from_slot = request.and_then(|req| req.replay_from_slot);
-        match messages.subscribe(replay_from_slot) {
+        Ok(match messages.subscribe(replay_from_slot) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())
                     .unwrap_or(Cow::Borrowed("latest"));
                 info!("#{id}: subscribed from {pos}");
                 (
+                    send,
                     QuicSubscribeResponse::default(),
                     Some((
                         recv_streams,
@@ -299,7 +299,7 @@ impl QuicServer {
                     error: Some(QuicSubscribeResponseError::NotInitialized as i32),
                     ..Default::default()
                 };
-                (msg, None)
+                (send, msg, None)
             }
             Err(SubscribeError::SlotNotAvailable { first_available }) => {
                 let msg = QuicSubscribeResponse {
@@ -307,8 +307,8 @@ impl QuicServer {
                     first_available_slot: Some(first_available),
                     ..Default::default()
                 };
-                (msg, None)
+                (send, msg, None)
             }
-        }
+        })
     }
 }

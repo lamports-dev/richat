@@ -81,12 +81,20 @@ impl TcpServer {
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
     ) -> anyhow::Result<()> {
-        let Some(mut rx) =
-            Self::handle_request(id, &mut stream, messages, max_request_size, x_tokens).await?
-        else {
+        // Read request and subscribe
+        let (response, maybe_rx) =
+            Self::handle_request(id, &mut stream, messages, max_request_size, x_tokens).await?;
+
+        // Send response
+        let buf = response.encode_to_vec();
+        stream.write_u64(buf.len() as u64).await?;
+        stream.write_all(&buf).await?;
+
+        let Some(mut rx) = maybe_rx else {
             return Ok(());
         };
 
+        // Send loop
         loop {
             match rx.recv().await {
                 Ok(message) => {
@@ -120,34 +128,22 @@ impl TcpServer {
         messages: Sender,
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
-    ) -> anyhow::Result<Option<Receiver>> {
+    ) -> anyhow::Result<(QuicSubscribeResponse, Option<Receiver>)> {
+        // Read request
         let size = stream.read_u64().await?;
         if size > max_request_size {
             let msg = QuicSubscribeResponse {
                 error: Some(QuicSubscribeResponseError::RequestSizeTooLarge as i32),
                 ..Default::default()
             };
-            // (msg, None)
+            return Ok((msg, None));
         }
-        let mut buf = vec![0; size as usize];
+        let mut buf = vec![0; size as usize]; // TODO: use MaybeUninit
         stream.read_exact(buf.as_mut_slice()).await?;
 
-        let request = TcpSubscribeRequest::decode(buf.as_slice())?;
-        let (msg, result) = Self::validate_request(id, messages, request, x_tokens);
+        // Decode request
+        let TcpSubscribeRequest { request, x_token } = Message::decode(buf.as_slice())?;
 
-        let buf = msg.encode_to_vec();
-        stream.write_u64(buf.len() as u64).await?;
-        stream.write_all(&buf).await?;
-
-        Ok(result)
-    }
-
-    fn validate_request(
-        id: u64,
-        messages: Sender,
-        TcpSubscribeRequest { request, x_token }: TcpSubscribeRequest,
-        x_tokens: Arc<HashSet<Vec<u8>>>,
-    ) -> (QuicSubscribeResponse, Option<Receiver>) {
         // verify access token
         if !x_tokens.is_empty() {
             if let Some(error) = match x_token {
@@ -161,12 +157,12 @@ impl TcpServer {
                     error: Some(error),
                     ..Default::default()
                 };
-                return (msg, None);
+                return Ok((msg, None));
             }
         }
 
         let replay_from_slot = request.and_then(|req| req.replay_from_slot);
-        match messages.subscribe(replay_from_slot) {
+        Ok(match messages.subscribe(replay_from_slot) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())
@@ -189,6 +185,6 @@ impl TcpServer {
                 };
                 (msg, None)
             }
-        }
+        })
     }
 }
