@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{ReceiverItem, RecvError, Sender, SubscribeError},
+        channel::{ReceiverItem, Sender},
         metrics,
     },
     futures::stream::{Stream, StreamExt},
@@ -12,6 +12,7 @@ use {
             QuicSubscribeResponseError,
         },
         tcp::{ConfigTcpServer, TcpSubscribeRequest},
+        RecvError, Subscribe, SubscribeError,
     },
     std::{borrow::Cow, collections::HashSet, future::Future, sync::Arc},
     tokio::{

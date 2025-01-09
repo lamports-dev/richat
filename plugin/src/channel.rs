@@ -6,8 +6,9 @@ use {
         protobuf::{ProtobufEncoder, ProtobufMessage},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    futures::stream::Stream,
+    futures::stream::{Stream, StreamExt},
     log::{debug, error},
+    richat_shared::transports::{RecvError, RecvStream, Subscribe, SubscribeError},
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
@@ -18,7 +19,6 @@ use {
         sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
         task::{Context, Poll, Waker},
     },
-    thiserror::Error,
 };
 
 #[derive(Debug, Clone)]
@@ -237,7 +237,20 @@ impl Sender {
         }
     }
 
-    pub fn subscribe(&self, replay_from_slot: Option<Slot>) -> Result<Receiver, SubscribeError> {
+    pub fn close(&self) {
+        for idx in 0..self.shared.buffer.len() {
+            self.shared.buffer_idx_write(idx).closed = true;
+        }
+
+        let mut state = self.shared.state_lock();
+        for waker in state.wakers.drain(..) {
+            waker.wake();
+        }
+    }
+}
+
+impl Subscribe for Sender {
+    fn subscribe(&self, replay_from_slot: Option<Slot>) -> Result<RecvStream, SubscribeError> {
         let shared = Arc::clone(&self.shared);
 
         let state = shared.state_lock();
@@ -258,27 +271,9 @@ impl Sender {
             shared,
             next,
             finished: false,
-        })
-    }
-
-    pub fn close(&self) {
-        for idx in 0..self.shared.buffer.len() {
-            self.shared.buffer_idx_write(idx).closed = true;
         }
-
-        let mut state = self.shared.state_lock();
-        for waker in state.wakers.drain(..) {
-            waker.wake();
-        }
+        .boxed())
     }
-}
-
-#[derive(Debug, Error)]
-pub enum SubscribeError {
-    #[error("channel is not initialized yet")]
-    NotInitialized,
-    #[error("only available from slot {first_available}")]
-    SlotNotAvailable { first_available: Slot },
 }
 
 pub type ReceiverItem = Arc<Vec<u8>>;
@@ -328,14 +323,6 @@ impl Receiver {
         self.next = self.next.wrapping_add(1);
         item.data.clone().ok_or(RecvError::Lagged).map(Some)
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum RecvError {
-    #[error("channel lagged")]
-    Lagged,
-    #[error("channel closed")]
-    Closed,
 }
 
 struct Recv<'a> {

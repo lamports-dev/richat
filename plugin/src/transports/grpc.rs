@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{ReceiverItem, RecvError, Sender, SubscribeError},
+        channel::{ReceiverItem, Sender},
         metrics,
         version::VERSION,
     },
@@ -10,7 +10,10 @@ use {
     },
     log::{error, info},
     prost::{bytes::BufMut, Message},
-    richat_shared::transports::grpc::{ConfigGrpcServer, GrpcSubscribeRequest},
+    richat_shared::transports::{
+        grpc::{ConfigGrpcServer, GrpcSubscribeRequest},
+        RecvError, Subscribe, SubscribeError,
+    },
     std::{
         borrow::Cow,
         fmt,
