@@ -3547,6 +3547,7 @@ dependencies = [
  "tonic",
  "tonic-build 0.12.3",
  "tracing",
+ "yellowstone-grpc-proto",
 ]
 
 [[package]]

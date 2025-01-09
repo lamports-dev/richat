@@ -84,7 +84,7 @@ impl GrpcServer {
         .boxed();
 
         // Create gRPC server
-        let (incoming, server_builder) = config.server.create_server()?;
+        let (incoming, server_builder) = config.server.create_server_builder()?;
         info!("start server at {}", config.server.endpoint);
 
         let (block_meta, block_meta_jh) = if config.unary.enabled {

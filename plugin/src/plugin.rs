@@ -4,7 +4,7 @@ use {
         config::Config,
         metrics,
         protobuf::{ProtobufEncoder, ProtobufMessage},
-        transports::grpc::GrpcServer,
+        version::VERSION,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -15,7 +15,7 @@ use {
     log::error,
     richat_shared::{
         shutdown::Shutdown,
-        transports::{quic::QuicServer, tcp::TcpServer},
+        transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
     },
     solana_sdk::clock::Slot,
     std::{fmt, time::Duration},
@@ -84,8 +84,8 @@ impl PluginInner {
                             TcpServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_total_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
                                 || connections_total_add(ConnectionsTransport::Tcp), // on_conn_new_cb
+                                || connections_total_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -98,7 +98,15 @@ impl PluginInner {
                     tasks.push((
                         "gRPC Server",
                         PluginTask(Box::pin(
-                            GrpcServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                            GrpcServer::spawn(
+                                config,
+                                messages.clone(),
+                                Box::new(|| connections_total_add(ConnectionsTransport::Grpc)), // on_conn_new_cb
+                                Box::new(|| connections_total_dec(ConnectionsTransport::Grpc)), // on_conn_drop_cb
+                                VERSION,
+                                shutdown.clone(),
+                            )
+                            .await?,
                         )),
                     ));
                 }

@@ -48,6 +48,7 @@ fn get_pkg_version(lockfile: &Lockfile, pkg_name: &str) -> String {
 }
 
 fn generate_grpc_geyser() -> anyhow::Result<()> {
+    // TODO: remove
     let geyser_service = Service::builder()
         .name("Geyser")
         .package("geyser")
