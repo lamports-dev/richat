@@ -1,11 +1,12 @@
 pub use crate::transports::proto::GrpcSubscribeRequest;
 use {
-    crate::config::deserialize_num_str,
+    crate::config::{deserialize_num_str, deserialize_x_token_set},
     serde::{
         de::{self, Deserializer},
         Deserialize,
     },
     std::{
+        collections::HashSet,
         fs,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         time::Duration,
@@ -82,6 +83,8 @@ pub struct ConfigGrpcServer {
     pub server_http2_keepalive_timeout: Option<Duration>,
     pub server_initial_connection_window_size: Option<u32>,
     pub server_initial_stream_window_size: Option<u32>,
+    #[serde(deserialize_with = "deserialize_x_token_set")]
+    pub x_tokens: HashSet<Vec<u8>>,
 }
 
 impl Default for ConfigGrpcServer {
@@ -98,6 +101,7 @@ impl Default for ConfigGrpcServer {
             server_http2_keepalive_timeout: None,
             server_initial_connection_window_size: None,
             server_initial_stream_window_size: None,
+            x_tokens: HashSet::new(),
         }
     }
 }

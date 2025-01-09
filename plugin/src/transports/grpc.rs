@@ -22,6 +22,7 @@ use {
     tokio::task::JoinError,
     tonic::{
         codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
+        service::interceptor::interceptor,
         Request, Response, Status, Streaming,
     },
     yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse},
@@ -46,7 +47,7 @@ impl GrpcServer {
         messages: Sender,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
-        let (incoming, mut server_builder) = config.create_server()?;
+        let (incoming, server_builder) = config.create_server()?;
         info!("start server at {}", config.endpoint);
 
         let mut service = gen::geyser_server::GeyserServer::new(Self {
@@ -64,6 +65,18 @@ impl GrpcServer {
         // Spawn server
         Ok(tokio::spawn(async move {
             if let Err(error) = server_builder
+                .layer(interceptor(move |request: Request<()>| {
+                    if config.x_tokens.is_empty() {
+                        Ok(request)
+                    } else {
+                        match request.metadata().get("x-token") {
+                            Some(token) if config.x_tokens.contains(token.as_bytes()) => {
+                                Ok(request)
+                            }
+                            _ => Err(Status::unauthenticated("No valid auth token")),
+                        }
+                    }
+                }))
                 .add_service(service)
                 .serve_with_incoming_shutdown(incoming, shutdown)
                 .await
