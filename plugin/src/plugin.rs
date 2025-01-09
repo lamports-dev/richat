@@ -101,8 +101,8 @@ impl PluginInner {
                             GrpcServer::spawn(
                                 config,
                                 messages.clone(),
-                                Box::new(|| connections_total_add(ConnectionsTransport::Grpc)), // on_conn_new_cb
-                                Box::new(|| connections_total_dec(ConnectionsTransport::Grpc)), // on_conn_drop_cb
+                                || connections_total_add(ConnectionsTransport::Grpc), // on_conn_new_cb
+                                || connections_total_dec(ConnectionsTransport::Grpc), // on_conn_drop_cb
                                 VERSION,
                                 shutdown.clone(),
                             )
