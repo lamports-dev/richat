@@ -36,3 +36,8 @@ enum QuicSubscribeCloseError {
   LAGGED = 0;
   CLOSED = 1;
 }
+
+message TcpSubscribeRequest {
+  GrpcSubscribeRequest request = 1;
+  optional bytes x_token = 2;
+}

@@ -12,7 +12,9 @@ pub async fn subscribe(
         ConfigChannelSource::Quic(config) => {
             config.connect().await?.subscribe(None, None).await?.boxed()
         }
-        ConfigChannelSource::Tcp(config) => config.connect().await?.subscribe(None).await?.boxed(),
+        ConfigChannelSource::Tcp(config) => {
+            config.connect().await?.subscribe(None, None).await?.boxed()
+        }
         ConfigChannelSource::Grpc(config) => config
             .connect()
             .await?

@@ -1,6 +1,9 @@
+pub use crate::transports::proto::TcpSubscribeRequest;
 use {
+    crate::config::deserialize_x_token_set,
     serde::Deserialize,
     std::{
+        collections::HashSet,
         io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
     },
@@ -15,6 +18,8 @@ pub struct ConfigTcpServer {
     pub keepalive: Option<bool>,
     pub nodelay: Option<bool>,
     pub send_buffer_size: Option<u32>,
+    #[serde(deserialize_with = "deserialize_x_token_set")]
+    pub x_tokens: HashSet<Vec<u8>>,
 }
 
 impl Default for ConfigTcpServer {
@@ -25,6 +30,7 @@ impl Default for ConfigTcpServer {
             keepalive: None,
             nodelay: None,
             send_buffer_size: None,
+            x_tokens: HashSet::new(),
         }
     }
 }

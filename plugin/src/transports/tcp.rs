@@ -6,14 +6,13 @@ use {
     log::{error, info},
     prost::Message,
     richat_shared::transports::{
-        grpc::GrpcSubscribeRequest,
         quic::{
             QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeResponse,
             QuicSubscribeResponseError,
         },
-        tcp::ConfigTcpServer,
+        tcp::{ConfigTcpServer, TcpSubscribeRequest},
     },
-    std::{borrow::Cow, future::Future},
+    std::{borrow::Cow, collections::HashSet, future::Future, sync::Arc},
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
@@ -34,6 +33,8 @@ impl TcpServer {
         info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
+            let x_tokens = Arc::new(config.x_tokens);
+
             let mut id = 0;
             tokio::pin!(shutdown);
             loop {
@@ -51,9 +52,10 @@ impl TcpServer {
                         };
 
                         let messages = messages.clone();
+                        let x_tokens = Arc::clone(&x_tokens);
                         tokio::spawn(async move {
                             metrics::connections_total_add(metrics::ConnectionsTransport::Tcp);
-                            if let Err(error) = Self::handle_incoming(id, socket, messages).await {
+                            if let Err(error) = Self::handle_incoming(id, socket, messages, x_tokens).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
@@ -75,8 +77,9 @@ impl TcpServer {
         id: u64,
         mut stream: TcpStream,
         messages: Sender,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
     ) -> anyhow::Result<()> {
-        let Some(mut rx) = Self::handle_request(id, &mut stream, messages).await? else {
+        let Some(mut rx) = Self::handle_request(id, &mut stream, messages, x_tokens).await? else {
             return Ok(());
         };
 
@@ -111,15 +114,47 @@ impl TcpServer {
         id: u64,
         stream: &mut TcpStream,
         messages: Sender,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
     ) -> anyhow::Result<Option<Receiver>> {
         let size = stream.read_u64().await?;
         let mut buf = vec![0; size as usize];
         stream.read_exact(buf.as_mut_slice()).await?;
 
-        let GrpcSubscribeRequest { replay_from_slot } =
-            GrpcSubscribeRequest::decode(buf.as_slice())?;
+        let request = TcpSubscribeRequest::decode(buf.as_slice())?;
+        let (msg, result) = Self::validate_request(id, messages, request, x_tokens);
 
-        let (msg, result) = match messages.subscribe(replay_from_slot) {
+        let buf = msg.encode_to_vec();
+        stream.write_u64(buf.len() as u64).await?;
+        stream.write_all(&buf).await?;
+
+        Ok(result)
+    }
+
+    fn validate_request(
+        id: u64,
+        messages: Sender,
+        TcpSubscribeRequest { request, x_token }: TcpSubscribeRequest,
+        x_tokens: Arc<HashSet<Vec<u8>>>,
+    ) -> (QuicSubscribeResponse, Option<Receiver>) {
+        // verify access token
+        if !x_tokens.is_empty() {
+            if let Some(error) = match x_token {
+                Some(x_token) if !x_tokens.contains(&x_token) => {
+                    Some(QuicSubscribeResponseError::XTokenRequired as i32)
+                }
+                None => Some(QuicSubscribeResponseError::XTokenInvalid as i32),
+                _ => None,
+            } {
+                let msg = QuicSubscribeResponse {
+                    error: Some(error),
+                    ..Default::default()
+                };
+                return (msg, None);
+            }
+        }
+
+        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
+        match messages.subscribe(replay_from_slot) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())
@@ -142,12 +177,6 @@ impl TcpServer {
                 };
                 (msg, None)
             }
-        };
-
-        let buf = msg.encode_to_vec();
-        stream.write_u64(buf.len() as u64).await?;
-        stream.write_all(&buf).await?;
-
-        Ok(result)
+        }
     }
 }

@@ -11,7 +11,9 @@ use {
     pin_project_lite::pin_project,
     prost::Message,
     richat_shared::transports::{
-        grpc::GrpcSubscribeRequest, quic::QuicSubscribeClose, tcp::ConfigTcpServer,
+        grpc::GrpcSubscribeRequest,
+        quic::QuicSubscribeClose,
+        tcp::{ConfigTcpServer, TcpSubscribeRequest},
     },
     serde::Deserialize,
     solana_sdk::clock::Slot,
@@ -126,8 +128,13 @@ impl TcpClient {
     pub async fn subscribe(
         mut self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> Result<TcpClientStream, SubscribeError> {
-        let message = GrpcSubscribeRequest { replay_from_slot }.encode_to_vec();
+        let message = TcpSubscribeRequest {
+            request: Some(GrpcSubscribeRequest { replay_from_slot }),
+            x_token,
+        }
+        .encode_to_vec();
         self.stream.write_u64(message.len() as u64).await?;
         self.stream.write_all(&message).await?;
         SubscribeError::parse_quic_response(&mut self.stream).await?;

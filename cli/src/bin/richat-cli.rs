@@ -95,7 +95,7 @@ impl ArgsAppStream {
         let x_token = self.x_token.map(|xt| xt.into_bytes());
         match self.action {
             ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot, x_token).await,
-            ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
+            ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot, x_token).await,
             ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot).await,
         }
     }
@@ -192,6 +192,7 @@ impl ArgsAppStreamTcp {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let client = TcpClient::build()
             .connect(&self.endpoint)
@@ -200,7 +201,7 @@ impl ArgsAppStreamTcp {
         info!("connected to {} over Tcp", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot)
+            .subscribe(replay_from_slot, x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
