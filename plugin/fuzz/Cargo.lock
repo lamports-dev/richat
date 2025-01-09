@@ -3104,13 +3104,11 @@ dependencies = [
  "clap",
  "futures",
  "git-version",
- "http 1.2.0",
  "lazy_static",
  "log",
  "prometheus",
  "prost 0.13.4",
  "prost-types 0.13.4",
- "quinn",
  "richat-shared",
  "serde",
  "serde_json",
@@ -3120,7 +3118,6 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "tokio",
- "tonic",
  "tonic-build 0.12.3",
  "vergen",
  "yellowstone-grpc-proto",
@@ -3170,6 +3167,7 @@ dependencies = [
  "tonic",
  "tonic-build 0.12.3",
  "tracing",
+ "yellowstone-grpc-proto",
 ]
 
 [[package]]

@@ -3495,14 +3495,12 @@ dependencies = [
  "criterion",
  "futures",
  "git-version",
- "http 1.2.0",
  "lazy_static",
  "log",
  "prometheus",
  "prost 0.11.9",
  "prost 0.13.4",
  "prost-types 0.13.4",
- "quinn",
  "richat-shared",
  "serde",
  "serde_json",
@@ -3513,7 +3511,6 @@ dependencies = [
  "solana-storage-proto",
  "solana-transaction-status",
  "tokio",
- "tonic",
  "tonic-build 0.12.3",
  "vergen",
  "yellowstone-grpc-proto",
@@ -4338,9 +4335,9 @@ dependencies = [
 
 [[package]]
 name = "solana-logger"
-version = "2.1.5"
+version = "2.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8945ce56aded3daa22f303e638ddf85704b47330bde13373e1cc1f6b42281c1a"
+checksum = "bc28426ab02cb89edce8d231bbd178736d4c8892e29ab6298857d5bf1a053a46"
 dependencies = [
  "env_logger 0.9.3",
  "lazy_static",
