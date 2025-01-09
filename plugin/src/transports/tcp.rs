@@ -140,9 +140,9 @@ impl TcpServer {
         if !x_tokens.is_empty() {
             if let Some(error) = match x_token {
                 Some(x_token) if !x_tokens.contains(&x_token) => {
-                    Some(QuicSubscribeResponseError::XTokenRequired as i32)
+                    Some(QuicSubscribeResponseError::XTokenInvalid as i32)
                 }
-                None => Some(QuicSubscribeResponseError::XTokenInvalid as i32),
+                None => Some(QuicSubscribeResponseError::XTokenRequired as i32),
                 _ => None,
             } {
                 let msg = QuicSubscribeResponse {
