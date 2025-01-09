@@ -834,7 +834,7 @@ impl From<ConfigFilterBlocks> for SubscribeRequestFilterBlocks {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
 pub enum ConfigFilterCommitment {
     #[default]

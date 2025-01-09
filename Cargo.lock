@@ -3487,6 +3487,8 @@ version = "2.0.0"
 dependencies = [
  "base64 0.22.1",
  "bs58",
+ "prost 0.13.4",
+ "prost-types 0.13.4",
  "richat-shared",
  "serde",
  "solana-sdk",
