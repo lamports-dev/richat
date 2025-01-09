@@ -1,9 +1,12 @@
 use {
     crate::{
-        channel::{Receiver, ReceiverItem, RecvError, Sender, SubscribeError},
+        channel::{ReceiverItem, RecvError, Sender, SubscribeError},
         metrics,
     },
-    futures::future::{pending, FutureExt},
+    futures::{
+        future::{pending, FutureExt},
+        stream::{Stream, StreamExt},
+    },
     log::{error, info},
     prost::Message,
     quinn::{Connection, Incoming, SendStream},
@@ -138,7 +141,7 @@ impl QuicServer {
             }
 
             let rx_recv = if next_message.is_none() {
-                rx.recv().boxed()
+                rx.next().boxed()
             } else {
                 pending().boxed()
             };
@@ -151,8 +154,8 @@ impl QuicServer {
             tokio::select! {
                 message = rx_recv => {
                     match message {
-                        Ok(message) => next_message = Some(message),
-                        Err(error) => {
+                        Some(Ok(message)) => next_message = Some(message),
+                        Some(Err(error)) => {
                             error!("#{id}: failed to get message: {error}");
                             if streams.is_empty() {
                                 match set.join_next().await {
@@ -183,9 +186,8 @@ impl QuicServer {
                                 stream.write_all(&message).await?;
                                 Ok::<_, io::Error>((msg_id, stream))
                             });
-
-                            break;
                         },
+                        None => break,
                     }
                 },
                 result = set_join_next => match result {
@@ -221,7 +223,11 @@ impl QuicServer {
     ) -> anyhow::Result<(
         SendStream,
         QuicSubscribeResponse,
-        Option<(u32, u64, Receiver)>,
+        Option<(
+            u32,
+            u64,
+            impl Stream<Item = Result<ReceiverItem, RecvError>>,
+        )>,
     )> {
         let (send, mut recv) = conn.accept_bi().await?;
 

@@ -6,6 +6,7 @@ use {
         protobuf::{ProtobufEncoder, ProtobufMessage},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    futures::stream::Stream,
     log::{debug, error},
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
@@ -253,7 +254,11 @@ impl Sender {
         };
         drop(state);
 
-        Ok(Receiver { shared, next })
+        Ok(Receiver {
+            shared,
+            next,
+            finished: false,
+        })
     }
 
     pub fn close(&self) {
@@ -282,6 +287,7 @@ pub type ReceiverItem = Arc<Vec<u8>>;
 pub struct Receiver {
     shared: Arc<Shared>,
     next: u64,
+    finished: bool,
 }
 
 impl Receiver {
@@ -353,6 +359,26 @@ impl<'a> Future for Recv<'a> {
             Ok(Some(value)) => Poll::Ready(Ok(value)),
             Ok(None) => Poll::Pending,
             Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+}
+
+impl Stream for Receiver {
+    type Item = Result<ReceiverItem, RecvError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let me = self.get_mut();
+        if me.finished {
+            return Poll::Ready(None);
+        }
+
+        match me.recv_ref(cx.waker()) {
+            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
+            Ok(None) => Poll::Pending,
+            Err(error) => {
+                me.finished = true;
+                Poll::Ready(Some(Err(error)))
+            }
         }
     }
 }

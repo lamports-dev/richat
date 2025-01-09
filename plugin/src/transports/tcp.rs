@@ -1,8 +1,9 @@
 use {
     crate::{
-        channel::{Receiver, RecvError, Sender, SubscribeError},
+        channel::{ReceiverItem, RecvError, Sender, SubscribeError},
         metrics,
     },
+    futures::stream::{Stream, StreamExt},
     log::{error, info},
     prost::Message,
     richat_shared::transports::{
@@ -96,12 +97,12 @@ impl TcpServer {
 
         // Send loop
         loop {
-            match rx.recv().await {
-                Ok(message) => {
+            match rx.next().await {
+                Some(Ok(message)) => {
                     stream.write_u64(message.len() as u64).await?;
                     stream.write_all(&message).await?;
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     error!("#{id}: failed to get message: {error}");
                     let msg = QuicSubscribeClose {
                         error: match error {
@@ -114,8 +115,8 @@ impl TcpServer {
                     stream.write_u64(u64::MAX).await?;
                     stream.write_u64(message.len() as u64).await?;
                     stream.write_all(&message).await?;
-                    break;
                 }
+                None => break,
             }
         }
 
@@ -128,7 +129,10 @@ impl TcpServer {
         messages: Sender,
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
-    ) -> anyhow::Result<(QuicSubscribeResponse, Option<Receiver>)> {
+    ) -> anyhow::Result<(
+        QuicSubscribeResponse,
+        Option<impl Stream<Item = Result<ReceiverItem, RecvError>>>,
+    )> {
         // Read request
         let size = stream.read_u64().await?;
         if size > max_request_size {

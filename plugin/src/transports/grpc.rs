@@ -1,15 +1,19 @@
 use {
     crate::{
-        channel::{Receiver, RecvError, Sender, SubscribeError},
+        channel::{ReceiverItem, RecvError, Sender, SubscribeError},
         metrics,
         version::VERSION,
     },
-    futures::stream::Stream,
+    futures::{
+        ready,
+        stream::{BoxStream, Stream, StreamExt},
+    },
     log::{error, info},
     prost::{bytes::BufMut, Message},
     richat_shared::transports::grpc::{ConfigGrpcServer, GrpcSubscribeRequest},
     std::{
         borrow::Cow,
+        fmt,
         future::Future,
         marker::PhantomData,
         pin::Pin,
@@ -118,7 +122,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                     .map(|slot| format!("slot {slot}").into())
                     .unwrap_or(Cow::Borrowed("latest"));
                 info!("#{id}: subscribed from {pos}");
-                Ok(Response::new(ReceiverStream::new(rx, id)))
+                Ok(Response::new(ReceiverStream::new(rx.boxed(), id)))
             }
             Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),
             Err(SubscribeError::SlotNotAvailable { first_available }) => Err(
@@ -137,14 +141,19 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug)]
 pub struct ReceiverStream {
-    rx: Receiver,
+    rx: BoxStream<'static, Result<ReceiverItem, RecvError>>,
     id: u64,
 }
 
+impl fmt::Debug for ReceiverStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReceiverStream").finish()
+    }
+}
+
 impl ReceiverStream {
-    fn new(rx: Receiver, id: u64) -> Self {
+    fn new(rx: BoxStream<'static, Result<ReceiverItem, RecvError>>, id: u64) -> Self {
         metrics::connections_total_add(metrics::ConnectionsTransport::Grpc);
         Self { rx, id }
     }
@@ -161,16 +170,16 @@ impl Stream for ReceiverStream {
     type Item = Result<Arc<Vec<u8>>, Status>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.rx.recv_ref(cx.waker()) {
-            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
-            Ok(None) => Poll::Pending,
-            Err(error) => {
+        match ready!(self.rx.poll_next_unpin(cx)) {
+            Some(Ok(value)) => Poll::Ready(Some(Ok(value))),
+            Some(Err(error)) => {
                 error!("#{}: failed to get message: {error}", self.id);
                 match error {
                     RecvError::Lagged => Poll::Ready(Some(Err(Status::out_of_range("lagged")))),
                     RecvError::Closed => Poll::Ready(Some(Err(Status::out_of_range("closed")))),
                 }
             }
+            None => Poll::Ready(None),
         }
     }
 }
