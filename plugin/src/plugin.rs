@@ -4,11 +4,7 @@ use {
         config::Config,
         metrics,
         protobuf::{ProtobufEncoder, ProtobufMessage},
-        transports::{
-            grpc::GrpcServer,
-            // quic::QuicServer,
-            tcp::TcpServer,
-        },
+        transports::grpc::GrpcServer,
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
@@ -17,8 +13,10 @@ use {
     },
     futures::future::BoxFuture,
     log::error,
-    richat_shared::shutdown::Shutdown,
-    richat_shared::transports::quic::QuicServer,
+    richat_shared::{
+        shutdown::Shutdown,
+        transports::{quic::QuicServer, tcp::TcpServer},
+    },
     solana_sdk::clock::Slot,
     std::{fmt, time::Duration},
     tokio::{runtime::Runtime, task::JoinError},
@@ -60,25 +58,18 @@ impl PluginInner {
                 let shutdown = Shutdown::new();
                 let mut tasks = Vec::with_capacity(4);
 
+                use metrics::{connections_total_add, connections_total_dec, ConnectionsTransport};
+
                 // Start Quic
                 if let Some(config) = config.quic {
                     tasks.push((
                         "Quic Server",
                         PluginTask(Box::pin(
-                            // QuicServer::spawn(config, messages.clone(), shutdown.clone()).await?,
                             QuicServer::spawn(
                                 config,
                                 messages.clone(),
-                                || {
-                                    metrics::connections_total_add(
-                                        metrics::ConnectionsTransport::Quic,
-                                    )
-                                }, // on_conn_new_cb
-                                || {
-                                    metrics::connections_total_dec(
-                                        metrics::ConnectionsTransport::Quic,
-                                    )
-                                }, // on_conn_drop_cb
+                                || connections_total_add(ConnectionsTransport::Quic), // on_conn_new_cb
+                                || connections_total_dec(ConnectionsTransport::Quic), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -90,7 +81,14 @@ impl PluginInner {
                     tasks.push((
                         "Tcp Server",
                         PluginTask(Box::pin(
-                            TcpServer::spawn(config, messages.clone(), shutdown.clone()).await?,
+                            TcpServer::spawn(
+                                config,
+                                messages.clone(),
+                                || connections_total_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
+                                || connections_total_add(ConnectionsTransport::Tcp), // on_conn_new_cb
+                                shutdown.clone(),
+                            )
+                            .await?,
                         )),
                     ));
                 }
