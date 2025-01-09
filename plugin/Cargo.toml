@@ -58,7 +58,6 @@ yellowstone-grpc-proto = { workspace = true, features = ["plugin"] }
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
 git-version = { workspace = true }
-tonic-build = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [features]
