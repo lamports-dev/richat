@@ -418,11 +418,13 @@ impl QuicClient {
     pub async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> Result<QuicClientStream, SubscribeError> {
         let message = QuicSubscribeRequest {
             request: Some(GrpcSubscribeRequest { replay_from_slot }),
             recv_streams: self.recv_streams,
             max_backlog: self.max_backlog,
+            x_token,
         }
         .encode_to_vec();
 

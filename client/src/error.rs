@@ -31,6 +31,10 @@ pub enum SubscribeError {
     ReplayFromSlotNotAvailable(u64),
     #[error("request is too large")]
     RequestSizeTooLarge,
+    #[error("x-token required")]
+    XTokenRequired,
+    #[error("x-token invalid")]
+    XTokenInvalid,
 }
 
 impl SubscribeError {
@@ -52,7 +56,11 @@ impl SubscribeError {
                 Ok(QuicSubscribeResponseError::SlotNotAvailable) => {
                     SubscribeError::ReplayFromSlotNotAvailable(response.first_available_slot())
                 }
-                Ok(QuicSubscribeResponseError::RequestSizeTooLarge) => SubscribeError::RequestSizeTooLarge,
+                Ok(QuicSubscribeResponseError::RequestSizeTooLarge) => {
+                    SubscribeError::RequestSizeTooLarge
+                }
+                Ok(QuicSubscribeResponseError::XTokenRequired) => SubscribeError::XTokenRequired,
+                Ok(QuicSubscribeResponseError::XTokenInvalid) => SubscribeError::XTokenInvalid,
                 Err(_error) => SubscribeError::Unknown(error),
             })
         } else {

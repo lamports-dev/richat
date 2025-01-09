@@ -78,6 +78,10 @@ struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
 
+    /// Access token
+    #[clap(long)]
+    x_token: Option<String>,
+
     /// Verify messages with prost
     #[clap(long, default_value_t = false)]
     verify: bool,
@@ -88,10 +92,11 @@ impl ArgsAppStream {
         self,
         replay_from_slot: Option<Slot>,
     ) -> anyhow::Result<SubscribeStreamInput> {
+        let x_token = self.x_token.map(|xt| xt.into_bytes());
         match self.action {
-            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot).await,
-            ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot).await,
-            ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot).await,
+            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot, x_token).await,
+            ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot, x_token).await,
+            ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot, x_token).await,
         }
     }
 }
@@ -144,6 +149,7 @@ impl ArgsAppStreamQuic {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let builder = QuicClient::builder()
             .set_local_addr(Some(self.local_addr))
@@ -166,7 +172,7 @@ impl ArgsAppStreamQuic {
         info!("connected to {} over Quic", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot)
+            .subscribe(replay_from_slot, x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -186,6 +192,7 @@ impl ArgsAppStreamTcp {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let client = TcpClient::build()
             .connect(&self.endpoint)
@@ -194,7 +201,7 @@ impl ArgsAppStreamTcp {
         info!("connected to {} over Tcp", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot)
+            .subscribe(replay_from_slot, x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -260,15 +267,15 @@ struct ArgsAppStreamGrpc {
     /// Max message size before decoding, full blocks can be super large, default is 1GiB
     #[clap(long, default_value_t = 1024 * 1024 * 1024)]
     max_decoding_message_size: usize,
-
-    #[clap(long)]
-    x_token: Option<String>,
 }
 
 impl ArgsAppStreamGrpc {
-    async fn connect(self) -> anyhow::Result<GrpcClient<impl Interceptor>> {
+    async fn connect(
+        self,
+        x_token: Option<Vec<u8>>,
+    ) -> anyhow::Result<GrpcClient<impl Interceptor>> {
         let mut builder = GrpcClient::build_from_shared(self.endpoint)?
-            .x_token(self.x_token)?
+            .x_token(x_token.map(String::from_utf8).transpose()?)?
             .tls_config_native_roots(self.ca_certificate.as_ref())
             .await?
             .max_decoding_message_size(self.max_decoding_message_size);
@@ -313,9 +320,10 @@ impl ArgsAppStreamGrpc {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let endpoint = self.endpoint.clone();
-        let mut client = self.connect().await.context("failed to connect")?;
+        let mut client = self.connect(x_token).await.context("failed to connect")?;
         info!("connected to {endpoint} over gRPC");
 
         let stream = client

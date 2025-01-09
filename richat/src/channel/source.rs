@@ -9,8 +9,12 @@ pub async fn subscribe(
     config: ConfigChannelSource,
 ) -> anyhow::Result<BoxStream<'static, Result<Vec<u8>, ReceiveError>>> {
     Ok(match config {
-        ConfigChannelSource::Quic(config) => config.connect().await?.subscribe(None).await?.boxed(),
-        ConfigChannelSource::Tcp(config) => config.connect().await?.subscribe(None).await?.boxed(),
+        ConfigChannelSource::Quic(config) => {
+            config.connect().await?.subscribe(None, None).await?.boxed()
+        }
+        ConfigChannelSource::Tcp(config) => {
+            config.connect().await?.subscribe(None, None).await?.boxed()
+        }
         ConfigChannelSource::Grpc(config) => config
             .connect()
             .await?
