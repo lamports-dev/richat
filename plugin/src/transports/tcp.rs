@@ -34,6 +34,8 @@ impl TcpServer {
         info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
+            let max_request_size = config.max_request_size as u64;
+
             let mut id = 0;
             tokio::pin!(shutdown);
             loop {
@@ -53,7 +55,7 @@ impl TcpServer {
                         let messages = messages.clone();
                         tokio::spawn(async move {
                             metrics::connections_total_add(metrics::ConnectionsTransport::Tcp);
-                            if let Err(error) = Self::handle_incoming(id, socket, messages).await {
+                            if let Err(error) = Self::handle_incoming(id, socket, messages, max_request_size).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
@@ -75,8 +77,9 @@ impl TcpServer {
         id: u64,
         mut stream: TcpStream,
         messages: Sender,
+        max_request_size: u64,
     ) -> anyhow::Result<()> {
-        let Some(mut rx) = Self::handle_request(id, &mut stream, messages).await? else {
+        let Some(mut rx) = Self::handle_request(id, &mut stream, messages, max_request_size).await? else {
             return Ok(());
         };
 
@@ -111,8 +114,16 @@ impl TcpServer {
         id: u64,
         stream: &mut TcpStream,
         messages: Sender,
+        max_request_size: u64,
     ) -> anyhow::Result<Option<Receiver>> {
         let size = stream.read_u64().await?;
+        if size > max_request_size {
+            let msg = QuicSubscribeResponse {
+                error: Some(QuicSubscribeResponseError::RequestSizeTooLarge as i32),
+                ..Default::default()
+            };
+            // (msg, None)
+        }
         let mut buf = vec![0; size as usize];
         stream.read_exact(buf.as_mut_slice()).await?;
 

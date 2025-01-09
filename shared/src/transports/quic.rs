@@ -40,6 +40,9 @@ pub struct ConfigQuicServer {
     /// Max number of outgoing streams
     #[serde(default = "ConfigQuicServer::default_max_recv_streams")]
     pub max_recv_streams: u32,
+    /// Max request size in bytes
+    #[serde(default = "ConfigQuicServer::default_max_request_size")]
+    pub max_request_size: usize,
 }
 
 impl ConfigQuicServer {
@@ -123,6 +126,10 @@ impl ConfigQuicServer {
 
     const fn default_max_recv_streams() -> u32 {
         16
+    }
+
+    const fn default_max_request_size() -> usize {
+        1024
     }
 
     pub fn create_server(&self) -> Result<Endpoint, CreateServerError> {

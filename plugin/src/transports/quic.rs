@@ -36,6 +36,8 @@ impl QuicServer {
         info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
+            let max_request_size = config.max_request_size as u64;
+
             let mut id = 0;
             tokio::pin!(shutdown);
             loop {
@@ -50,7 +52,7 @@ impl QuicServer {
                         tokio::spawn(async move {
                             metrics::connections_total_add(metrics::ConnectionsTransport::Quic);
                             if let Err(error) = Self::handle_incoming(
-                                id, incoming, messages, config.max_recv_streams
+                                id, incoming, messages, config.max_recv_streams, max_request_size,
                             ).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
@@ -75,12 +77,13 @@ impl QuicServer {
         incoming: Incoming,
         messages: Sender,
         max_recv_streams: u32,
+        max_request_size: u64,
     ) -> anyhow::Result<()> {
         let conn = incoming.await?;
         info!("#{id}: new connection from {:?}", conn.remote_address());
 
         let Some((recv_streams, max_backlog, mut rx)) =
-            Self::handle_request(id, &conn, messages, max_recv_streams).await?
+            Self::handle_request(id, &conn, messages, max_recv_streams, max_request_size).await?
         else {
             return Ok(());
         };
@@ -191,10 +194,18 @@ impl QuicServer {
         conn: &Connection,
         messages: Sender,
         max_recv_streams: u32,
+        max_request_size: u64,
     ) -> anyhow::Result<Option<(u32, u64, Receiver)>> {
         let (mut send, mut recv) = conn.accept_bi().await?;
 
         let size = recv.read_u64().await?;
+        if size > max_request_size {
+            let msg = QuicSubscribeResponse {
+                error: Some(QuicSubscribeResponseError::RequestSizeTooLarge as i32),
+                ..Default::default()
+            };
+            // (msg, None)
+        }
         let mut buf = vec![0; size as usize];
         recv.read_exact(buf.as_mut_slice()).await?;
 

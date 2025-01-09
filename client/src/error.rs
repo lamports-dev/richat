@@ -29,6 +29,8 @@ pub enum SubscribeError {
     NotInitialized,
     #[error("replay from slot is not available, lowest available: {0}")]
     ReplayFromSlotNotAvailable(u64),
+    #[error("request is too large")]
+    RequestSizeTooLarge,
 }
 
 impl SubscribeError {
@@ -50,6 +52,7 @@ impl SubscribeError {
                 Ok(QuicSubscribeResponseError::SlotNotAvailable) => {
                     SubscribeError::ReplayFromSlotNotAvailable(response.first_available_slot())
                 }
+                Ok(QuicSubscribeResponseError::RequestSizeTooLarge) => SubscribeError::RequestSizeTooLarge,
                 Err(_error) => SubscribeError::Unknown(error),
             })
         } else {

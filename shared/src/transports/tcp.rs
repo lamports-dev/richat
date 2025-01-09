@@ -15,6 +15,8 @@ pub struct ConfigTcpServer {
     pub keepalive: Option<bool>,
     pub nodelay: Option<bool>,
     pub send_buffer_size: Option<u32>,
+    /// Max request size in bytes
+    pub max_request_size: usize,
 }
 
 impl Default for ConfigTcpServer {
@@ -25,6 +27,7 @@ impl Default for ConfigTcpServer {
             keepalive: None,
             nodelay: None,
             send_buffer_size: None,
+            max_request_size: 1024,
         }
     }
 }
