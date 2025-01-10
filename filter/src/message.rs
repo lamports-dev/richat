@@ -121,7 +121,7 @@ impl Message {
             Self::Prost(parsed) => {
                 SubscribeUpdateMessage {
                     filters: &update.filters,
-                    update_oneof: Some(match (&update.filtered_update, &parsed.message) {
+                    update_oneof: match (&update.filtered_update, &parsed.message) {
                         (
                             FilteredUpdateType::Slot,
                             MessageParsedProstEnum::Slot {
@@ -193,8 +193,8 @@ impl Message {
                         _ => {
                             return Err(MessageEncodeError::MessageMismatch);
                         }
-                    }),
-                    created_at: Some(parsed.created_at),
+                    },
+                    created_at: parsed.created_at,
                 }
                 .encode_to_vec()
             }
