@@ -387,6 +387,20 @@ impl FilterAccountDataSlices {
         }
         Self(vec)
     }
+
+    pub fn get_slice(&self, source: &[u8]) -> Vec<u8> {
+        if self.0.is_empty() {
+            source.to_vec()
+        } else {
+            let mut data = Vec::with_capacity(self.0.iter().map(|ds| ds.end - ds.start).sum());
+            for data_slice in self.0.iter() {
+                if source.len() >= data_slice.end {
+                    data.extend_from_slice(&source[data_slice.start..data_slice.end]);
+                }
+            }
+            data
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

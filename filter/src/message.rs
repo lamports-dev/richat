@@ -145,7 +145,16 @@ impl Message {
                                 ..
                             },
                         ) => UpdateOneof::Account(SubscribeUpdateAccount {
-                            account: Some(account.clone()), // data_slice todo
+                            account: Some(SubscribeUpdateAccountInfo {
+                                pubkey: account.pubkey.clone(),
+                                lamports: account.lamports,
+                                owner: account.owner.clone(),
+                                executable: account.executable,
+                                rent_epoch: account.rent_epoch,
+                                data: data_slices.get_slice(&account.data),
+                                write_version: account.write_version,
+                                txn_signature: account.txn_signature.clone(),
+                            }),
                             slot: *slot,
                             is_startup: *is_startup,
                         }),
