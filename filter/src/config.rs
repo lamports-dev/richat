@@ -58,8 +58,8 @@ pub enum ConfigLimitsError {
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigLimits {
-    pub accounts: ConfigLimitsAccounts,
     pub slots: ConfigLimitsSlots,
+    pub accounts: ConfigLimitsAccounts,
     pub transactions: ConfigLimitsTransactions,
     pub transactions_status: ConfigLimitsTransactions,
     pub entries: ConfigLimitsEntries,
@@ -104,9 +104,9 @@ impl ConfigLimits {
     }
 
     pub fn check_filter(&self, filter: &ConfigFilter) -> Result<(), ConfigLimitsError> {
+        self.slots.check_filter(&filter.slots)?;
         self.accounts
             .check_filter(&filter.accounts, &filter.accounts_data_slice)?;
-        self.slots.check_filter(&filter.slots)?;
         self.transactions.check_filter(&filter.transactions)?;
         self.transactions_status
             .check_filter(&filter.transactions_status)?;
@@ -115,6 +115,28 @@ impl ConfigLimits {
         self.blocks.check_filter(&filter.blocks)?;
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfigLimitsSlots {
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub max: usize,
+}
+
+impl Default for ConfigLimitsSlots {
+    fn default() -> Self {
+        Self { max: usize::MAX }
+    }
+}
+
+impl ConfigLimitsSlots {
+    pub fn check_filter(
+        &self,
+        filters: &HashMap<String, ConfigFilterSlots>,
+    ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_max(filters.len(), self.max)
     }
 }
 
@@ -213,28 +235,6 @@ impl ConfigLimitsAccounts {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ConfigLimitsSlots {
-    #[serde(deserialize_with = "deserialize_num_str")]
-    pub max: usize,
-}
-
-impl Default for ConfigLimitsSlots {
-    fn default() -> Self {
-        Self { max: usize::MAX }
-    }
-}
-
-impl ConfigLimitsSlots {
-    pub fn check_filter(
-        &self,
-        filters: &HashMap<String, ConfigFilterSlots>,
-    ) -> Result<(), ConfigLimitsError> {
-        ConfigLimits::check_max(filters.len(), self.max)
     }
 }
 
@@ -419,15 +419,15 @@ pub enum ConfigFilterError {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigFilter {
-    pub accounts: HashMap<String, ConfigFilterAccounts>,
     pub slots: HashMap<String, ConfigFilterSlots>,
+    pub accounts: HashMap<String, ConfigFilterAccounts>,
+    pub accounts_data_slice: Vec<ConfigFilterAccountsDataSlice>,
     pub transactions: HashMap<String, ConfigFilterTransactions>,
     pub transactions_status: HashMap<String, ConfigFilterTransactions>,
-    pub blocks: HashMap<String, ConfigFilterBlocks>,
-    pub blocks_meta: HashSet<String>,
     pub entries: HashSet<String>,
+    pub blocks_meta: HashSet<String>,
+    pub blocks: HashMap<String, ConfigFilterBlocks>,
     pub commitment: Option<ConfigFilterCommitment>,
-    pub accounts_data_slice: Vec<ConfigFilterAccountsDataSlice>,
 }
 
 impl ConfigFilter {
@@ -474,19 +474,19 @@ impl TryFrom<SubscribeRequest> for ConfigFilter {
 
     fn try_from(value: SubscribeRequest) -> Result<Self, Self::Error> {
         Ok(Self {
-            accounts: Self::try_conv_map(value.accounts)?,
             slots: Self::try_conv_map(value.slots)?,
-            transactions: Self::try_conv_map(value.transactions)?,
-            transactions_status: Self::try_conv_map(value.transactions_status)?,
-            blocks: Self::try_conv_map(value.blocks)?,
-            blocks_meta: value.blocks_meta.into_keys().collect(),
-            entries: value.entry.into_keys().collect(),
-            commitment: value.commitment.map(|value| value.try_into()).transpose()?,
+            accounts: Self::try_conv_map(value.accounts)?,
             accounts_data_slice: value
                 .accounts_data_slice
                 .into_iter()
                 .map(|ds| ds.try_into())
                 .collect::<Result<_, _>>()?,
+            transactions: Self::try_conv_map(value.transactions)?,
+            transactions_status: Self::try_conv_map(value.transactions_status)?,
+            entries: value.entry.into_keys().collect(),
+            blocks_meta: value.blocks_meta.into_keys().collect(),
+            blocks: Self::try_conv_map(value.blocks)?,
+            commitment: value.commitment.map(|value| value.try_into()).transpose()?,
         })
     }
 }
@@ -494,21 +494,45 @@ impl TryFrom<SubscribeRequest> for ConfigFilter {
 impl From<ConfigFilter> for SubscribeRequest {
     fn from(value: ConfigFilter) -> Self {
         SubscribeRequest {
-            accounts: ConfigFilter::conv_map(value.accounts),
             slots: ConfigFilter::conv_map(value.slots),
-            transactions: ConfigFilter::conv_map(value.transactions),
-            transactions_status: ConfigFilter::conv_map(value.transactions_status),
-            blocks: ConfigFilter::conv_map(value.blocks),
-            blocks_meta: ConfigFilter::conv_set(value.blocks_meta),
-            entry: ConfigFilter::conv_set(value.entries),
-            commitment: value.commitment.map(|c| c.into()),
+            accounts: ConfigFilter::conv_map(value.accounts),
             accounts_data_slice: value
                 .accounts_data_slice
                 .into_iter()
                 .map(|ds| ds.into())
                 .collect(),
+            transactions: ConfigFilter::conv_map(value.transactions),
+            transactions_status: ConfigFilter::conv_map(value.transactions_status),
+            entry: ConfigFilter::conv_set(value.entries),
+            blocks_meta: ConfigFilter::conv_set(value.blocks_meta),
+            blocks: ConfigFilter::conv_map(value.blocks),
+            commitment: value.commitment.map(|c| c.into()),
             ping: None,
             from_slot: None,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigFilterSlots {
+    pub filter_by_commitment: Option<bool>,
+}
+
+impl TryFrom<SubscribeRequestFilterSlots> for ConfigFilterSlots {
+    type Error = ConfigFilterError;
+
+    fn try_from(value: SubscribeRequestFilterSlots) -> Result<Self, Self::Error> {
+        Ok(Self {
+            filter_by_commitment: value.filter_by_commitment,
+        })
+    }
+}
+
+impl From<ConfigFilterSlots> for SubscribeRequestFilterSlots {
+    fn from(value: ConfigFilterSlots) -> Self {
+        Self {
+            filter_by_commitment: value.filter_by_commitment,
         }
     }
 }
@@ -517,11 +541,11 @@ impl From<ConfigFilter> for SubscribeRequest {
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigFilterAccounts {
     #[serde(deserialize_with = "deserialize_pubkey_vec")]
-    account: Vec<Pubkey>,
+    pub account: Vec<Pubkey>,
     #[serde(deserialize_with = "deserialize_pubkey_vec")]
-    owner: Vec<Pubkey>,
-    filters: Vec<ConfigFilterAccountsFilter>,
-    nonempty_txn_signature: Option<bool>,
+    pub owner: Vec<Pubkey>,
+    pub filters: Vec<ConfigFilterAccountsFilter>,
+    pub nonempty_txn_signature: Option<bool>,
 }
 
 impl TryFrom<SubscribeRequestFilterAccounts> for ConfigFilterAccounts {
@@ -690,7 +714,7 @@ impl From<ConfigFilterAccountsFilter> for SubscribeRequestFilterAccountsFilter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub enum ConfigFilterAccountsFilterLamports {
     Eq(u64),
@@ -727,26 +751,29 @@ impl From<ConfigFilterAccountsFilterLamports> for SubscribeRequestFilterAccounts
     }
 }
 
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct ConfigFilterSlots {
-    filter_by_commitment: Option<bool>,
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigFilterAccountsDataSlice {
+    pub offset: u64,
+    pub length: u64,
 }
 
-impl TryFrom<SubscribeRequestFilterSlots> for ConfigFilterSlots {
+impl TryFrom<SubscribeRequestAccountsDataSlice> for ConfigFilterAccountsDataSlice {
     type Error = ConfigFilterError;
 
-    fn try_from(value: SubscribeRequestFilterSlots) -> Result<Self, Self::Error> {
+    fn try_from(value: SubscribeRequestAccountsDataSlice) -> Result<Self, Self::Error> {
         Ok(Self {
-            filter_by_commitment: value.filter_by_commitment,
+            offset: value.offset,
+            length: value.length,
         })
     }
 }
 
-impl From<ConfigFilterSlots> for SubscribeRequestFilterSlots {
-    fn from(value: ConfigFilterSlots) -> Self {
+impl From<ConfigFilterAccountsDataSlice> for SubscribeRequestAccountsDataSlice {
+    fn from(value: ConfigFilterAccountsDataSlice) -> Self {
         Self {
-            filter_by_commitment: value.filter_by_commitment,
+            offset: value.offset,
+            length: value.length,
         }
     }
 }
@@ -873,32 +900,5 @@ impl From<ConfigFilterCommitment> for i32 {
             ConfigFilterCommitment::Confirmed => CommitmentLevelProto::Confirmed,
             ConfigFilterCommitment::Finalized => CommitmentLevelProto::Finalized,
         }) as i32
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigFilterAccountsDataSlice {
-    pub offset: u64,
-    pub length: u64,
-}
-
-impl TryFrom<SubscribeRequestAccountsDataSlice> for ConfigFilterAccountsDataSlice {
-    type Error = ConfigFilterError;
-
-    fn try_from(value: SubscribeRequestAccountsDataSlice) -> Result<Self, Self::Error> {
-        Ok(Self {
-            offset: value.offset,
-            length: value.length,
-        })
-    }
-}
-
-impl From<ConfigFilterAccountsDataSlice> for SubscribeRequestAccountsDataSlice {
-    fn from(value: ConfigFilterAccountsDataSlice) -> Self {
-        Self {
-            offset: value.offset,
-            length: value.length,
-        }
     }
 }

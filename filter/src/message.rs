@@ -1,11 +1,13 @@
 use {
     prost::Message as _,
     prost_types::Timestamp,
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
+    std::collections::HashSet,
     thiserror::Error,
     yellowstone_grpc_proto::geyser::{
-        subscribe_update::UpdateOneof, SubscribeUpdate, SubscribeUpdateAccount,
-        SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
-        SubscribeUpdateTransaction,
+        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto, SubscribeUpdate,
+        SubscribeUpdateAccount, SubscribeUpdateBlockMeta, SubscribeUpdateEntry,
+        SubscribeUpdateSlot, SubscribeUpdateTransaction,
     },
 };
 
@@ -29,17 +31,17 @@ pub enum ParseType {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Limited(MessageLimitedParsed),
-    Prost(MessageProstParsed),
+    Limited(MessageParsedLimited),
+    Prost(MessageParsedProst),
 }
 
 impl Message {
     pub fn parse(data: Vec<u8>, parse_type: ParseType) -> Result<Self, MessageParseError> {
         match parse_type {
-            ParseType::Limited => MessageLimitedParsed::new(data).map(Self::Limited),
+            ParseType::Limited => MessageParsedLimited::new(data).map(Self::Limited),
             ParseType::Prost => {
                 let update = SubscribeUpdate::decode(data.as_slice())?;
-                MessageProstParsed::new(
+                MessageParsedProst::new(
                     update
                         .update_oneof
                         .ok_or(MessageParseError::FieldNotDefined("update_oneof"))?,
@@ -51,24 +53,28 @@ impl Message {
             }
         }
     }
+
+    pub fn get_values(&self) -> MessageValues {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct MessageLimitedParsed;
+pub struct MessageParsedLimited;
 
-impl MessageLimitedParsed {
+impl MessageParsedLimited {
     pub fn new(_data: Vec<u8>) -> Result<Self, MessageParseError> {
         unimplemented!()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct MessageProstParsed {
-    message: MessageProstParsedEnum,
+pub struct MessageParsedProst {
+    message: MessageParsedProstEnum,
     created_at: Timestamp,
 }
 
-impl MessageProstParsed {
+impl MessageParsedProst {
     pub fn new(value: UpdateOneof, created_at: Timestamp) -> Result<Self, MessageParseError> {
         value.try_into().map(|message| Self {
             message,
@@ -78,31 +84,63 @@ impl MessageProstParsed {
 }
 
 #[derive(Debug, Clone)]
-enum MessageProstParsedEnum {
+enum MessageParsedProstEnum {
     Account(SubscribeUpdateAccount),
     Slot(SubscribeUpdateSlot),
     Transaction(SubscribeUpdateTransaction),
-    // Block(Arc<MessageBlock>),
     Entry(SubscribeUpdateEntry),
     BlockMeta(SubscribeUpdateBlockMeta),
+    // Block(Arc<MessageBlock>),
 }
 
-impl TryFrom<UpdateOneof> for MessageProstParsedEnum {
+impl TryFrom<UpdateOneof> for MessageParsedProstEnum {
     type Error = MessageParseError;
 
     fn try_from(value: UpdateOneof) -> Result<Self, Self::Error> {
         Ok(match value {
-            UpdateOneof::Account(msg) => Self::Account(msg),
             UpdateOneof::Slot(msg) => Self::Slot(msg),
+            UpdateOneof::Account(msg) => Self::Account(msg),
             UpdateOneof::Transaction(msg) => Self::Transaction(msg),
             UpdateOneof::TransactionStatus(_) => {
                 return Err(MessageParseError::InvalidUpdate("TransactionStatus"))
             }
+            UpdateOneof::Entry(msg) => Self::Entry(msg),
+            UpdateOneof::BlockMeta(msg) => Self::BlockMeta(msg),
             UpdateOneof::Block(msg) => todo!(),
             UpdateOneof::Ping(_) => return Err(MessageParseError::InvalidUpdate("Ping")),
             UpdateOneof::Pong(_) => return Err(MessageParseError::InvalidUpdate("Pong")),
-            UpdateOneof::BlockMeta(msg) => Self::BlockMeta(msg),
-            UpdateOneof::Entry(msg) => Self::Entry(msg),
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum MessageValues<'a> {
+    Slot(MessageValuesSlot),
+    Account(MessageValuesAccount<'a>),
+    Transaction(MessageValuesTransaction),
+    Entry,
+    BlockMeta,
+    // Block
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageValuesAccount<'a> {
+    pub pubkey: Pubkey,
+    pub owner: Pubkey,
+    pub lamports: u64,
+    pub txn_signature: Option<Signature>,
+    pub data: &'a [u8],
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageValuesSlot {
+    pub commitment: CommitmentLevelProto,
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageValuesTransaction {
+    pub vote: bool,
+    pub failed: bool,
+    pub signature: Signature,
+    pub account_keys: HashSet<Pubkey>,
 }

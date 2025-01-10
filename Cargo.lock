@@ -3491,6 +3491,7 @@ dependencies = [
  "prost-types 0.13.4",
  "richat-shared",
  "serde",
+ "smallvec",
  "solana-sdk",
  "thiserror 2.0.7",
  "yellowstone-grpc-proto",
