@@ -5,27 +5,31 @@ use {
             ConfigFilterAccountsFilter, ConfigFilterAccountsFilterLamports, ConfigFilterBlocks,
             ConfigFilterCommitment, ConfigFilterSlots, ConfigFilterTransactions,
         },
-        message::Message,
+        message::{
+            MessageValues, MessageValuesAccount, MessageValuesSlot, MessageValuesTransaction,
+        },
     },
     smallvec::SmallVec,
     solana_sdk::{commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature},
+    spl_token_2022::{generic_token_account::GenericTokenAccount, state::Account as TokenAccount},
     std::{
         borrow::Borrow,
         collections::{HashMap, HashSet},
         ops::Range,
         sync::Arc,
     },
+    yellowstone_grpc_proto::geyser::CommitmentLevel as CommitmentLevelProto,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FilterName(Arc<String>);
 
-// impl AsRef<str> for FilterName {
-//     #[inline]
-//     fn as_ref(&self) -> &str {
-//         &self.0
-//     }
-// }
+impl AsRef<str> for FilterName {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
 
 // impl Deref for FilterName {
 //     type Target = str;
@@ -125,8 +129,31 @@ impl Filter {
         self.commitment
     }
 
-    pub fn get_updates(&self, message: &Message, commitment: CommitmentLevel) -> () {
-        todo!()
+    pub fn get_updates(
+        &self,
+        message: &MessageValues,
+        commitment: CommitmentLevel,
+    ) -> SmallVec<[FilteredUpdate; 2]> {
+        let mut vec = SmallVec::<[FilteredUpdate; 2]>::new();
+        match message {
+            MessageValues::Slot(values) => {
+                vec.push(self.slots.get_update(values, commitment));
+            }
+            MessageValues::Account(values) => {
+                vec.push(self.accounts.get_update(values, &self.accounts_data_slices));
+            }
+            MessageValues::Transaction(values) => {
+                vec.push(self.transactions.get_update(values));
+                vec.push(self.transactions_status.get_update(values));
+            }
+            MessageValues::Entry => {
+                vec.push(self.entries.get_update());
+            }
+            MessageValues::BlockMeta => {
+                vec.push(self.blocks_meta.get_update());
+            }
+        }
+        vec.into_iter().filter(|u| !u.is_empty()).collect()
     }
 }
 
@@ -157,76 +184,75 @@ impl FilterSlots {
                 .collect(),
         }
     }
-}
 
-#[derive(Debug, Default, Clone)]
-struct FilterAccounts {
-    nonempty_txn_signature: Vec<(FilterName, Option<bool>)>,
-    nonempty_txn_signature_required: HashSet<FilterName>,
-    account: HashMap<Pubkey, HashSet<FilterName>>,
-    account_required: HashSet<FilterName>,
-    owner: HashMap<Pubkey, HashSet<FilterName>>,
-    owner_required: HashSet<FilterName>,
-    filters: Vec<(FilterName, FilterAccountsState)>,
-}
+    fn get_update(
+        &self,
+        values: &MessageValuesSlot,
+        commitment: CommitmentLevel,
+    ) -> FilteredUpdate {
+        let filters = self
+            .filters
+            .iter()
+            .filter_map(|(name, inner)| {
+                if !inner.filter_by_commitment
+                    || ((values.commitment == CommitmentLevelProto::Processed
+                        && commitment == CommitmentLevel::Processed)
+                        || (values.commitment == CommitmentLevelProto::Confirmed
+                            && commitment == CommitmentLevel::Confirmed)
+                        || (values.commitment == CommitmentLevelProto::Finalized
+                            && commitment == CommitmentLevel::Finalized))
+                {
+                    Some(name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-impl FilterAccounts {
-    fn new(names: &mut FilterNames, configs: &HashMap<String, ConfigFilterAccounts>) -> Self {
-        let mut me = Self::default();
-        for (name, config) in configs {
-            me.nonempty_txn_signature
-                .push((names.get(name), config.nonempty_txn_signature));
-            if config.nonempty_txn_signature.is_some() {
-                me.nonempty_txn_signature_required.insert(names.get(name));
-            }
-
-            Self::set(
-                &mut me.account,
-                &mut me.account_required,
-                &name,
-                names,
-                &config.account,
-            );
-            Self::set(
-                &mut me.owner,
-                &mut me.owner_required,
-                &name,
-                names,
-                &config.owner,
-            );
-
-            me.filters
-                .push((names.get(name), FilterAccountsState::new(&config.filters)));
+        FilteredUpdate {
+            filters,
+            filtered_update: FilteredUpdateType::Slot,
+            data_slices: None,
         }
-        me
     }
+}
 
-    fn set(
-        map: &mut HashMap<Pubkey, HashSet<FilterName>>,
-        map_required: &mut HashSet<FilterName>,
-        name: &str,
-        names: &mut FilterNames,
-        pubkeys: &[Pubkey],
-    ) {
-        let mut required = false;
-        for pubkey in pubkeys {
-            if map.entry(*pubkey).or_default().insert(names.get(name)) {
-                required = true;
-            }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterAccountsLamports {
+    Eq(u64),
+    Ne(u64),
+    Lt(u64),
+    Gt(u64),
+}
+
+impl From<ConfigFilterAccountsFilterLamports> for FilterAccountsLamports {
+    fn from(cmp: ConfigFilterAccountsFilterLamports) -> Self {
+        match cmp {
+            ConfigFilterAccountsFilterLamports::Eq(value) => Self::Eq(value),
+            ConfigFilterAccountsFilterLamports::Ne(value) => Self::Ne(value),
+            ConfigFilterAccountsFilterLamports::Lt(value) => Self::Lt(value),
+            ConfigFilterAccountsFilterLamports::Gt(value) => Self::Gt(value),
         }
+    }
+}
 
-        if required {
-            map_required.insert(names.get(name));
+impl FilterAccountsLamports {
+    const fn is_match(self, lamports: u64) -> bool {
+        match self {
+            Self::Eq(value) => value == lamports,
+            Self::Ne(value) => value != lamports,
+            Self::Lt(value) => value > lamports,
+            Self::Gt(value) => value < lamports,
         }
     }
 }
 
 #[derive(Debug, Default, Clone)]
 struct FilterAccountsState {
-    memcmp: Vec<(usize, Vec<u8>)>,
+    memcmp: SmallVec<[(usize, Vec<u8>); 4]>,
     datasize: Option<usize>,
     token_account_state: bool,
-    lamports: Vec<FilterAccountsLamports>,
+    lamports: SmallVec<[FilterAccountsLamports; 4]>,
 }
 
 impl FilterAccountsState {
@@ -250,29 +276,107 @@ impl FilterAccountsState {
         }
         me
     }
+
+    fn is_match(&self, lamports: u64, data: &[u8]) -> bool {
+        if matches!(self.datasize, Some(datasize) if data.len() != datasize) {
+            return false;
+        }
+        if self.token_account_state && !TokenAccount::valid_account_data(data) {
+            return false;
+        }
+        if self.lamports.iter().any(|f| !f.is_match(lamports)) {
+            return false;
+        }
+        for (offset, bytes) in self.memcmp.iter() {
+            if data.len() < *offset + bytes.len() {
+                return false;
+            }
+            let data = &data[*offset..*offset + bytes.len()];
+            if data != bytes {
+                return false;
+            }
+        }
+        true
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FilterAccountsLamports {
-    Eq(u64),
-    Ne(u64),
-    Lt(u64),
-    Gt(u64),
+#[derive(Debug, Clone)]
+struct FilterAccountsInner {
+    account: HashSet<Pubkey>,
+    owner: HashSet<Pubkey>,
+    filters: Option<FilterAccountsState>,
+    nonempty_txn_signature: Option<bool>,
 }
 
-impl From<ConfigFilterAccountsFilterLamports> for FilterAccountsLamports {
-    fn from(cmp: ConfigFilterAccountsFilterLamports) -> Self {
-        match cmp {
-            ConfigFilterAccountsFilterLamports::Eq(value) => Self::Eq(value),
-            ConfigFilterAccountsFilterLamports::Ne(value) => Self::Ne(value),
-            ConfigFilterAccountsFilterLamports::Lt(value) => Self::Lt(value),
-            ConfigFilterAccountsFilterLamports::Gt(value) => Self::Gt(value),
+#[derive(Debug, Default, Clone)]
+struct FilterAccounts {
+    filters: HashMap<FilterName, FilterAccountsInner>,
+}
+
+impl FilterAccounts {
+    fn new(names: &mut FilterNames, configs: &HashMap<String, ConfigFilterAccounts>) -> Self {
+        let mut me = Self::default();
+        for (name, filter) in configs {
+            me.filters.insert(
+                names.get(name),
+                FilterAccountsInner {
+                    account: filter.account.iter().copied().collect(),
+                    owner: filter.owner.iter().copied().collect(),
+                    filters: if filter.filters.is_empty() {
+                        None
+                    } else {
+                        Some(FilterAccountsState::new(&filter.filters))
+                    },
+                    nonempty_txn_signature: filter.nonempty_txn_signature,
+                },
+            );
+        }
+        me
+    }
+
+    fn get_update<'a>(
+        &'a self,
+        values: &MessageValuesAccount,
+        data_slices: &'a FilterAccountDataSlices,
+    ) -> FilteredUpdate<'a> {
+        let filters = self
+            .filters
+            .iter()
+            .filter_map(|(name, filter)| {
+                if !filter.account.is_empty() && !filter.account.contains(&values.pubkey) {
+                    return None;
+                }
+
+                if !filter.owner.is_empty() && !filter.owner.contains(&values.owner) {
+                    return None;
+                }
+
+                if let Some(filters) = &filter.filters {
+                    if !filters.is_match(values.lamports, values.data) {
+                        return None;
+                    }
+                }
+
+                if let Some(nonempty_txn_signature) = filter.nonempty_txn_signature {
+                    if nonempty_txn_signature != values.nonempty_txn_signature {
+                        return None;
+                    }
+                }
+
+                Some(name.as_ref())
+            })
+            .collect();
+
+        FilteredUpdate {
+            filters,
+            filtered_update: FilteredUpdateType::Account,
+            data_slices: Some(data_slices),
         }
     }
 }
 
 #[derive(Debug, Default, Clone)]
-struct FilterAccountDataSlices(SmallVec<[Range<usize>; 4]>);
+pub struct FilterAccountDataSlices(SmallVec<[Range<usize>; 4]>);
 
 impl FilterAccountDataSlices {
     fn new(data_slices: &[ConfigFilterAccountsDataSlice]) -> Self {
@@ -322,16 +426,79 @@ impl FilterTransactions {
                 FilterTransactionsInner {
                     vote: filter.vote,
                     failed: filter.failed,
-                    signature: filter.signature.clone(),
-                    account_include: filter.account_include.iter().cloned().collect(),
-                    account_exclude: filter.account_exclude.iter().cloned().collect(),
-                    account_required: filter.account_required.iter().cloned().collect(),
+                    signature: filter.signature,
+                    account_include: filter.account_include.iter().copied().collect(),
+                    account_exclude: filter.account_exclude.iter().copied().collect(),
+                    account_required: filter.account_required.iter().copied().collect(),
                 },
             );
         }
         Self {
             filter_type,
             filters,
+        }
+    }
+
+    fn get_update(&self, values: &MessageValuesTransaction) -> FilteredUpdate {
+        let filters = self
+            .filters
+            .iter()
+            .filter_map(|(name, filter)| {
+                if let Some(is_vote) = filter.vote {
+                    if is_vote != values.vote {
+                        return None;
+                    }
+                }
+
+                if let Some(is_failed) = filter.failed {
+                    if is_failed != values.failed {
+                        return None;
+                    }
+                }
+
+                if let Some(signature) = &filter.signature {
+                    if signature != &values.signature {
+                        return None;
+                    }
+                }
+
+                if !filter.account_include.is_empty()
+                    && filter
+                        .account_include
+                        .intersection(values.account_keys)
+                        .next()
+                        .is_none()
+                {
+                    return None;
+                }
+
+                if !filter.account_exclude.is_empty()
+                    && filter
+                        .account_exclude
+                        .intersection(values.account_keys)
+                        .next()
+                        .is_some()
+                {
+                    return None;
+                }
+
+                if !filter.account_required.is_empty()
+                    && !filter.account_required.is_subset(values.account_keys)
+                {
+                    return None;
+                }
+
+                Some(name.as_ref())
+            })
+            .collect();
+
+        FilteredUpdate {
+            filters,
+            filtered_update: match self.filter_type {
+                FilterTransactionsType::Transaction => FilteredUpdateType::Transaction,
+                FilterTransactionsType::TransactionStatus => FilteredUpdateType::TransactionStatus,
+            },
+            data_slices: None,
         }
     }
 }
@@ -347,6 +514,14 @@ impl FilterEntries {
             filters: configs.iter().map(|name| names.get(name)).collect(),
         }
     }
+
+    fn get_update(&self) -> FilteredUpdate {
+        FilteredUpdate {
+            filters: self.filters.iter().map(|f| f.as_ref()).collect(),
+            filtered_update: FilteredUpdateType::Entry,
+            data_slices: None,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -358,6 +533,14 @@ impl FilterBlocksMeta {
     fn new(names: &mut FilterNames, configs: &HashSet<String>) -> Self {
         Self {
             filters: configs.iter().map(|name| names.get(name)).collect(),
+        }
+    }
+
+    fn get_update(&self) -> FilteredUpdate {
+        FilteredUpdate {
+            filters: self.filters.iter().map(|f| f.as_ref()).collect(),
+            filtered_update: FilteredUpdateType::BlockMeta,
+            data_slices: None,
         }
     }
 }
@@ -382,7 +565,7 @@ impl FilterBlocks {
             me.filters.insert(
                 names.get(name),
                 FilterBlocksInner {
-                    account_include: filter.account_include.iter().cloned().collect(),
+                    account_include: filter.account_include.iter().copied().collect(),
                     include_transactions: filter.include_transactions,
                     include_accounts: filter.include_accounts,
                     include_entries: filter.include_entries,
@@ -391,4 +574,28 @@ impl FilterBlocks {
         }
         me
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct FilteredUpdate<'a> {
+    pub filters: SmallVec<[&'a str; 8]>,
+    pub filtered_update: FilteredUpdateType,
+    pub data_slices: Option<&'a FilterAccountDataSlices>,
+}
+
+impl<'a> FilteredUpdate<'a> {
+    fn is_empty(&self) -> bool {
+        self.filters.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilteredUpdateType {
+    Slot,
+    Account,
+    Transaction,
+    TransactionStatus,
+    Entry,
+    BlockMeta,
+    Block,
 }

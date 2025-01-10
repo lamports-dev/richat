@@ -3493,6 +3493,7 @@ dependencies = [
  "serde",
  "smallvec",
  "solana-sdk",
+ "spl-token-2022 6.0.0",
  "thiserror 2.0.7",
  "yellowstone-grpc-proto",
 ]
