@@ -1,13 +1,22 @@
 use {
+    crate::{
+        filter::{FilteredUpdate, FilteredUpdateType},
+        protobuf::SubscribeUpdateMessage,
+    },
     prost::Message as _,
     prost_types::Timestamp,
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::collections::HashSet,
     thiserror::Error,
-    yellowstone_grpc_proto::geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto, SubscribeUpdate,
-        SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta, SubscribeUpdateEntry,
-        SubscribeUpdateTransactionInfo,
+    yellowstone_grpc_proto::{
+        geyser::{
+            subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
+            SubscribeUpdate, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
+            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
+            SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
+            SubscribeUpdateTransactionStatus,
+        },
+        solana::storage::confirmed_block::TransactionError,
     },
 };
 
@@ -25,6 +34,12 @@ pub enum MessageParseError {
     InvalidSignature,
     #[error("Invalid update: {0}")]
     InvalidUpdateMessage(&'static str),
+}
+
+#[derive(Debug, Error)]
+pub enum MessageEncodeError {
+    #[error("Filtered update doesn't match existed message")]
+    MessageMismatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,13 +99,13 @@ impl Message {
                 }),
                 MessageParsedProstEnum::Transaction {
                     signature,
-                    failed,
+                    error,
                     account_keys,
                     transaction,
                     ..
                 } => MessageValues::Transaction(MessageValuesTransaction {
                     vote: transaction.is_vote,
-                    failed: *failed,
+                    failed: error.is_some(),
                     signature: *signature,
                     account_keys,
                 }),
@@ -98,6 +113,83 @@ impl Message {
                 MessageParsedProstEnum::BlockMeta(_) => MessageValues::BlockMeta,
             },
         }
+    }
+
+    pub fn encode(&self, update: &FilteredUpdate) -> Result<Vec<u8>, MessageEncodeError> {
+        Ok(match self {
+            Self::Limited(_parsed) => todo!(),
+            Self::Prost(parsed) => {
+                SubscribeUpdateMessage {
+                    filters: &update.filters,
+                    update_oneof: Some(match (&update.filtered_update, &parsed.message) {
+                        (
+                            FilteredUpdateType::Slot,
+                            MessageParsedProstEnum::Slot {
+                                slot,
+                                parent,
+                                commitment,
+                                dead_error,
+                            },
+                        ) => UpdateOneof::Slot(SubscribeUpdateSlot {
+                            slot: *slot,
+                            parent: *parent,
+                            status: *commitment as i32,
+                            dead_error: dead_error.clone(),
+                        }),
+                        (
+                            FilteredUpdateType::Account(data_slices),
+                            MessageParsedProstEnum::Account {
+                                account,
+                                slot,
+                                is_startup,
+                                ..
+                            },
+                        ) => UpdateOneof::Account(SubscribeUpdateAccount {
+                            account: Some(account.clone()), // data_slice todo
+                            slot: *slot,
+                            is_startup: *is_startup,
+                        }),
+                        (
+                            FilteredUpdateType::Transaction,
+                            MessageParsedProstEnum::Transaction {
+                                transaction, slot, ..
+                            },
+                        ) => UpdateOneof::Transaction(SubscribeUpdateTransaction {
+                            transaction: Some(transaction.clone()),
+                            slot: *slot,
+                        }),
+                        (
+                            FilteredUpdateType::TransactionStatus,
+                            MessageParsedProstEnum::Transaction {
+                                signature,
+                                error,
+                                transaction,
+                                slot,
+                                ..
+                            },
+                        ) => UpdateOneof::TransactionStatus(SubscribeUpdateTransactionStatus {
+                            slot: *slot,
+                            signature: signature.as_ref().to_vec(),
+                            is_vote: transaction.is_vote,
+                            index: transaction.index,
+                            err: error.clone(),
+                        }),
+                        (FilteredUpdateType::Entry, MessageParsedProstEnum::Entry(msg)) => {
+                            UpdateOneof::Entry(msg.clone())
+                        }
+                        (FilteredUpdateType::BlockMeta, MessageParsedProstEnum::BlockMeta(msg)) => {
+                            UpdateOneof::BlockMeta(msg.clone())
+                        }
+                        // (FilteredUpdateType::Block, MessageParsedProstEnum::Block(???)) => {}
+                        _ => {
+                            return Err(MessageEncodeError::MessageMismatch);
+                        }
+                    }),
+                    created_at: Some(parsed.created_at),
+                }
+                .encode_to_vec()
+            }
+        })
     }
 }
 
@@ -143,7 +235,7 @@ enum MessageParsedProstEnum {
     },
     Transaction {
         signature: Signature,
-        failed: bool,
+        error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
@@ -231,7 +323,7 @@ impl TryFrom<UpdateOneof> for MessageParsedProstEnum {
                         .as_slice()
                         .try_into()
                         .map_err(|_| MessageParseError::InvalidSignature)?,
-                    failed: meta.err.is_some(),
+                    error: meta.err.clone(),
                     account_keys,
                     transaction,
                     slot: msg.slot,

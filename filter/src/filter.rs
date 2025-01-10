@@ -212,7 +212,6 @@ impl FilterSlots {
         FilteredUpdate {
             filters,
             filtered_update: FilteredUpdateType::Slot,
-            data_slices: None,
         }
     }
 }
@@ -369,8 +368,7 @@ impl FilterAccounts {
 
         FilteredUpdate {
             filters,
-            filtered_update: FilteredUpdateType::Account,
-            data_slices: Some(data_slices),
+            filtered_update: FilteredUpdateType::Account(data_slices),
         }
     }
 }
@@ -498,7 +496,6 @@ impl FilterTransactions {
                 FilterTransactionsType::Transaction => FilteredUpdateType::Transaction,
                 FilterTransactionsType::TransactionStatus => FilteredUpdateType::TransactionStatus,
             },
-            data_slices: None,
         }
     }
 }
@@ -519,7 +516,6 @@ impl FilterEntries {
         FilteredUpdate {
             filters: self.filters.iter().map(|f| f.as_ref()).collect(),
             filtered_update: FilteredUpdateType::Entry,
-            data_slices: None,
         }
     }
 }
@@ -540,7 +536,6 @@ impl FilterBlocksMeta {
         FilteredUpdate {
             filters: self.filters.iter().map(|f| f.as_ref()).collect(),
             filtered_update: FilteredUpdateType::BlockMeta,
-            data_slices: None,
         }
     }
 }
@@ -579,8 +574,7 @@ impl FilterBlocks {
 #[derive(Debug, Clone)]
 pub struct FilteredUpdate<'a> {
     pub filters: SmallVec<[&'a str; 8]>,
-    pub filtered_update: FilteredUpdateType,
-    pub data_slices: Option<&'a FilterAccountDataSlices>,
+    pub filtered_update: FilteredUpdateType<'a>,
 }
 
 impl<'a> FilteredUpdate<'a> {
@@ -589,13 +583,13 @@ impl<'a> FilteredUpdate<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FilteredUpdateType {
+#[derive(Debug, Clone)]
+pub enum FilteredUpdateType<'a> {
     Slot,
-    Account,
+    Account(&'a FilterAccountDataSlices),
     Transaction,
     TransactionStatus,
     Entry,
     BlockMeta,
-    Block,
+    Block(&'a FilterAccountDataSlices),
 }
