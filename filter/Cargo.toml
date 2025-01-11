@@ -11,6 +11,7 @@ keywords = { workspace = true }
 publish = { workspace = true }
 
 [dependencies]
+arrayvec = { workspace = true }
 base64 = { workspace = true }
 bs58 = { workspace = true }
 prost = { workspace = true }

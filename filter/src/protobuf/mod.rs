@@ -14,7 +14,7 @@ use {
 #[derive(Debug, Clone)]
 pub struct SubscribeUpdateMessage<'a> {
     pub filters: &'a [&'a str],
-    pub update_oneof: UpdateOneof,
+    pub update: UpdateOneof,
     pub created_at: Timestamp,
 }
 
@@ -26,7 +26,7 @@ impl<'a> Message for SubscribeUpdateMessage<'a> {
         for filter in self.filters {
             bytes_encode(1, filter.as_bytes(), buf);
         }
-        self.update_oneof.encode(buf);
+        self.update.encode(buf);
         message::encode(11, &self.created_at, buf);
     }
 
@@ -35,7 +35,7 @@ impl<'a> Message for SubscribeUpdateMessage<'a> {
             .iter()
             .map(|filter| bytes_encoded_len(1, filter.as_bytes()))
             .sum::<usize>()
-            + self.update_oneof.encoded_len()
+            + self.update.encoded_len()
             + message::encoded_len(11, &self.created_at)
     }
 

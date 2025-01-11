@@ -3485,6 +3485,7 @@ dependencies = [
 name = "richat-filter"
 version = "2.0.0"
 dependencies = [
+ "arrayvec",
  "base64 0.22.1",
  "bs58",
  "prost 0.13.4",

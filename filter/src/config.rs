@@ -26,10 +26,10 @@ use {
     },
 };
 
-const MAX_FILTERS: usize = 4;
-const MAX_DATA_SIZE: usize = 128;
-const MAX_DATA_BASE58_SIZE: usize = 175;
-const MAX_DATA_BASE64_SIZE: usize = 172;
+pub const MAX_FILTERS: usize = 4;
+pub const MAX_DATA_SIZE: usize = 128;
+pub const MAX_DATA_BASE58_SIZE: usize = 175;
+pub const MAX_DATA_BASE64_SIZE: usize = 172;
 
 #[derive(Debug, Error)]
 pub enum ConfigLimitsError {
