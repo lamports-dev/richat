@@ -2,7 +2,7 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, arbitrary::Arbitrary,
-    richat_plugin::protobuf::ProtobufMessage, std::time::SystemTime,
+    richat_plugin_agave::protobuf::ProtobufMessage, std::time::SystemTime,
 };
 
 #[derive(Debug, Clone, Copy, Arbitrary)]

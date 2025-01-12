@@ -1,5 +1,5 @@
 {
-  "libpath": "../target/release/librichat_plugin.so",
+  "libpath": "../target/release/librichat_plugin_agave.so",
   "log": {
     "level": "info"
   },

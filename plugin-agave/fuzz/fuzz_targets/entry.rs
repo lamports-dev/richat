@@ -2,7 +2,7 @@
 
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
-    arbitrary::Arbitrary, richat_plugin::protobuf::ProtobufMessage, std::time::SystemTime,
+    arbitrary::Arbitrary, richat_plugin_agave::protobuf::ProtobufMessage, std::time::SystemTime,
 };
 
 #[derive(Debug, Arbitrary)]

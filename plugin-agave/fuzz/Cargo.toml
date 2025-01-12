@@ -1,5 +1,5 @@
 [package]
-name = "richat-plugin-fuzz"
+name = "richat-plugin-agave-fuzz"
 version = "0.0.0"
 authors = ["Lamports Dev"]
 edition = "2021"
@@ -53,7 +53,7 @@ arbitrary = { version = "1.4.1", features = ["derive"] }
 const-hex = "1.14.0"
 libfuzzer-sys = "0.4.8"
 prost = "0.11.9"
-richat-plugin = { path = ".." }
+richat-plugin-agave = { path = ".." }
 solana-account-decoder = "~2.1.1"
 solana-sdk = { version = "~2.1.1", features = ["dev-context-only-utils"] }
 solana-storage-proto = "~2.1.1"

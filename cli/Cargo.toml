@@ -21,7 +21,7 @@ futures = { workspace = true }
 indicatif = { workspace = true }
 prost = { workspace = true }
 richat-client = { workspace = true }
-richat-plugin = { workspace = true }
+richat-plugin-agave = { workspace = true }
 richat-shared = { workspace = true }
 serde_json = { workspace = true }
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }

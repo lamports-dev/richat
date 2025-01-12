@@ -1,6 +1,6 @@
 # Project
-plugin/config-test.json
-plugin/fixtures/blocks
+plugin-agave/config-test.json
+plugin-agave/fixtures/blocks
 richat/config-test.yml
 
 # Solana

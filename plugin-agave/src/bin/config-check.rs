@@ -1,4 +1,4 @@
-use {clap::Parser, richat_plugin::config::Config};
+use {clap::Parser, richat_plugin_agave::config::Config};
 
 #[derive(Debug, Parser)]
 #[clap(

@@ -2,7 +2,7 @@ use {
     criterion::{black_box, BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin::protobuf::{fixtures::generate_entries, ProtobufEncoder, ProtobufMessage},
+    richat_plugin_agave::protobuf::{fixtures::generate_entries, ProtobufEncoder, ProtobufMessage},
     std::{sync::Arc, time::SystemTime},
     yellowstone_grpc_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},

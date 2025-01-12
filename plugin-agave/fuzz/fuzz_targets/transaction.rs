@@ -3,7 +3,7 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
     arbitrary::Arbitrary,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin_agave::protobuf::ProtobufMessage,
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         hash::{Hash, HASH_BYTES},

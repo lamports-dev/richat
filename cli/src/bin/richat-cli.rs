@@ -14,7 +14,7 @@ use {
         quic::{QuicClient, QuicClientBuilder},
         tcp::TcpClient,
     },
-    richat_plugin::protobuf::{ProtobufEncoder, ProtobufMessage},
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     richat_shared::transports::{
         grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
     },

@@ -3092,7 +3092,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "richat-plugin"
+name = "richat-plugin-agave"
 version = "2.0.0"
 dependencies = [
  "affinity",
@@ -3123,7 +3123,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "richat-plugin-fuzz"
+name = "richat-plugin-agave-fuzz"
 version = "0.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
@@ -3131,7 +3131,7 @@ dependencies = [
  "const-hex",
  "libfuzzer-sys",
  "prost 0.11.9",
- "richat-plugin",
+ "richat-plugin-agave",
  "solana-account-decoder",
  "solana-sdk",
  "solana-storage-proto",

@@ -3,7 +3,7 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     arbitrary::Arbitrary,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin_agave::protobuf::ProtobufMessage,
     solana_transaction_status::{RewardType, RewardsAndNumPartitions},
     std::time::SystemTime,
 };

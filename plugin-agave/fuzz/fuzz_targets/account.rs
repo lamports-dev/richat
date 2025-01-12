@@ -3,7 +3,7 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     arbitrary::Arbitrary,
-    richat_plugin::protobuf::ProtobufMessage,
+    richat_plugin_agave::protobuf::ProtobufMessage,
     solana_sdk::{
         message::{LegacyMessage, Message, SanitizedMessage},
         pubkey::PUBKEY_BYTES,

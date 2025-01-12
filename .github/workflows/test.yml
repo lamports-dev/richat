@@ -37,7 +37,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -Dwarnings
 
       - name: run clippy in plugin-fuzz
-        run: cd plugin/fuzz && cargo clippy --workspace --all-targets -- -Dwarnings
+        run: cd plugin-agave/fuzz && cargo clippy --workspace --all-targets -- -Dwarnings
 
       - name: check features in `richat-cli`
         run: cargo check -p richat-cli --all-targets
@@ -48,11 +48,11 @@ jobs:
       - name: check features in `richat-filter`
         run: cargo check -p richat-filter --all-targets
 
-      - name: check features in `richat-plugin`
-        run: cargo check -p richat-plugin --all-targets
+      - name: check features in `richat-plugin-agave`
+        run: cargo check -p richat-plugin-agave --all-targets
 
-      - name: check features in `richat-plugin` with all features
-        run: cargo check -p richat-plugin --all-targets --all-features
+      - name: check features in `richat-plugin-agave` with all features
+        run: cargo check -p richat-plugin-agave --all-targets --all-features
 
       - name: check features in `richat`
         run: cargo check -p richat --all-targets

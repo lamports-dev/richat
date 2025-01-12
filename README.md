@@ -50,4 +50,4 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `Shyft` — https://shyft.to/
 - `Triton One` — https://triton.one/
 
-If your RPC provider not in list, please open Issue / PR!
+If your RPC provider not in the list, please open Issue / PR!
