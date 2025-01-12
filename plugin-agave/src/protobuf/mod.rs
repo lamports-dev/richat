@@ -14,6 +14,14 @@ pub mod fixtures {
             SlotStatus,
         },
         prost_011::Message,
+        richat_proto::{
+            convert_to,
+            geyser::{
+                CommitmentLevel, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
+                SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
+                SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
+            },
+        },
         solana_sdk::{
             clock::Slot,
             hash::{Hash, HASH_BYTES},
@@ -27,14 +35,6 @@ pub mod fixtures {
             ConfirmedBlock, RewardsAndNumPartitions, TransactionStatusMeta,
         },
         std::{collections::HashSet, fs},
-        yellowstone_grpc_proto::{
-            convert_to,
-            geyser::{
-                CommitmentLevel, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
-                SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
-                SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
-            },
-        },
     };
 
     pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
@@ -118,14 +118,15 @@ pub mod fixtures {
             Pubkey::from_str_const("5jrPJWVGrFvQ2V9wRZC3kHEZhxo9pmMir15x73oHT6mn");
 
         let blocks = load_predefined_blocks();
-        let block = blocks
-            .first()
-            .map(|(_slot, confirmed_block)| confirmed_block)
-            .expect("failed to get first `ConfirmedBlock`");
-        let versioned_transaction = block
-            .transactions
-            .first()
-            .map(|transaction| transaction.get_transaction())
+        let versioned_transaction = blocks
+            .iter()
+            .flat_map(|(_slot, confirmed_block)| {
+                confirmed_block
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.get_transaction())
+            })
+            .next()
             .expect("failed to get first `VersionedTransaction`");
         let address_loader = match versioned_transaction.message.address_table_lookups() {
             Some(vec_atl) => SimpleAddressLoader::Enabled(LoadedAddresses {
@@ -472,8 +473,8 @@ mod tests {
             ProtobufEncoder, ProtobufMessage,
         },
         prost::Message,
+        richat_proto::geyser::{subscribe_update::UpdateOneof, SubscribeUpdate},
         std::time::SystemTime,
-        yellowstone_grpc_proto::geyser::{subscribe_update::UpdateOneof, SubscribeUpdate},
     };
 
     #[test]
