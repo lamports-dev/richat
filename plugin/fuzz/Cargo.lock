@@ -3118,7 +3118,6 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "tokio",
- "tonic-build 0.12.3",
  "vergen",
  "yellowstone-grpc-proto",
 ]
