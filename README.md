@@ -40,3 +40,14 @@ Default license for any file in this project is `AGPL-3.0-only`, except files in
 - `richat-v0.0.0+solana.2.1.5`
 
 At one moment of time we can support more than one agave version (like v2.0 and v2.1), as result we can have two different major supported versions of every component, for example: `cli-v1.y.z` for `agave-v2.0` and `cli-v2.y.z` for `agave-v2.1`. In addition to standard version `plugin` and `richat` can one or more tags with pinned solana version.
+
+## List of RPC providers with Dragon's Mouth support
+
+- `GetBlock` — https://getblock.io/
+- `Helius` — https://www.helius.dev/
+- `OrbitFlare` — https://orbitflare.com/
+- `QuickNode` — https://www.quicknode.com/
+- `Shyft` — https://shyft.to/
+- `Triton One` — https://triton.one/
+
+If your RPC provider not in list, please open Issue / PR!
