@@ -11,11 +11,14 @@ keywords = { workspace = true }
 publish = { workspace = true }
 
 [dependencies]
+prost = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
+protobuf-src = { workspace = true }
+tonic-build = { workspace = true }
 
 [features]
 default = []

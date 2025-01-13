@@ -1,4 +1,3 @@
-pub use crate::transports::proto::GrpcSubscribeRequest;
 use {
     crate::{
         config::{deserialize_num_str, deserialize_x_token_set},
@@ -11,7 +10,10 @@ use {
         stream::{Stream, StreamExt},
     },
     prost::{bytes::BufMut, Message},
-    richat_proto::geyser::{GetVersionRequest, GetVersionResponse},
+    richat_proto::{
+        geyser::{GetVersionRequest, GetVersionResponse},
+        richat::GrpcSubscribeRequest,
+    },
     serde::{
         de::{self, Deserializer},
         Deserialize,

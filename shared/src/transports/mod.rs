@@ -2,11 +2,6 @@ pub mod grpc;
 pub mod quic;
 pub mod tcp;
 
-pub(crate) mod proto {
-    #![allow(clippy::missing_const_for_fn)]
-    include!(concat!(env!("OUT_DIR"), "/transport.rs"));
-}
-
 use {futures::stream::BoxStream, solana_sdk::clock::Slot, std::sync::Arc, thiserror::Error};
 
 pub type RecvItem = Arc<Vec<u8>>;

@@ -1,18 +1,15 @@
-pub use crate::transports::proto::TcpSubscribeRequest;
 use {
     crate::{
         config::deserialize_x_token_set,
         shutdown::Shutdown,
-        transports::{
-            quic::{
-                QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeResponse,
-                QuicSubscribeResponseError,
-            },
-            RecvError, RecvStream, Subscribe, SubscribeError,
-        },
+        transports::{RecvError, RecvStream, Subscribe, SubscribeError},
     },
     futures::stream::StreamExt,
     prost::Message,
+    richat_proto::richat::{
+        QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeResponse,
+        QuicSubscribeResponseError, TcpSubscribeRequest,
+    },
     serde::Deserialize,
     std::{
         borrow::Cow,

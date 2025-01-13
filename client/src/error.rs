@@ -1,6 +1,6 @@
 use {
     prost::{DecodeError, Message},
-    richat_shared::transports::quic::{
+    richat_proto::richat::{
         QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeResponse,
         QuicSubscribeResponseError,
     },

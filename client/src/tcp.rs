@@ -10,11 +10,8 @@ use {
     },
     pin_project_lite::pin_project,
     prost::Message,
-    richat_shared::transports::{
-        grpc::GrpcSubscribeRequest,
-        quic::QuicSubscribeClose,
-        tcp::{ConfigTcpServer, TcpSubscribeRequest},
-    },
+    richat_proto::richat::{GrpcSubscribeRequest, QuicSubscribeClose, TcpSubscribeRequest},
+    richat_shared::transports::tcp::ConfigTcpServer,
     serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{

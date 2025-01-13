@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package transport;
+package richat;
 
 message GrpcSubscribeRequest {
   optional uint64 replay_from_slot = 11; // same tag as in yellowstone gRPC SubscribeRequest

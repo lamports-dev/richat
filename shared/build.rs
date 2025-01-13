@@ -3,17 +3,7 @@ use tonic_build::manual::{Builder, Method, Service};
 fn main() -> anyhow::Result<()> {
     // build protos
     std::env::set_var("PROTOC", protobuf_src::protoc());
-    generate_transport()?;
     generate_grpc_geyser()
-}
-
-fn generate_transport() -> anyhow::Result<()> {
-    tonic_build::configure()
-        .build_client(false)
-        .build_server(false)
-        .compile_protos(&["proto/transport.proto"], &["proto"])?;
-
-    Ok(())
 }
 
 fn generate_grpc_geyser() -> anyhow::Result<()> {

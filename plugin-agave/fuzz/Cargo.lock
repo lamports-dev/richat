@@ -3144,6 +3144,9 @@ version = "2.0.0"
 dependencies = [
  "anyhow",
  "cargo-lock",
+ "prost 0.13.4",
+ "protobuf-src",
+ "tonic-build 0.12.3",
  "yellowstone-grpc-proto",
 ]
 

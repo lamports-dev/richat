@@ -15,12 +15,10 @@ use {
         ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, RecvStream,
         TransportConfig, VarInt,
     },
+    richat_proto::richat::{GrpcSubscribeRequest, QuicSubscribeClose, QuicSubscribeRequest},
     richat_shared::{
         config::{deserialize_maybe_num_str, deserialize_num_str},
-        transports::{
-            grpc::GrpcSubscribeRequest,
-            quic::{ConfigQuicServer, QuicSubscribeClose, QuicSubscribeRequest},
-        },
+        transports::quic::ConfigQuicServer,
     },
     rustls::{
         pki_types::{CertificateDer, ServerName, UnixTime},
