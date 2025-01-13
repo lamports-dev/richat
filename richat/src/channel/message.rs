@@ -1,7 +1,7 @@
 use {
+    richat_proto::geyser::CommitmentLevel,
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     thiserror::Error,
-    yellowstone_grpc_proto::geyser::CommitmentLevel,
 };
 
 #[derive(Debug, Error)]

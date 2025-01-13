@@ -3,11 +3,11 @@ use {
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{fixtures::generate_slots, ProtobufEncoder, ProtobufMessage},
-    std::time::SystemTime,
-    yellowstone_grpc_proto::plugin::{
+    richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageSlot,
     },
+    std::time::SystemTime,
 };
 
 pub fn bench_encode_slot(criterion: &mut Criterion) {

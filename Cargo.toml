@@ -5,6 +5,7 @@ members = [
     "client",
     "filter",
     "plugin-agave",
+    "proto",
     "richat",
     "shared",
 ]
@@ -54,6 +55,7 @@ quinn = "0.11.6"
 rcgen = "0.13.1"
 richat-client = { path = "client", version = "2.0.0" }
 richat-plugin-agave = { path = "plugin-agave", version = "2.0.0" }
+richat-proto = { path = "proto", version = "2.0.0" }
 richat-shared = { path = "shared", version = "0.0.0" }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"

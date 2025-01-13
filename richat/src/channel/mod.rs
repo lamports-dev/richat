@@ -10,6 +10,7 @@ use {
         config::ConfigChannelInner,
         metrics,
     },
+    richat_proto::geyser::CommitmentLevel,
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
@@ -21,7 +22,6 @@ use {
     },
     thiserror::Error,
     tracing::{debug, error},
-    yellowstone_grpc_proto::geyser::CommitmentLevel,
 };
 
 #[derive(Debug, Clone)]

@@ -26,6 +26,10 @@ fn emit_version() -> anyhow::Result<()> {
         "cargo:rustc-env=YELLOWSTONE_GRPC_PROTO_VERSION={}",
         get_pkg_version(&lockfile, "yellowstone-grpc-proto")
     );
+    println!(
+        "cargo:rustc-env=RICHAT_PROTO_VERSION={}",
+        get_pkg_version(&lockfile, "richat-proto")
+    );
 
     Ok(())
 }

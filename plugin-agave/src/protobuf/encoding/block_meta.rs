@@ -5,9 +5,9 @@ use {
         bytes::BufMut,
         encoding::{self, WireType},
     },
+    richat_proto::convert_to,
     solana_transaction_status::RewardsAndNumPartitions,
     std::ops::Deref,
-    yellowstone_grpc_proto::convert_to,
 };
 
 #[derive(Debug)]

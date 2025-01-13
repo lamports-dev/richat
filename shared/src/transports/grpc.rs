@@ -11,6 +11,7 @@ use {
         stream::{Stream, StreamExt},
     },
     prost::{bytes::BufMut, Message},
+    richat_proto::geyser::{GetVersionRequest, GetVersionResponse},
     serde::{
         de::{self, Deserializer},
         Deserialize,
@@ -42,7 +43,6 @@ use {
         Request, Response, Status, Streaming,
     },
     tracing::{error, info},
-    yellowstone_grpc_proto::geyser::{GetVersionRequest, GetVersionResponse},
 };
 
 pub mod gen {

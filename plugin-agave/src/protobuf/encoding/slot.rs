@@ -1,6 +1,6 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, prost::encoding,
-    yellowstone_grpc_proto::geyser::CommitmentLevel,
+    richat_proto::geyser::CommitmentLevel,
 };
 
 const fn slot_status_as_i32(status: &SlotStatus) -> i32 {

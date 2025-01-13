@@ -6,12 +6,12 @@ use {
     },
     pin_project_lite::pin_project,
     prost::Message,
+    richat_proto::geyser::SubscribeUpdate,
     std::{
         fmt,
         pin::Pin,
         task::{Context, Poll},
     },
-    yellowstone_grpc_proto::geyser::SubscribeUpdate,
 };
 
 type InputStream = BoxStream<'static, Result<Vec<u8>, ReceiveError>>;

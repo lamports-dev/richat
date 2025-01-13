@@ -5,11 +5,11 @@ use {
     richat_plugin_agave::protobuf::{
         fixtures::generate_transactions, ProtobufEncoder, ProtobufMessage,
     },
-    std::time::SystemTime,
-    yellowstone_grpc_proto::plugin::{
+    richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageTransaction,
     },
+    std::time::SystemTime,
 };
 
 pub fn bench_encode_transactions(criterion: &mut Criterion) {

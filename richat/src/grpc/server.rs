@@ -8,6 +8,12 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
     },
+    richat_proto::geyser::{
+        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
+        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
+        PongResponse, SubscribeRequest, SubscribeUpdate,
+    },
     richat_shared::shutdown::Shutdown,
     solana_sdk::clock::MAX_PROCESSING_AGE,
     std::{
@@ -28,12 +34,6 @@ use {
         Streaming,
     },
     tracing::{error, info},
-    yellowstone_grpc_proto::geyser::{
-        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeUpdate,
-    },
 };
 
 pub mod gen {

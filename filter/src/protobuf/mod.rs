@@ -8,7 +8,7 @@ use {
         DecodeError, Message,
     },
     prost_types::Timestamp,
-    yellowstone_grpc_proto::geyser::subscribe_update::UpdateOneof,
+    richat_proto::geyser::subscribe_update::UpdateOneof,
 };
 
 #[derive(Debug, Clone)]

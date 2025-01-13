@@ -5,11 +5,11 @@ use {
     richat_plugin_agave::protobuf::{
         fixtures::generate_block_metas, ProtobufEncoder, ProtobufMessage,
     },
-    std::{sync::Arc, time::SystemTime},
-    yellowstone_grpc_proto::plugin::{
+    richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageBlockMeta,
     },
+    std::{sync::Arc, time::SystemTime},
 };
 
 pub fn bench_encode_block_metas(criterion: &mut Criterion) {

@@ -1,5 +1,15 @@
 use {
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
+    richat_proto::geyser::{
+        subscribe_request_filter_accounts_filter::Filter as AccountsFilterDataOneof,
+        subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
+        subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
+        CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
+        SubscribeRequestAccountsDataSlice, SubscribeRequestFilterAccounts,
+        SubscribeRequestFilterAccountsFilter, SubscribeRequestFilterAccountsFilterLamports,
+        SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterBlocks,
+        SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
+    },
     richat_shared::config::{
         deserialize_maybe_signature, deserialize_num_str, deserialize_pubkey_set,
         deserialize_pubkey_vec,
@@ -14,16 +24,6 @@ use {
     },
     std::collections::{HashMap, HashSet},
     thiserror::Error,
-    yellowstone_grpc_proto::geyser::{
-        subscribe_request_filter_accounts_filter::Filter as AccountsFilterDataOneof,
-        subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
-        subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
-        CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
-        SubscribeRequestAccountsDataSlice, SubscribeRequestFilterAccounts,
-        SubscribeRequestFilterAccountsFilter, SubscribeRequestFilterAccountsFilterLamports,
-        SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterBlocks,
-        SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
-    },
 };
 
 pub const MAX_FILTERS: usize = 4;

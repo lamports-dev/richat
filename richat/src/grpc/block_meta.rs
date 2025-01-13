@@ -1,11 +1,11 @@
 use {
     crate::channel::message::{Message, MessageBlockMeta, MessageSlot},
     futures::future::TryFutureExt,
+    richat_proto::geyser::CommitmentLevel,
     solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
     std::{collections::HashMap, future::Future, sync::Arc},
     tokio::sync::{mpsc, oneshot},
     tonic::Status,
-    yellowstone_grpc_proto::geyser::CommitmentLevel,
 };
 
 #[derive(Debug, Default, Clone)]

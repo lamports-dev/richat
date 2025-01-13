@@ -1,12 +1,12 @@
 use {
     crate::{channel::message::MessageSlot, version::VERSION as VERSION_INFO},
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
+    richat_proto::geyser::CommitmentLevel,
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
     std::{future::Future, sync::Once},
     tokio::task::JoinError,
     tracing::error,
-    yellowstone_grpc_proto::geyser::CommitmentLevel,
 };
 
 lazy_static::lazy_static! {

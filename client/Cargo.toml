@@ -17,6 +17,7 @@ humantime-serde = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
+richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
@@ -28,7 +29,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
-yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

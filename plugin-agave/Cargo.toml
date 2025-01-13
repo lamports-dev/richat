@@ -36,6 +36,7 @@ prometheus = { workspace = true }
 prost = { workspace = true }
 prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
+richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -46,13 +47,12 @@ solana-sdk = { workspace = true }
 solana-storage-proto = { workspace = true, optional = true }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-yellowstone-grpc-proto = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 prost_011 = { workspace = true }
+richat-proto = { workspace = true, features = ["yellowstone-grpc-plugin"] }
 solana-storage-proto = { workspace = true }
-yellowstone-grpc-proto = { workspace = true, features = ["plugin"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

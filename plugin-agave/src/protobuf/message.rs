@@ -68,7 +68,7 @@ impl<'a> ProtobufMessage<'a> {
     pub fn encode_prost(&self, created_at: impl Into<Timestamp>) -> Vec<u8> {
         use {
             prost::Message,
-            yellowstone_grpc_proto::{
+            richat_proto::{
                 convert_to,
                 geyser::{
                     subscribe_update::UpdateOneof, CommitmentLevel, SubscribeUpdate,

@@ -1,10 +1,7 @@
 use {
     prost::Message as _,
     prost_types::Timestamp,
-    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
-    std::{collections::HashSet, sync::Arc},
-    thiserror::Error,
-    yellowstone_grpc_proto::{
+    richat_proto::{
         geyser::{
             subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
             SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
@@ -12,6 +9,9 @@ use {
         },
         solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
+    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    std::{collections::HashSet, sync::Arc},
+    thiserror::Error,
 };
 
 #[derive(Debug, Error)]

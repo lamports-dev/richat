@@ -5,6 +5,7 @@ pub struct Version {
     pub package: &'static str,
     pub version: &'static str,
     pub proto: &'static str,
+    pub proto_richat: &'static str,
     pub solana: &'static str,
     pub git: &'static str,
     pub rustc: &'static str,

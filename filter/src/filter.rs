@@ -14,6 +14,11 @@ use {
     },
     arrayvec::ArrayVec,
     prost::Message as _,
+    richat_proto::geyser::{
+        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
+        SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlock,
+        SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus,
+    },
     smallvec::{smallvec_inline, SmallVec},
     solana_sdk::{commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature},
     spl_token_2022::{generic_token_account::GenericTokenAccount, state::Account as TokenAccount},
@@ -22,11 +27,6 @@ use {
         collections::{HashMap, HashSet},
         ops::{Not, Range},
         sync::Arc,
-    },
-    yellowstone_grpc_proto::geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
-        SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlock,
-        SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus,
     },
 };
 

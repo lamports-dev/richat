@@ -13,6 +13,12 @@ use {
     gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
     prost::Message,
+    richat_proto::geyser::{
+        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
+        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
+        PongResponse, SubscribeRequest,
+    },
     richat_shared::{
         config::deserialize_num_str,
         transports::grpc::{ConfigGrpcCompression, ConfigGrpcServer},
@@ -38,12 +44,6 @@ use {
             Certificate,
         },
         Request, Response, Status, Streaming,
-    },
-    yellowstone_grpc_proto::geyser::{
-        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest,
     },
 };
 

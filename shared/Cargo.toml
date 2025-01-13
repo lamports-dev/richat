@@ -23,6 +23,7 @@ prometheus = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
 rcgen = { workspace = true }
+richat-proto = { workspace = true }
 rustls = { workspace = true, features = ["std", "tls12", "ring"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -32,7 +33,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tonic = { workspace = true, features = ["tls", "gzip", "zstd"] }
 tracing = { workspace = true }
-yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

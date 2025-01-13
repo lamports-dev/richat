@@ -2,7 +2,7 @@ use {
     crate::config::ConfigChannelSource,
     futures::stream::{BoxStream, StreamExt},
     richat_client::error::ReceiveError,
-    yellowstone_grpc_proto::geyser::SubscribeRequest,
+    richat_proto::geyser::SubscribeRequest,
 };
 
 pub async fn subscribe(

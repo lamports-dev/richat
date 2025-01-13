@@ -15,6 +15,14 @@ use {
         tcp::TcpClient,
     },
     richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
+    richat_proto::{
+        convert_from,
+        geyser::{
+            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeUpdate,
+            SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
+            SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
+        },
+    },
     richat_shared::transports::{
         grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
     },
@@ -40,14 +48,6 @@ use {
     },
     tonic::service::Interceptor,
     tracing::{error, info},
-    yellowstone_grpc_proto::{
-        convert_from,
-        geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeUpdate,
-            SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
-            SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
-        },
-    },
 };
 
 type SubscribeStreamInput = BoxStream<'static, Result<Vec<u8>, ReceiveError>>;
