@@ -3,6 +3,7 @@ use {
     crate::{
         config::ConfigChannel,
         metrics,
+        plugin::PluginNotification,
         protobuf::{ProtobufEncoder, ProtobufMessage},
     },
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
@@ -161,7 +162,7 @@ impl Sender {
 
                 state.head = state.head.wrapping_add(1);
                 state.remove_slots(Some(slot + 1), item.slot);
-                state.bytes_total -= message.len();
+                state.bytes_total -= message.1.len();
             }
 
             // remove messages while slot is same
@@ -181,7 +182,7 @@ impl Sender {
                 };
 
                 state.head = state.head.wrapping_add(1);
-                state.bytes_total -= message.len();
+                state.bytes_total -= message.1.len();
             }
         }
 
@@ -201,7 +202,7 @@ impl Sender {
 
             state.head = state.head.wrapping_add(1);
             state.remove_slots(None, item.slot);
-            state.bytes_total -= message.len();
+            state.bytes_total -= message.1.len();
         }
 
         // update tail
@@ -213,11 +214,11 @@ impl Sender {
         if let Some(message) = item.data.take() {
             state.head = state.head.wrapping_add(1);
             state.remove_slots(None, item.slot);
-            state.bytes_total -= message.len();
+            state.bytes_total -= message.1.len();
         }
         item.pos = pos;
         item.slot = slot;
-        item.data = Some(Arc::new(data));
+        item.data = Some((message.get_plugin_notification(), Arc::new(data)));
         drop(item);
 
         // update metrics
@@ -272,10 +273,15 @@ impl Subscribe for Sender {
         };
         drop(state);
 
+        let filter = filter.unwrap_or_default();
+
         Ok(Receiver {
             shared,
             next,
             finished: false,
+            enable_notifications_accounts: !filter.disable_accounts,
+            enable_notifications_transactions: !filter.disable_transactions,
+            enable_notifications_entries: !filter.disable_entries,
         }
         .boxed())
     }
@@ -288,6 +294,9 @@ pub struct Receiver {
     shared: Arc<Shared>,
     next: u64,
     finished: bool,
+    enable_notifications_accounts: bool,
+    enable_notifications_transactions: bool,
+    enable_notifications_entries: bool,
 }
 
 impl Receiver {
@@ -296,37 +305,48 @@ impl Receiver {
     }
 
     pub fn recv_ref(&mut self, waker: &Waker) -> Result<Option<ReceiverItem>, RecvError> {
-        // read item with next value
-        let idx = self.shared.get_idx(self.next);
-        let mut item = self.shared.buffer_idx_read(idx);
-        if item.closed {
-            return Err(RecvError::Closed);
-        }
-
-        if item.pos != self.next {
-            // release lock before attempting to acquire state
-            drop(item);
-
-            // acquire state to store waker
-            let mut state = self.shared.state_lock();
-
-            // make sure that position did not changed
-            item = self.shared.buffer_idx_read(idx);
+        loop {
+            // read item with next value
+            let idx = self.shared.get_idx(self.next);
+            let mut item = self.shared.buffer_idx_read(idx);
             if item.closed {
                 return Err(RecvError::Closed);
             }
-            if item.pos != self.next {
-                return if item.pos < self.next {
-                    state.wakers.push(waker.clone());
-                    Ok(None)
-                } else {
-                    Err(RecvError::Lagged)
-                };
-            }
-        }
 
-        self.next = self.next.wrapping_add(1);
-        item.data.clone().ok_or(RecvError::Lagged).map(Some)
+            if item.pos != self.next {
+                // release lock before attempting to acquire state
+                drop(item);
+
+                // acquire state to store waker
+                let mut state = self.shared.state_lock();
+
+                // make sure that position did not changed
+                item = self.shared.buffer_idx_read(idx);
+                if item.closed {
+                    return Err(RecvError::Closed);
+                }
+                if item.pos != self.next {
+                    return if item.pos < self.next {
+                        state.wakers.push(waker.clone());
+                        Ok(None)
+                    } else {
+                        Err(RecvError::Lagged)
+                    };
+                }
+            }
+
+            self.next = self.next.wrapping_add(1);
+            let (plugin_notification, item) = item.data.clone().ok_or(RecvError::Lagged)?;
+            match plugin_notification {
+                PluginNotification::Account if !self.enable_notifications_accounts => continue,
+                PluginNotification::Transaction if !self.enable_notifications_transactions => {
+                    continue
+                }
+                PluginNotification::Entry if !self.enable_notifications_entries => continue,
+                _ => {}
+            }
+            break Ok(Some(item));
+        }
     }
 }
 
@@ -457,6 +477,6 @@ struct SlotInfo {
 struct Item {
     pos: u64,
     slot: Slot,
-    data: Option<Arc<Vec<u8>>>,
+    data: Option<(PluginNotification, ReceiverItem)>,
     closed: bool,
 }

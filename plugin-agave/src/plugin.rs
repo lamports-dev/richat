@@ -22,6 +22,15 @@ use {
     tokio::{runtime::Runtime, task::JoinError},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginNotification {
+    Slot,
+    Account,
+    Transaction,
+    Entry,
+    BlockMeta,
+}
+
 struct PluginTask(BoxFuture<'static, Result<(), JoinError>>);
 
 unsafe impl Sync for PluginTask {}

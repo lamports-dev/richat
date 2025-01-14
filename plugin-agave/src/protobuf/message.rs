@@ -1,5 +1,5 @@
 use {
-    super::encoding,
+    crate::{plugin::PluginNotification, protobuf::encoding},
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
         SlotStatus,
@@ -40,6 +40,16 @@ pub enum ProtobufMessage<'a> {
 }
 
 impl<'a> ProtobufMessage<'a> {
+    pub const fn get_plugin_notification(&self) -> PluginNotification {
+        match self {
+            Self::Account { .. } => PluginNotification::Account,
+            Self::Slot { .. } => PluginNotification::Slot,
+            Self::Transaction { .. } => PluginNotification::Transaction,
+            Self::Entry { .. } => PluginNotification::Entry,
+            Self::BlockMeta { .. } => PluginNotification::BlockMeta,
+        }
+    }
+
     pub const fn get_slot(&self) -> Slot {
         match self {
             Self::Account { slot, .. } => *slot,
