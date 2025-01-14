@@ -21,6 +21,17 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         )
         .method(
             Method::builder()
+                .name("subscribe_richat")
+                .route_name("SubscribeRichat")
+                .input_type("richat_proto::richat::GrpcSubscribeRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc::SubscribeCodec")
+                .client_streaming()
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            Method::builder()
                 .name("ping")
                 .route_name("Ping")
                 .input_type("richat_proto::geyser::PingRequest")

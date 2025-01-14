@@ -423,7 +423,8 @@ impl QuicServer {
 
         // Decode request
         let QuicSubscribeRequest {
-            request,
+            replay_from_slot,
+            filter,
             recv_streams,
             max_backlog,
             x_token,
@@ -461,8 +462,7 @@ impl QuicServer {
             return Ok((send, msg, None));
         }
 
-        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
-        Ok(match messages.subscribe(replay_from_slot) {
+        Ok(match messages.subscribe(replay_from_slot, filter) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())

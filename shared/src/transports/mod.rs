@@ -2,7 +2,10 @@ pub mod grpc;
 pub mod quic;
 pub mod tcp;
 
-use {futures::stream::BoxStream, solana_sdk::clock::Slot, std::sync::Arc, thiserror::Error};
+use {
+    futures::stream::BoxStream, richat_proto::richat::RichatFilter, solana_sdk::clock::Slot,
+    std::sync::Arc, thiserror::Error,
+};
 
 pub type RecvItem = Arc<Vec<u8>>;
 
@@ -25,5 +28,9 @@ pub enum SubscribeError {
 }
 
 pub trait Subscribe {
-    fn subscribe(&self, replay_from_slot: Option<Slot>) -> Result<RecvStream, SubscribeError>;
+    fn subscribe(
+        &self,
+        replay_from_slot: Option<Slot>,
+        filter: Option<RichatFilter>,
+    ) -> Result<RecvStream, SubscribeError>;
 }

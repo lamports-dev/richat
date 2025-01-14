@@ -209,7 +209,11 @@ impl TcpServer {
         stream.read_exact(buf.as_mut_slice()).await?;
 
         // Decode request
-        let TcpSubscribeRequest { request, x_token } = Message::decode(buf.as_slice())?;
+        let TcpSubscribeRequest {
+            replay_from_slot,
+            filter,
+            x_token,
+        } = Message::decode(buf.as_slice())?;
 
         // verify access token
         if !x_tokens.is_empty() {
@@ -228,8 +232,7 @@ impl TcpServer {
             }
         }
 
-        let replay_from_slot = request.and_then(|req| req.replay_from_slot);
-        Ok(match messages.subscribe(replay_from_slot) {
+        Ok(match messages.subscribe(replay_from_slot, filter) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())

@@ -18,10 +18,11 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeUpdate,
+            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeUpdate,
             SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
             SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
+        richat::{GrpcSubscribeRequest, RichatFilter},
     },
     richat_shared::transports::{
         grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
@@ -78,6 +79,18 @@ struct ArgsAppStream {
     #[command(subcommand)]
     action: ArgsAppStreamSelect,
 
+    /// Disable streaming accounts
+    #[clap(long)]
+    disable_accounts: bool,
+
+    /// Disable streaming transactions
+    #[clap(long)]
+    disable_transactions: bool,
+
+    /// Disable streaming entries
+    #[clap(long)]
+    disable_entries: bool,
+
     /// Access token
     #[clap(long)]
     x_token: Option<String>,
@@ -92,11 +105,22 @@ impl ArgsAppStream {
         self,
         replay_from_slot: Option<Slot>,
     ) -> anyhow::Result<SubscribeStreamInput> {
+        let filter = RichatFilter {
+            disable_accounts: self.disable_accounts,
+            disable_transactions: self.disable_transactions,
+            disable_entries: self.disable_entries,
+        };
         let x_token = self.x_token.map(|xt| xt.into_bytes());
         match self.action {
-            ArgsAppStreamSelect::Quic(args) => args.subscribe(replay_from_slot, x_token).await,
-            ArgsAppStreamSelect::Tcp(args) => args.subscribe(replay_from_slot, x_token).await,
-            ArgsAppStreamSelect::Grpc(args) => args.subscribe(replay_from_slot, x_token).await,
+            ArgsAppStreamSelect::Quic(args) => {
+                args.subscribe(replay_from_slot, filter, x_token).await
+            }
+            ArgsAppStreamSelect::Tcp(args) => {
+                args.subscribe(replay_from_slot, filter, x_token).await
+            }
+            ArgsAppStreamSelect::Grpc(args) => {
+                args.subscribe(replay_from_slot, filter, x_token).await
+            }
         }
     }
 }
@@ -149,6 +173,7 @@ impl ArgsAppStreamQuic {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        filter: RichatFilter,
         x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let builder = QuicClient::builder()
@@ -172,7 +197,7 @@ impl ArgsAppStreamQuic {
         info!("connected to {} over Quic", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot, x_token)
+            .subscribe(replay_from_slot, Some(filter), x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -192,6 +217,7 @@ impl ArgsAppStreamTcp {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        filter: RichatFilter,
         x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let client = TcpClient::build()
@@ -201,7 +227,7 @@ impl ArgsAppStreamTcp {
         info!("connected to {} over Tcp", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot, x_token)
+            .subscribe(replay_from_slot, Some(filter), x_token)
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -320,6 +346,7 @@ impl ArgsAppStreamGrpc {
     async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        filter: RichatFilter,
         x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let endpoint = self.endpoint.clone();
@@ -327,9 +354,9 @@ impl ArgsAppStreamGrpc {
         info!("connected to {endpoint} over gRPC");
 
         let stream = client
-            .subscribe_once(SubscribeRequest {
-                from_slot: replay_from_slot,
-                ..Default::default()
+            .subscribe_richat_once(GrpcSubscribeRequest {
+                replay_from_slot,
+                filter: Some(filter),
             })
             .await
             .context("failed to subscribe")?;

@@ -15,7 +15,7 @@ use {
         ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, RecvStream,
         TransportConfig, VarInt,
     },
-    richat_proto::richat::{GrpcSubscribeRequest, QuicSubscribeClose, QuicSubscribeRequest},
+    richat_proto::richat::{QuicSubscribeClose, QuicSubscribeRequest, RichatFilter},
     richat_shared::{
         config::{deserialize_maybe_num_str, deserialize_num_str},
         transports::quic::ConfigQuicServer,
@@ -416,10 +416,12 @@ impl QuicClient {
     pub async fn subscribe(
         self,
         replay_from_slot: Option<Slot>,
+        filter: Option<RichatFilter>,
         x_token: Option<Vec<u8>>,
     ) -> Result<QuicClientStream, SubscribeError> {
         let message = QuicSubscribeRequest {
-            request: Some(GrpcSubscribeRequest { replay_from_slot }),
+            replay_from_slot,
+            filter,
             recv_streams: self.recv_streams,
             max_backlog: self.max_backlog,
             x_token,

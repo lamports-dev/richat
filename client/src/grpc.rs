@@ -13,11 +13,14 @@ use {
     gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
     prost::Message,
-    richat_proto::geyser::{
-        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest,
+    richat_proto::{
+        geyser::{
+            CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse,
+            GetLatestBlockhashRequest, GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse,
+            GetVersionRequest, GetVersionResponse, IsBlockhashValidRequest,
+            IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeRequest,
+        },
+        richat::GrpcSubscribeRequest,
     },
     richat_shared::{
         config::deserialize_num_str,
@@ -389,10 +392,9 @@ impl<F: Interceptor> GrpcClient<F> {
         Self { geyser }
     }
 
-    // Subscribe
-    async fn subscribe_with_request(
+    // Subscribe Yellowstone gRPC Dragon's Mouth
+    pub async fn subscribe_dragons_mouth(
         &mut self,
-        request: Option<SubscribeRequest>,
     ) -> Result<
         (
             impl Sink<SubscribeRequest, Error = mpsc::SendError>,
@@ -400,13 +402,7 @@ impl<F: Interceptor> GrpcClient<F> {
         ),
         Status,
     > {
-        let (mut subscribe_tx, subscribe_rx) = mpsc::unbounded();
-        if let Some(request) = request {
-            subscribe_tx
-                .send(request)
-                .await
-                .expect("failed to send to unbounded channel");
-        }
+        let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe(subscribe_rx).await?;
         let stream = GrpcClientStream {
             stream: response.into_inner(),
@@ -414,25 +410,45 @@ impl<F: Interceptor> GrpcClient<F> {
         Ok((subscribe_tx, stream))
     }
 
-    pub async fn subscribe(
+    pub async fn subscribe_dragons_mouth_once(
+        &mut self,
+        request: SubscribeRequest,
+    ) -> Result<GrpcClientStream, Status> {
+        let (mut tx, rx) = self.subscribe_dragons_mouth().await?;
+        tx.send(request)
+            .await
+            .expect("failed to send to unbounded channel");
+        Ok(rx)
+    }
+
+    // Subscribe Richat
+    pub async fn subscribe_richat(
         &mut self,
     ) -> Result<
         (
-            impl Sink<SubscribeRequest, Error = mpsc::SendError>,
+            impl Sink<GrpcSubscribeRequest, Error = mpsc::SendError>,
             GrpcClientStream,
         ),
         Status,
     > {
-        self.subscribe_with_request(None).await
+        let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
+        let response: Response<Streaming<Vec<u8>>> =
+            self.geyser.subscribe_richat(subscribe_rx).await?;
+        let stream = GrpcClientStream {
+            stream: response.into_inner(),
+        };
+        Ok((subscribe_tx, stream))
     }
 
-    pub async fn subscribe_once(
+    pub async fn subscribe_richat_once(
         &mut self,
-        request: SubscribeRequest,
+        request: GrpcSubscribeRequest,
     ) -> Result<GrpcClientStream, Status> {
-        self.subscribe_with_request(Some(request))
+        let (mut tx, rx) = self.subscribe_richat().await?;
+        tx.send(request)
             .await
-            .map(|(_sink, stream)| stream)
+            .expect("failed to send to unbounded channel");
+        Ok(rx)
     }
 
     // RPC calls

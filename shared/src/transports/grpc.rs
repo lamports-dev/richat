@@ -306,8 +306,11 @@ where
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         info!("#{id}: new connection from {:?}", request.remote_addr());
 
-        let replay_from_slot = match request.get_mut().message().await {
-            Ok(Some(request)) => request.replay_from_slot,
+        let (replay_from_slot, filter) = match request.get_mut().message().await {
+            Ok(Some(GrpcSubscribeRequest {
+                replay_from_slot,
+                filter,
+            })) => (replay_from_slot, filter),
             Ok(None) => {
                 info!("#{id}: connection closed before receiving request");
                 return Err(Status::aborted("stream closed before request received"));
@@ -318,7 +321,7 @@ where
             }
         };
 
-        match self.messages.subscribe(replay_from_slot) {
+        match self.messages.subscribe(replay_from_slot, filter) {
             Ok(rx) => {
                 let pos = replay_from_slot
                     .map(|slot| format!("slot {slot}").into())

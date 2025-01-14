@@ -8,6 +8,7 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
+    richat_proto::richat::RichatFilter,
     richat_shared::transports::{RecvError, RecvStream, Subscribe, SubscribeError},
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
@@ -250,7 +251,11 @@ impl Sender {
 }
 
 impl Subscribe for Sender {
-    fn subscribe(&self, replay_from_slot: Option<Slot>) -> Result<RecvStream, SubscribeError> {
+    fn subscribe(
+        &self,
+        replay_from_slot: Option<Slot>,
+        filter: Option<RichatFilter>,
+    ) -> Result<RecvStream, SubscribeError> {
         let shared = Arc::clone(&self.shared);
 
         let state = shared.state_lock();
