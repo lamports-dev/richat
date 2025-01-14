@@ -420,11 +420,11 @@ impl QuicClient {
         x_token: Option<Vec<u8>>,
     ) -> Result<QuicClientStream, SubscribeError> {
         let message = QuicSubscribeRequest {
-            replay_from_slot,
-            filter,
+            x_token,
             recv_streams: self.recv_streams,
             max_backlog: self.max_backlog,
-            x_token,
+            replay_from_slot,
+            filter,
         }
         .encode_to_vec();
 

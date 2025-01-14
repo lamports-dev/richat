@@ -129,9 +129,9 @@ impl TcpClient {
         x_token: Option<Vec<u8>>,
     ) -> Result<TcpClientStream, SubscribeError> {
         let message = TcpSubscribeRequest {
+            x_token,
             replay_from_slot,
             filter,
-            x_token,
         }
         .encode_to_vec();
         self.stream.write_u64(message.len() as u64).await?;

@@ -423,11 +423,11 @@ impl QuicServer {
 
         // Decode request
         let QuicSubscribeRequest {
-            replay_from_slot,
-            filter,
+            x_token,
             recv_streams,
             max_backlog,
-            x_token,
+            replay_from_slot,
+            filter,
         } = Message::decode(buf.as_slice())?;
 
         // verify access token

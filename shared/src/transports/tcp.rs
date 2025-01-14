@@ -210,9 +210,9 @@ impl TcpServer {
 
         // Decode request
         let TcpSubscribeRequest {
+            x_token,
             replay_from_slot,
             filter,
-            x_token,
         } = Message::decode(buf.as_slice())?;
 
         // verify access token
