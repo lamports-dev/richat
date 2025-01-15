@@ -12,6 +12,22 @@ Default license for any file in this project is `AGPL-3.0-only`, except files in
 - `richat`
 - `shared`
 
+## Richat support and extended version
+
+Any issue not related with bugs / features related topics would be closed. If you struggle to load plugin or have some questions how to use crates please drop your question in Telegram chat: [https://t.me/lamportsdev](https://t.me/lamportsdev)
+
+In addition to open-source version there also enterprise version with ability to downstream full stream. To get more info please send email to: [customers@lamports.dev](mailto:customers@lamports.dev)
+
+```mermaid
+flowchart LR
+    P[plugin] -->|full stream| R1(richat)
+    R1 -->|full stream| R2(richat)
+    R2 -->|filtered stream| C1(client)
+    R1 -->|filtered stream| C2(client)
+    R1 -->|filtered stream| C3(client)
+    R2 -->|filtered stream| C4(client)
+```
+
 ## Components
 
 - `cli` — CLI client for full stream, gRPC stream with filters, simple Solana PubSub
@@ -40,6 +56,7 @@ Default license for any file in this project is `AGPL-3.0-only`, except files in
 - `proto-v0.0.0`
 - `richat-v0.0.0`
 - `richat-v0.0.0+solana.2.1.5`
+- `shared-v0.0.0`
 
 At one moment of time we can support more than one agave version (like v2.0 and v2.1), as result we can have two different major supported versions of every component, for example: `cli-v1.y.z` for `agave-v2.0` and `cli-v2.y.z` for `agave-v2.1`. In addition to standard version `plugin-agave` and `richat` can one or more tags with pinned solana version.
 

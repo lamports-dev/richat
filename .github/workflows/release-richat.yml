@@ -1,0 +1,55 @@
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+    pull_request:
+      paths:
+        - '.github/workflows/release-richat.yml'
+    push:
+      branches:
+        - master
+        - agave-v2.0
+        - agave-v2.1
+      tags:
+        - 'richat-v*'
+    workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - ubuntu-24.04
+    runs-on: ["${{ matrix.os }}"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: fanatid/rust-github-ci-prepare@master
+        with:
+          cache-version: v0001-richat
+
+      - name: Build richat
+        run: |
+          cargo build -p richat --release
+          cd target/release && \
+            mv richat richat-${{ matrix.os }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: richat-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            target/release/richat-${{ matrix.os }}
+
+      - name: Upload release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/richat-${{ matrix.os }}

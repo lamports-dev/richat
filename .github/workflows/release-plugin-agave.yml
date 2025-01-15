@@ -1,0 +1,58 @@
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+    pull_request:
+      paths:
+        - '.github/workflows/release-plugin-agave.yml'
+    push:
+      branches:
+        - master
+        - agave-v2.0
+        - agave-v2.1
+      tags:
+        - 'plugin-agave-v*'
+    workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - ubuntu-24.04
+    runs-on: ["${{ matrix.os }}"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: fanatid/rust-github-ci-prepare@master
+        with:
+          cache-version: v0001-plugin-agave
+
+      - name: Build richat plugin agave
+        run: |
+          cargo build -p richat-plugin-agave --release
+          cd target/release && \
+            mv richat-plugin-config-check richat-plugin-config-check-${{ matrix.os }} && \
+            mv librichat_plugin_agave.so librichat_plugin_agave_${{ matrix.os }}.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: richat-plugin-agave-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            target/release/richat-plugin-config-check-${{ matrix.os }}
+            target/release/librichat_plugin_agave_${{ matrix.os }}.so
+
+      - name: Upload release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/richat-plugin-config-check-${{ matrix.os }}
+            target/release/librichat_plugin_agave_${{ matrix.os }}.so
