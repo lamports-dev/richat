@@ -23,7 +23,7 @@ use {
         richat::GrpcSubscribeRequest,
     },
     richat_shared::{
-        config::deserialize_num_str,
+        config::{deserialize_maybe_x_token, deserialize_num_str},
         transports::grpc::{ConfigGrpcCompression, ConfigGrpcServer},
     },
     serde::Deserialize,
@@ -40,7 +40,7 @@ use {
     tokio::fs,
     tonic::{
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        metadata::{errors::InvalidMetadataValue, AsciiMetadataKey, AsciiMetadataValue},
+        metadata::{errors::InvalidMetadataValueBytes, AsciiMetadataKey, AsciiMetadataValue},
         service::{interceptor::InterceptedService, Interceptor},
         transport::{
             channel::{Channel, ClientTlsConfig, Endpoint},
@@ -74,7 +74,8 @@ pub struct ConfigGrpcClient {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_decoding_message_size: usize,
     pub compression: ConfigGrpcCompression,
-    pub x_token: Option<String>,
+    #[serde(deserialize_with = "deserialize_maybe_x_token")]
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl Default for ConfigGrpcClient {
@@ -149,7 +150,7 @@ pub enum GrpcClientBuilderError {
     #[error("tonic error: {0}")]
     Tonic(#[from] tonic::transport::Error),
     #[error("x-token error: {0}")]
-    XToken(#[from] InvalidMetadataValue),
+    XToken(#[from] InvalidMetadataValueBytes),
 }
 
 #[derive(Debug)]
@@ -312,9 +313,9 @@ impl GrpcClientBuilder {
     }
 
     // Metadata
-    pub fn x_token<T>(mut self, x_token: Option<T>) -> Result<Self, InvalidMetadataValue>
+    pub fn x_token<T>(mut self, x_token: Option<T>) -> Result<Self, InvalidMetadataValueBytes>
     where
-        T: TryInto<AsciiMetadataValue, Error = InvalidMetadataValue>,
+        T: TryInto<AsciiMetadataValue, Error = InvalidMetadataValueBytes>,
     {
         if let Some(x_token) = x_token {
             self.interceptor.metadata.insert(

@@ -17,12 +17,14 @@ channel:
     # max_backlog: null
     # insecure: false
     # cert: null
+    # x_token: null
     # ---
     transport: tcp
     endpoint: 127.0.0.1:10101
     keepalive: null
     nodelay: true
     recv_buffer_size: null
+    x_token: null
     # ---
     # transport: grpc
     # endpoint: http://127.0.0.1:10102

@@ -619,13 +619,11 @@ impl<'de> Deserialize<'de> for ConfigFilterAccountsFilter {
         Ok(match Config::deserialize(deserializer)? {
             Config::Memcmp { offset, data } => {
                 let data = match data {
-                    ConfigMemcmpData::Str(data) => {
-                        if data.starts_with("base64") {
-                            base64_engine.decode(data).map_err(de::Error::custom)?
-                        } else {
-                            bs58::decode(data).into_vec().map_err(de::Error::custom)?
-                        }
-                    }
+                    ConfigMemcmpData::Str(data) => match &data[0..7] {
+                        "base64" => base64_engine.decode(data).map_err(de::Error::custom)?,
+                        "base58" => bs58::decode(data).into_vec().map_err(de::Error::custom)?,
+                        _ => data.as_bytes().to_vec(),
+                    },
                     ConfigMemcmpData::Bytes(data) => data,
                 };
                 Self::Memcmp { offset, data }

@@ -11,7 +11,7 @@ use {
     pin_project_lite::pin_project,
     prost::Message,
     richat_proto::richat::{QuicSubscribeClose, RichatFilter, TcpSubscribeRequest},
-    richat_shared::transports::tcp::ConfigTcpServer,
+    richat_shared::{config::deserialize_maybe_x_token, transports::tcp::ConfigTcpServer},
     serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
@@ -35,6 +35,8 @@ pub struct ConfigTcpClient {
     pub keepalive: Option<bool>,
     pub nodelay: Option<bool>,
     pub recv_buffer_size: Option<u32>,
+    #[serde(deserialize_with = "deserialize_maybe_x_token")]
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl Default for ConfigTcpClient {
@@ -44,6 +46,7 @@ impl Default for ConfigTcpClient {
             keepalive: None,
             nodelay: None,
             recv_buffer_size: None,
+            x_token: None,
         }
     }
 }
@@ -54,6 +57,7 @@ impl ConfigTcpClient {
             .set_keepalive(self.keepalive)
             .set_nodelay(self.nodelay)
             .set_recv_buffer_size(self.recv_buffer_size)
+            .set_x_token(self.x_token)
             .connect(self.endpoint)
             .await
     }
@@ -64,6 +68,7 @@ pub struct TcpClientBuilder {
     pub keepalive: Option<bool>,
     pub nodelay: Option<bool>,
     pub recv_buffer_size: Option<u32>,
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl TcpClientBuilder {
@@ -93,28 +98,36 @@ impl TcpClientBuilder {
         }
 
         let stream = socket.connect(addr).await?;
-        Ok(TcpClient { stream })
+        Ok(TcpClient {
+            stream,
+            x_token: self.x_token,
+        })
     }
 
-    pub const fn set_keepalive(self, keepalive: Option<bool>) -> Self {
+    pub fn set_keepalive(self, keepalive: Option<bool>) -> Self {
         Self { keepalive, ..self }
     }
 
-    pub const fn set_nodelay(self, nodelay: Option<bool>) -> Self {
+    pub fn set_nodelay(self, nodelay: Option<bool>) -> Self {
         Self { nodelay, ..self }
     }
 
-    pub const fn set_recv_buffer_size(self, recv_buffer_size: Option<u32>) -> Self {
+    pub fn set_recv_buffer_size(self, recv_buffer_size: Option<u32>) -> Self {
         Self {
             recv_buffer_size,
             ..self
         }
+    }
+
+    pub fn set_x_token(self, x_token: Option<Vec<u8>>) -> Self {
+        Self { x_token, ..self }
     }
 }
 
 #[derive(Debug)]
 pub struct TcpClient {
     stream: TcpStream,
+    x_token: Option<Vec<u8>>,
 }
 
 impl TcpClient {
@@ -126,10 +139,9 @@ impl TcpClient {
         mut self,
         replay_from_slot: Option<Slot>,
         filter: Option<RichatFilter>,
-        x_token: Option<Vec<u8>>,
     ) -> Result<TcpClientStream, SubscribeError> {
         let message = TcpSubscribeRequest {
-            x_token,
+            x_token: self.x_token.take(),
             replay_from_slot,
             filter,
         }

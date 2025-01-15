@@ -17,7 +17,7 @@ use {
     },
     richat_proto::richat::{QuicSubscribeClose, QuicSubscribeRequest, RichatFilter},
     richat_shared::{
-        config::{deserialize_maybe_num_str, deserialize_num_str},
+        config::{deserialize_maybe_num_str, deserialize_maybe_x_token, deserialize_num_str},
         transports::quic::ConfigQuicServer,
     },
     rustls::{
@@ -131,21 +131,23 @@ pub enum QuicConnectError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ConfigQuicClient {
-    endpoint: String,
-    local_addr: SocketAddr,
+    pub endpoint: String,
+    pub local_addr: SocketAddr,
     #[serde(deserialize_with = "deserialize_num_str")]
-    expected_rtt: u32,
+    pub expected_rtt: u32,
     #[serde(deserialize_with = "deserialize_num_str")]
-    max_stream_bandwidth: u32,
+    pub max_stream_bandwidth: u32,
     #[serde(with = "humantime_serde")]
-    max_idle_timeout: Option<Duration>,
-    server_name: Option<String>,
+    pub max_idle_timeout: Option<Duration>,
+    pub server_name: Option<String>,
     #[serde(deserialize_with = "deserialize_num_str")]
-    recv_streams: u32,
+    pub recv_streams: u32,
     #[serde(deserialize_with = "deserialize_maybe_num_str")]
-    max_backlog: Option<u32>,
-    insecure: bool,
-    cert: Option<PathBuf>,
+    pub max_backlog: Option<u32>,
+    pub insecure: bool,
+    pub cert: Option<PathBuf>,
+    #[serde(deserialize_with = "deserialize_maybe_x_token")]
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl Default for ConfigQuicClient {
@@ -161,6 +163,7 @@ impl Default for ConfigQuicClient {
             max_backlog: None,
             insecure: false,
             cert: None,
+            x_token: None,
         }
     }
 }
@@ -174,7 +177,8 @@ impl ConfigQuicClient {
             .set_max_idle_timeout(self.max_idle_timeout)
             .set_server_name(self.server_name.clone())
             .set_recv_streams(self.recv_streams)
-            .set_max_backlog(self.max_backlog);
+            .set_max_backlog(self.max_backlog)
+            .set_x_token(self.x_token);
 
         if self.insecure {
             builder.insecure().connect(self.endpoint.clone()).await
@@ -196,6 +200,7 @@ pub struct QuicClientBuilder {
     pub server_name: Option<String>,
     pub recv_streams: u32,
     pub max_backlog: Option<u32>,
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl Default for QuicClientBuilder {
@@ -209,6 +214,7 @@ impl Default for QuicClientBuilder {
             server_name: config.server_name,
             recv_streams: config.recv_streams,
             max_backlog: config.max_backlog,
+            x_token: config.x_token,
         }
     }
 }
@@ -265,6 +271,10 @@ impl QuicClientBuilder {
             max_backlog,
             ..self
         }
+    }
+
+    pub fn set_x_token(self, x_token: Option<Vec<u8>>) -> Self {
+        Self { x_token, ..self }
     }
 
     pub const fn insecure(self) -> QuicClientBuilderInsecure {
@@ -325,6 +335,7 @@ impl QuicClientBuilder {
             conn,
             recv_streams: self.recv_streams,
             max_backlog: self.max_backlog,
+            x_token: self.x_token,
         })
     }
 }
@@ -406,6 +417,7 @@ pub struct QuicClient {
     conn: Connection,
     recv_streams: u32,
     max_backlog: Option<u32>,
+    x_token: Option<Vec<u8>>,
 }
 
 impl QuicClient {
@@ -417,10 +429,9 @@ impl QuicClient {
         self,
         replay_from_slot: Option<Slot>,
         filter: Option<RichatFilter>,
-        x_token: Option<Vec<u8>>,
     ) -> Result<QuicClientStream, SubscribeError> {
         let message = QuicSubscribeRequest {
-            x_token,
+            x_token: self.x_token,
             recv_streams: self.recv_streams,
             max_backlog: self.max_backlog,
             replay_from_slot,
