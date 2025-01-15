@@ -14,7 +14,7 @@ Default license for any file in this project is `AGPL-3.0-only`, except files in
 
 ## Richat support and extended version
 
-Any issue not related with bugs / features related topics would be closed. If you struggle to load plugin or have some questions how to use crates please drop your question in Telegram chat: [https://t.me/lamportsdev](https://t.me/lamportsdev)
+Any issue not related with bugs / features related topics would be closed. If you struggle to load plugin or have some questions how to use crates please drop your question in Telegram group: [https://t.me/lamportsdev](https://t.me/lamportsdev)
 
 In addition to open-source version there also enterprise version with ability to downstream full stream. To get more info please send email to: [customers@lamports.dev](mailto:customers@lamports.dev)
 
