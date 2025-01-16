@@ -1,16 +1,15 @@
-pub mod message;
-pub mod source;
-
 use {
     crate::{
-        channel::message::{
-            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry,
-            MessageTransaction,
-        },
-        config::ConfigChannelInner,
+        config::{ConfigChannelInner, ConfigChannelSource},
         metrics,
     },
-    richat_proto::geyser::CommitmentLevel,
+    futures::stream::{BoxStream, StreamExt},
+    richat_client::error::ReceiveError,
+    richat_filter::message::{
+        Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageParseError,
+        MessageParserEncoding, MessageSlot, MessageTransaction,
+    },
+    richat_proto::{geyser::CommitmentLevel, richat::GrpcSubscribeRequest},
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
@@ -25,11 +24,59 @@ use {
 };
 
 #[derive(Debug, Clone)]
+pub enum ParsedMessage {
+    Slot(Arc<MessageSlot>),
+    Account(Arc<MessageAccount>),
+    Transaction(Arc<MessageTransaction>),
+    Entry(Arc<MessageEntry>),
+    BlockMeta(Arc<MessageBlockMeta>),
+    Block(Arc<MessageBlock>),
+}
+
+impl From<Message> for ParsedMessage {
+    fn from(message: Message) -> Self {
+        match message {
+            Message::Slot(msg) => Self::Slot(Arc::new(msg)),
+            Message::Account(msg) => Self::Account(Arc::new(msg)),
+            Message::Transaction(msg) => Self::Transaction(Arc::new(msg)),
+            Message::Entry(msg) => Self::Entry(Arc::new(msg)),
+            Message::BlockMeta(msg) => Self::BlockMeta(Arc::new(msg)),
+            Message::Block(msg) => Self::Block(Arc::new(msg)),
+        }
+    }
+}
+
+impl ParsedMessage {
+    pub fn slot(&self) -> Slot {
+        match self {
+            Self::Slot(msg) => msg.slot(),
+            Self::Account(msg) => msg.slot(),
+            Self::Transaction(msg) => msg.slot(),
+            Self::Entry(msg) => msg.slot(),
+            Self::BlockMeta(msg) => msg.slot(),
+            Self::Block(msg) => msg.slot(),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Slot(msg) => msg.size(),
+            Self::Account(msg) => msg.size(),
+            Self::Transaction(msg) => msg.size(),
+            Self::Entry(msg) => msg.size(),
+            Self::BlockMeta(msg) => msg.size(),
+            Self::Block(msg) => msg.size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Messages {
     shared: Arc<Shared>,
     max_messages: usize,
     max_slots: usize,
     max_bytes: usize,
+    parser: MessageParserEncoding,
 }
 
 impl Messages {
@@ -55,18 +102,20 @@ impl Messages {
             max_messages,
             max_slots: config.max_slots,
             max_bytes: config.max_bytes,
+            parser: config.parser,
         }
     }
 
-    pub fn to_sender(self) -> Sender {
+    pub fn to_sender(&self) -> Sender {
         Sender {
-            shared: self.shared,
+            shared: Arc::clone(&self.shared),
             head: self.max_messages as u64,
             tail: self.max_messages as u64,
             slots: BTreeMap::new(),
             slots_max: self.max_slots,
             bytes_total: 0,
             bytes_max: self.max_bytes,
+            parser: self.parser,
         }
     }
 
@@ -75,6 +124,28 @@ impl Messages {
             shared: Arc::clone(&self.shared),
             head: self.shared.tail.load(Ordering::Relaxed),
         }
+    }
+
+    pub async fn subscribe_source(
+        config: ConfigChannelSource,
+    ) -> anyhow::Result<BoxStream<'static, Result<Vec<u8>, ReceiveError>>> {
+        Ok(match config {
+            ConfigChannelSource::Quic(config) => {
+                config.connect().await?.subscribe(None, None).await?.boxed()
+            }
+            ConfigChannelSource::Tcp(config) => {
+                config.connect().await?.subscribe(None, None).await?.boxed()
+            }
+            ConfigChannelSource::Grpc(config) => config
+                .connect()
+                .await?
+                .subscribe_richat_once(GrpcSubscribeRequest {
+                    replay_from_slot: None,
+                    filter: None,
+                })
+                .await?
+                .boxed(),
+        })
     }
 }
 
@@ -87,12 +158,13 @@ pub struct Sender {
     slots_max: usize,
     bytes_total: usize,
     bytes_max: usize,
+    parser: MessageParserEncoding,
 }
 
 impl Sender {
-    pub fn push(&mut self, buffer: Vec<u8>) -> Result<(), message::MessageError> {
-        let message = Message::decode(buffer)?;
-        let slot = message.get_slot();
+    pub fn push(&mut self, buffer: Vec<u8>) -> Result<(), MessageParseError> {
+        let message: ParsedMessage = Message::parse(buffer, self.parser)?.into();
+        let slot = message.slot();
 
         // get or create slot info
         let message_block = self
@@ -168,9 +240,9 @@ impl Sender {
 
         for message in [Some(message), message_block].into_iter().flatten() {
             // update metrics
-            if let Message::Slot(message) = &message {
+            if let ParsedMessage::Slot(message) = &message {
                 metrics::channel_slot_set(message);
-                if message.commitment == CommitmentLevel::Processed {
+                if message.commitment() == CommitmentLevel::Processed {
                     debug!(
                         "new processed {slot} / {} messages / {} slots / {} bytes",
                         self.tail - self.head,
@@ -196,7 +268,7 @@ impl Sender {
             }
             item.pos = pos;
             item.slot = slot;
-            item.data = Some(Arc::new(message));
+            item.data = Some(message);
             drop(item);
 
             // store new position for receivers
@@ -220,7 +292,7 @@ pub struct Receiver {
 }
 
 impl Receiver {
-    pub fn try_recv(&mut self) -> Result<Option<Arc<Message>>, RecvError> {
+    pub fn try_recv(&mut self) -> Result<Option<ParsedMessage>, RecvError> {
         let tail = self.shared.tail.load(Ordering::Relaxed);
         if self.head < tail {
             self.head = self.head.wrapping_add(1);
@@ -277,11 +349,11 @@ impl Shared {
 struct SlotInfo {
     slot: Slot,
     head: u64,
-    accounts: Vec<Option<MessageAccount>>,
+    accounts: Vec<Option<Arc<MessageAccount>>>,
     accounts_dedup: HashMap<Pubkey, (u64, usize)>,
-    transactions: Vec<MessageTransaction>,
-    entries: Vec<MessageEntry>,
-    block_meta: Option<MessageBlockMeta>,
+    transactions: Vec<Arc<MessageTransaction>>,
+    entries: Vec<Arc<MessageEntry>>,
+    block_meta: Option<Arc<MessageBlockMeta>>,
     confirmed: bool,
     block_created: bool,
 }
@@ -291,10 +363,10 @@ impl Drop for SlotInfo {
         if self.confirmed && !self.block_created {
             let mut reasons = vec![];
             if let Some(block_meta) = &self.block_meta {
-                if block_meta.executed_transaction_count as usize != self.transactions.len() {
+                if block_meta.executed_transaction_count() as usize != self.transactions.len() {
                     reasons.push(metrics::BlockMessageFailedReason::TransactionsMismatch);
                 }
-                if block_meta.entry_count as usize != self.entries.len() {
+                if block_meta.entries_count() as usize != self.entries.len() {
                     reasons.push(metrics::BlockMessageFailedReason::EntriesMismatch);
                 }
             } else {
@@ -321,11 +393,11 @@ impl SlotInfo {
         }
     }
 
-    fn get_block_message(&mut self, message: &Message) -> Option<Message> {
+    fn get_block_message(&mut self, message: &ParsedMessage) -> Option<ParsedMessage> {
         if self.block_created {
-            if let Message::Slot(message) = message {
+            if let ParsedMessage::Slot(message) = message {
                 metrics::block_message_failed_inc(
-                    message.slot,
+                    message.slot(),
                     &[metrics::BlockMessageFailedReason::MissedAccountUpdate],
                 );
                 return None;
@@ -333,43 +405,48 @@ impl SlotInfo {
         }
 
         match message {
-            Message::Account(message) => {
+            ParsedMessage::Account(message) => {
                 let idx_new = self.accounts.len();
-                self.accounts.push(Some(message.clone()));
+                self.accounts.push(Some(Arc::clone(message)));
 
-                if let Some(entry) = self.accounts_dedup.get_mut(&message.pubkey) {
-                    if entry.0 < message.write_version {
+                let pubkey = message.pubkey();
+                let write_version = message.write_version();
+                if let Some(entry) = self.accounts_dedup.get_mut(pubkey) {
+                    if entry.0 < write_version {
                         self.accounts[entry.1] = None;
-                        *entry = (message.write_version, idx_new);
+                        *entry = (write_version, idx_new);
                     }
                 } else {
                     self.accounts_dedup
-                        .insert(message.pubkey, (message.write_version, idx_new));
+                        .insert(*pubkey, (write_version, idx_new));
                 }
             }
-            Message::Slot(message) => {
-                if message.commitment == CommitmentLevel::Confirmed {
+            ParsedMessage::Slot(message) => {
+                if message.commitment() == CommitmentLevel::Confirmed {
                     self.confirmed = true;
                 }
             }
-            Message::Transaction(message) => self.transactions.push(message.clone()),
-            Message::Entry(message) => self.entries.push(message.clone()),
-            Message::BlockMeta(message) => {
-                self.block_meta = Some(message.clone());
+            ParsedMessage::Transaction(message) => self.transactions.push(Arc::clone(message)),
+            ParsedMessage::Entry(message) => self.entries.push(Arc::clone(message)),
+            ParsedMessage::BlockMeta(message) => {
+                self.block_meta = Some(Arc::clone(message));
             }
-            Message::Block(_message) => unreachable!(),
+            ParsedMessage::Block(_message) => unreachable!(),
         }
 
         if let Some(block_meta) = &self.block_meta {
-            if block_meta.executed_transaction_count as usize == self.transactions.len()
-                && block_meta.entry_count as usize == self.entries.len()
+            if block_meta.executed_transaction_count() as usize == self.transactions.len()
+                && block_meta.entries_count() as usize == self.entries.len()
             {
                 self.block_created = true;
-                return Some(Message::Block(MessageBlock::new(
-                    block_meta,
-                    self.accounts.drain(..).flatten().collect(),
-                    mem::take(&mut self.transactions),
-                    mem::take(&mut self.entries),
+                return Some(ParsedMessage::Block(Arc::new(
+                    Message::unchecked_create_block(
+                        self.accounts.drain(..).flatten().collect(),
+                        mem::take(&mut self.transactions),
+                        mem::take(&mut self.entries),
+                        Arc::clone(block_meta),
+                        block_meta.created_at(),
+                    ),
                 )));
             }
         }
@@ -382,5 +459,5 @@ impl SlotInfo {
 struct Item {
     pos: u64,
     slot: Slot,
-    data: Option<Arc<Message>>,
+    data: Option<ParsedMessage>,
 }

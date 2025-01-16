@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{message::Message, Messages},
+        channel::{Messages, ParsedMessage},
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
     },
@@ -197,8 +197,11 @@ impl GrpcServer {
             // Update block meta only from first thread
             if index == 0 {
                 if let Some(block_meta_storage) = &self.block_meta {
-                    if matches!(message.as_ref(), Message::Slot(_) | Message::BlockMeta(_)) {
-                        block_meta_storage.push(Arc::clone(&message));
+                    if matches!(
+                        message,
+                        ParsedMessage::Slot(_) | ParsedMessage::BlockMeta(_)
+                    ) {
+                        block_meta_storage.push(message.clone());
                     }
                 }
             }

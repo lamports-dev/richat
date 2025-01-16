@@ -44,11 +44,11 @@ fn main() -> anyhow::Result<()> {
         .name("richatChan".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let mut messages = messages.clone().to_sender();
+            let mut messages = messages.to_sender();
             || {
                 let runtime = config.channel.tokio.build_runtime("richatChan")?;
                 runtime.block_on(async move {
-                    let mut stream = channel::source::subscribe(config.channel.source)
+                    let mut stream = channel::Messages::subscribe_source(config.channel.source)
                         .await
                         .context("failed to subscribe")?;
                     tokio::pin!(shutdown);

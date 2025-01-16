@@ -1,6 +1,7 @@
 use {
-    crate::{channel::message::MessageSlot, version::VERSION as VERSION_INFO},
+    crate::version::VERSION as VERSION_INFO,
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
+    richat_filter::message::MessageSlot,
     richat_proto::geyser::CommitmentLevel,
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
@@ -81,7 +82,7 @@ pub async fn spawn_server(
 }
 
 pub fn channel_slot_set(message: &MessageSlot) {
-    if let Some(commitment) = match message.commitment {
+    if let Some(commitment) = match message.commitment() {
         CommitmentLevel::Processed => Some("processed"),
         CommitmentLevel::Confirmed => Some("confirmed"),
         CommitmentLevel::Finalized => Some("finalized"),
@@ -89,7 +90,7 @@ pub fn channel_slot_set(message: &MessageSlot) {
     } {
         CHANNEL_SLOT
             .with_label_values(&[commitment])
-            .set(message.slot as i64)
+            .set(message.slot() as i64)
     }
 }
 

@@ -9,6 +9,7 @@ use {
         },
         solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
+    serde::{Deserialize, Serialize},
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::{collections::HashSet, sync::Arc},
     thiserror::Error,
@@ -32,7 +33,8 @@ pub enum MessageParseError {
     IncompatibleEncoding,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MessageParserEncoding {
     /// Use optimized parser to extract only required fields
     Limited,
@@ -82,13 +84,13 @@ impl Message {
             }
         }
 
-        Ok(Self::unchecked_create_block(
+        Ok(Self::Block(Self::unchecked_create_block(
             accounts,
             transactions,
             entries,
             block_meta,
             created_at,
-        ))
+        )))
     }
 
     pub const fn unchecked_create_block(
@@ -97,14 +99,47 @@ impl Message {
         entries: Vec<Arc<MessageEntry>>,
         block_meta: Arc<MessageBlockMeta>,
         created_at: MessageBlockCreatedAt,
-    ) -> Self {
-        Self::Block(MessageBlock {
+    ) -> MessageBlock {
+        MessageBlock {
             accounts,
             transactions,
             entries,
             block_meta,
             created_at,
-        })
+        }
+    }
+
+    pub fn slot(&self) -> Slot {
+        match self {
+            Self::Slot(msg) => msg.slot(),
+            Self::Account(msg) => msg.slot(),
+            Self::Transaction(msg) => msg.slot(),
+            Self::Entry(msg) => msg.slot(),
+            Self::BlockMeta(msg) => msg.slot(),
+            Self::Block(msg) => msg.slot(),
+        }
+    }
+
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Slot(msg) => msg.created_at(),
+            Self::Account(msg) => msg.created_at(),
+            Self::Transaction(msg) => msg.created_at(),
+            Self::Entry(msg) => msg.created_at(),
+            Self::BlockMeta(msg) => msg.created_at(),
+            Self::Block(msg) => msg.created_at(),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Slot(msg) => msg.size(),
+            Self::Account(msg) => msg.size(),
+            Self::Transaction(msg) => msg.size(),
+            Self::Entry(msg) => msg.size(),
+            Self::BlockMeta(msg) => msg.size(),
+            Self::Block(msg) => msg.size(),
+        }
     }
 }
 
@@ -297,6 +332,24 @@ impl MessageSlot {
         }
     }
 
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
+        }
+    }
+
+    pub const fn slot(&self) -> Slot {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { slot, .. } => *slot,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
+    }
+
     pub fn commitment(&self) -> CommitmentLevelProto {
         match self {
             Self::Limited => todo!(),
@@ -328,6 +381,24 @@ impl MessageAccount {
         }
     }
 
+    pub const fn slot(&self) -> Slot {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { slot, .. } => *slot,
+        }
+    }
+
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
+    }
+
     pub fn pubkey(&self) -> &Pubkey {
         match self {
             Self::Limited => todo!(),
@@ -353,6 +424,13 @@ impl MessageAccount {
         match self {
             Self::Limited => todo!(),
             Self::Prost { account, .. } => &account.data,
+        }
+    }
+
+    pub fn write_version(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { account, .. } => account.write_version,
         }
     }
 
@@ -387,6 +465,24 @@ impl MessageTransaction {
             Self::Limited => MessageParserEncoding::Limited,
             Self::Prost { .. } => MessageParserEncoding::Prost,
         }
+    }
+
+    pub const fn slot(&self) -> Slot {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { slot, .. } => *slot,
+        }
+    }
+
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
     }
 
     fn gen_account_keys_prost(
@@ -473,6 +569,24 @@ impl MessageEntry {
             Self::Prost { .. } => MessageParserEncoding::Prost,
         }
     }
+
+    pub const fn slot(&self) -> Slot {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { entry, .. } => entry.slot,
+        }
+    }
+
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -491,6 +605,52 @@ impl MessageBlockMeta {
             Self::Prost { .. } => MessageParserEncoding::Prost,
         }
     }
+
+    pub const fn slot(&self) -> Slot {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { block_meta, .. } => block_meta.slot,
+        }
+    }
+
+    pub fn created_at(&self) -> MessageBlockCreatedAt {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
+    }
+
+    pub fn blockhash(&self) -> &str {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { block_meta, .. } => &block_meta.blockhash,
+        }
+    }
+
+    pub fn block_height(&self) -> Option<Slot> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { block_meta, .. } => block_meta.block_height.map(|v| v.block_height),
+        }
+    }
+
+    pub const fn executed_transaction_count(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { block_meta, .. } => block_meta.executed_transaction_count,
+        }
+    }
+
+    pub const fn entries_count(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { block_meta, .. } => block_meta.entries_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -506,9 +666,21 @@ impl MessageBlock {
     pub const fn encoding(&self) -> MessageParserEncoding {
         self.created_at.encoding()
     }
+
+    pub fn slot(&self) -> Slot {
+        self.block_meta.as_ref().slot()
+    }
+
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
+        self.created_at
+    }
+
+    pub fn size(&self) -> usize {
+        unimplemented!()
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageBlockCreatedAt {
     Limited,
     Prost(Timestamp),

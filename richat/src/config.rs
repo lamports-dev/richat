@@ -2,6 +2,7 @@ use {
     crate::grpc::config::ConfigAppsGrpc,
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
+    richat_filter::message::MessageParserEncoding,
     richat_shared::{
         config::{deserialize_num_str, parse_taskset, ConfigPrometheus, ConfigTokio},
         shutdown::Shutdown,
@@ -78,6 +79,7 @@ pub struct ConfigChannelInner {
     pub max_slots: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
+    pub parser: MessageParserEncoding,
 }
 
 impl Default for ConfigChannelInner {
@@ -86,6 +88,7 @@ impl Default for ConfigChannelInner {
             max_messages: 2_097_152, // assume 20k messages per slot, aligned to power of 2
             max_slots: 100,
             max_bytes: 10 * 1024 * 1024 * 1024, // 10GiB, assume 100MiB per slot
+            parser: MessageParserEncoding::Prost,
         }
     }
 }

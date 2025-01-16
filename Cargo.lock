@@ -3415,6 +3415,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "richat-client",
+ "richat-filter",
  "richat-proto",
  "richat-shared",
  "serde",
