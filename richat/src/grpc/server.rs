@@ -24,11 +24,7 @@ use {
             Arc,
         },
         task::{Context, Poll},
-        thread,
-        time::{Duration, Instant},
     },
-    thiserror::Error,
-    tokio::{sync::mpsc, time::sleep},
     tonic::{
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
         Streaming,
@@ -48,7 +44,6 @@ pub struct GrpcServer {
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
     subscribe_id: Arc<AtomicU64>,
-    ping_tx: mpsc::Sender<ReceiverStream>,
 }
 
 impl GrpcServer {
@@ -57,32 +52,6 @@ impl GrpcServer {
         messages: Messages,
         shutdown: Shutdown,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
-        // Spawn ping messages sender
-        let (ping_tx, ping_rx) = mpsc::channel(4_096);
-        let ping_jh = tokio::spawn({
-            let th = thread::Builder::new().spawn({
-                let shutdown = shutdown.clone();
-                move || {
-                    if let Some(cpus) = config.worker_ping_affinity {
-                        affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
-                    }
-                    Self::worker_send_ping(ping_rx, shutdown)
-                }
-            })?;
-
-            let shutdown = shutdown.clone();
-            async move {
-                while !th.is_finished() {
-                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
-                    sleep(Duration::from_millis(ms)).await;
-                }
-                th.join().expect("failed to join thread")
-            }
-        })
-        .map_err(anyhow::Error::new)
-        .and_then(ready)
-        .boxed();
-
         // Create gRPC server
         let (incoming, server_builder) = config.server.create_server_builder()?;
         info!("start server at {}", config.server.endpoint);
@@ -98,7 +67,6 @@ impl GrpcServer {
             messages,
             block_meta,
             subscribe_id: Arc::new(AtomicU64::new(0)),
-            ping_tx,
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -146,7 +114,7 @@ impl GrpcServer {
         .boxed();
 
         // Wait spawned features
-        Ok(try_join_all([threads, server, block_meta_jh, ping_jh]).map_ok(|_| ()))
+        Ok(try_join_all([block_meta_jh, threads, server]).map_ok(|_| ()))
     }
 
     fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevel, Status> {
@@ -188,11 +156,13 @@ impl GrpcServer {
     }
 
     fn worker_messages(&self, index: usize) -> anyhow::Result<()> {
-        let mut receiver = self.messages.subscribe();
+        let mut receiver = self.messages.to_receiver();
+        let mut head = self.messages.get_current_tail();
         loop {
-            let Some(message) = receiver.try_recv()? else {
+            let Some(message) = receiver.try_recv(head)? else {
                 continue;
             };
+            head += 1;
 
             // Update block meta only from first thread
             if index == 0 {
@@ -206,33 +176,8 @@ impl GrpcServer {
                 }
             }
 
-            todo!()
+            // todo!()
         }
-    }
-
-    fn worker_send_ping(
-        mut rx: mpsc::Receiver<ReceiverStream>,
-        shutdown: Shutdown,
-    ) -> anyhow::Result<()> {
-        const PING_INTERVAL: Duration = Duration::from_secs(15);
-
-        let mut streams = vec![];
-        let mut ts_msg = Instant::now();
-        while !shutdown.is_set() {
-            match rx.try_recv() {
-                Ok(rx) => streams.push(rx),
-                Err(mpsc::error::TryRecvError::Disconnected) => break,
-                Err(mpsc::error::TryRecvError::Empty) => {
-                    if ts_msg.elapsed() > PING_INTERVAL {
-                        ts_msg = Instant::now();
-                        streams.retain(|rx| rx.send_ping().is_ok());
-                    } else {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -246,12 +191,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
     ) -> TonicResult<Response<Self::SubscribeStream>> {
         let _id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
 
-        let rx = ReceiverStream;
-        if self.ping_tx.send(rx.clone()).await.is_err() {
-            return Err(Status::unavailable(
-                "failed to send receive stream to ping worker",
-            ));
-        }
+        let _rx = ReceiverStream;
+        // if self.ping_tx.send(rx.clone()).await.is_err() {
+        //     return Err(Status::unavailable(
+        //         "failed to send receive stream to ping worker",
+        //     ));
+        // }
 
         //
 
@@ -330,13 +275,13 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug, Error)]
-enum SendError {
-    // #[error("channel is full")]
-    // Full,
-    // #[error("channel closed")]
-    // Closed,
-}
+// #[derive(Debug, Error)]
+// enum SendError {
+//     // #[error("channel is full")]
+//     // Full,
+//     // #[error("channel closed")]
+//     // Closed,
+// }
 
 #[derive(Debug, Clone)]
 pub struct ReceiverStream;
@@ -345,10 +290,6 @@ impl ReceiverStream {
     // fn send_update(&self) -> Result<(), SendError> {
     //     Ok(())
     // }
-
-    const fn send_ping(&self) -> Result<(), SendError> {
-        Ok(())
-    }
 
     // fn send_pong(&self) -> Result<(), SendError> {
     //     Ok(())

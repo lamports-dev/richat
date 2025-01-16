@@ -714,6 +714,7 @@ impl<'a> FilteredUpdate<'a> {
                     commitment,
                     dead_error,
                     created_at,
+                    ..
                 } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::Slot(SubscribeUpdateSlot {
@@ -798,7 +799,9 @@ impl<'a> FilteredUpdate<'a> {
             },
             FilteredUpdateType::Entry { message } => match message {
                 MessageEntry::Limited => todo!(),
-                MessageEntry::Prost { entry, created_at } => SubscribeUpdateMessage {
+                MessageEntry::Prost {
+                    entry, created_at, ..
+                } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::Entry(entry.clone()),
                     created_at: *created_at,
@@ -810,6 +813,7 @@ impl<'a> FilteredUpdate<'a> {
                 MessageBlockMeta::Prost {
                     block_meta,
                     created_at,
+                    ..
                 } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::BlockMeta(block_meta.clone()),

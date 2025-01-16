@@ -10,7 +10,11 @@ use {
         solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
     serde::{Deserialize, Serialize},
-    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{
+        clock::Slot,
+        pubkey::{Pubkey, PUBKEY_BYTES},
+        signature::{Signature, SIGNATURE_BYTES},
+    },
     std::{collections::HashSet, sync::Arc},
     thiserror::Error,
 };
@@ -59,7 +63,7 @@ impl Message {
             MessageParserEncoding::Limited => todo!(),
             MessageParserEncoding::Prost => {
                 let update = SubscribeUpdate::decode(data.as_slice())?;
-                MessageParserProst::parse(update)
+                MessageParserProst::parse(update, Some(data.len()))
             }
         }
     }
@@ -147,7 +151,12 @@ impl Message {
 pub struct MessageParserProst;
 
 impl MessageParserProst {
-    pub fn parse(update: SubscribeUpdate) -> Result<Message, MessageParseError> {
+    pub fn parse(
+        update: SubscribeUpdate,
+        encoded_len: Option<usize>,
+    ) -> Result<Message, MessageParseError> {
+        let encoded_len = encoded_len.unwrap_or_else(|| update.encoded_len());
+
         let created_at = update
             .created_at
             .ok_or(MessageParseError::FieldNotDefined("created_at"))?;
@@ -164,6 +173,7 @@ impl MessageParserProst {
                         .map_err(|_| MessageParseError::InvalidEnumValue(message.status))?,
                     dead_error: message.dead_error,
                     created_at,
+                    size: encoded_len,
                 }),
                 UpdateOneof::Account(message) => {
                     let account = message
@@ -185,6 +195,7 @@ impl MessageParserProst {
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
+                        size: encoded_len + PUBKEY_BYTES + PUBKEY_BYTES + SIGNATURE_BYTES,
                     })
                 }
                 UpdateOneof::Transaction(message) => {
@@ -196,6 +207,10 @@ impl MessageParserProst {
                         .as_ref()
                         .ok_or(MessageParseError::FieldNotDefined("meta"))?;
 
+                    let account_keys =
+                        MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
+                    let account_keys_capacity = account_keys.capacity();
+
                     Message::Transaction(MessageTransaction::Prost {
                         signature: transaction
                             .signature
@@ -203,30 +218,32 @@ impl MessageParserProst {
                             .try_into()
                             .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
-                        account_keys: MessageTransaction::gen_account_keys_prost(
-                            &transaction,
-                            meta,
-                        )?,
+                        account_keys,
                         transaction,
                         slot: message.slot,
                         created_at,
+                        size: encoded_len + SIGNATURE_BYTES + account_keys_capacity * PUBKEY_BYTES,
                     })
                 }
                 UpdateOneof::TransactionStatus(_) => {
                     return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
                 }
-                UpdateOneof::Entry(entry) => {
-                    Message::Entry(MessageEntry::Prost { entry, created_at })
-                }
+                UpdateOneof::Entry(entry) => Message::Entry(MessageEntry::Prost {
+                    entry,
+                    created_at,
+                    size: encoded_len,
+                }),
                 UpdateOneof::BlockMeta(block_meta) => Message::BlockMeta(MessageBlockMeta::Prost {
                     block_meta,
                     created_at,
+                    size: encoded_len,
                 }),
                 UpdateOneof::Block(message) => {
                     let accounts = message
                         .accounts
                         .into_iter()
                         .map(|account| {
+                            let encoded_len = account.encoded_len();
                             Ok(Arc::new(MessageAccount::Prost {
                                 pubkey: account
                                     .pubkey
@@ -243,6 +260,11 @@ impl MessageParserProst {
                                 slot: message.slot,
                                 is_startup: false,
                                 created_at,
+                                size: PUBKEY_BYTES
+                                    + PUBKEY_BYTES
+                                    + SIGNATURE_BYTES
+                                    + encoded_len
+                                    + 8,
                             }))
                         })
                         .collect::<Result<_, MessageParseError>>()?;
@@ -256,6 +278,10 @@ impl MessageParserProst {
                                 .as_ref()
                                 .ok_or(MessageParseError::FieldNotDefined("meta"))?;
 
+                            let account_keys =
+                                MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
+                            let account_keys_capacity = account_keys.capacity();
+
                             Ok(Arc::new(MessageTransaction::Prost {
                                 signature: transaction
                                     .signature
@@ -263,13 +289,13 @@ impl MessageParserProst {
                                     .try_into()
                                     .map_err(|_| MessageParseError::InvalidSignature)?,
                                 error: meta.err.clone(),
-                                account_keys: MessageTransaction::gen_account_keys_prost(
-                                    &transaction,
-                                    meta,
-                                )?,
+                                account_keys,
                                 transaction,
                                 slot: message.slot,
                                 created_at,
+                                size: encoded_len
+                                    + SIGNATURE_BYTES
+                                    + account_keys_capacity * PUBKEY_BYTES,
                             }))
                         })
                         .collect::<Result<_, MessageParseError>>()?;
@@ -277,26 +303,37 @@ impl MessageParserProst {
                     let entries = message
                         .entries
                         .into_iter()
-                        .map(|entry| Arc::new(MessageEntry::Prost { entry, created_at }))
+                        .map(|entry| {
+                            let encoded_len = entry.encoded_len();
+                            Arc::new(MessageEntry::Prost {
+                                entry,
+                                created_at,
+                                size: encoded_len,
+                            })
+                        })
                         .collect();
+
+                    let block_meta = SubscribeUpdateBlockMeta {
+                        slot: message.slot,
+                        blockhash: message.blockhash,
+                        rewards: message.rewards,
+                        block_time: message.block_time,
+                        block_height: message.block_height,
+                        parent_slot: message.parent_slot,
+                        parent_blockhash: message.parent_blockhash,
+                        executed_transaction_count: message.executed_transaction_count,
+                        entries_count: message.entries_count,
+                    };
+                    let encoded_len = block_meta.encoded_len();
 
                     Message::Block(MessageBlock {
                         accounts,
                         transactions,
                         entries,
                         block_meta: Arc::new(MessageBlockMeta::Prost {
-                            block_meta: SubscribeUpdateBlockMeta {
-                                slot: message.slot,
-                                blockhash: message.blockhash,
-                                rewards: message.rewards,
-                                block_time: message.block_time,
-                                block_height: message.block_height,
-                                parent_slot: message.parent_slot,
-                                parent_blockhash: message.parent_blockhash,
-                                executed_transaction_count: message.executed_transaction_count,
-                                entries_count: message.entries_count,
-                            },
+                            block_meta,
                             created_at,
+                            size: encoded_len,
                         }),
                         created_at: created_at.into(),
                     })
@@ -321,6 +358,7 @@ pub enum MessageSlot {
         commitment: CommitmentLevelProto,
         dead_error: Option<String>,
         created_at: Timestamp,
+        size: usize,
     },
 }
 
@@ -347,7 +385,10 @@ impl MessageSlot {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { size, .. } => *size,
+        }
     }
 
     pub fn commitment(&self) -> CommitmentLevelProto {
@@ -370,6 +411,7 @@ pub enum MessageAccount {
         slot: Slot,
         is_startup: bool,
         created_at: Timestamp,
+        size: usize,
     },
 }
 
@@ -396,7 +438,10 @@ impl MessageAccount {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { size, .. } => *size,
+        }
     }
 
     pub fn pubkey(&self) -> &Pubkey {
@@ -456,6 +501,7 @@ pub enum MessageTransaction {
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
         created_at: Timestamp,
+        size: usize,
     },
 }
 
@@ -482,7 +528,10 @@ impl MessageTransaction {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { size, .. } => *size,
+        }
     }
 
     fn gen_account_keys_prost(
@@ -559,6 +608,7 @@ pub enum MessageEntry {
     Prost {
         entry: SubscribeUpdateEntry,
         created_at: Timestamp,
+        size: usize,
     },
 }
 
@@ -585,7 +635,10 @@ impl MessageEntry {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { size, .. } => *size,
+        }
     }
 }
 
@@ -595,6 +648,7 @@ pub enum MessageBlockMeta {
     Prost {
         block_meta: SubscribeUpdateBlockMeta,
         created_at: Timestamp,
+        size: usize,
     },
 }
 
@@ -621,7 +675,10 @@ impl MessageBlockMeta {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { size, .. } => *size,
+        }
     }
 
     pub fn blockhash(&self) -> &str {
@@ -676,7 +733,13 @@ impl MessageBlock {
     }
 
     pub fn size(&self) -> usize {
-        unimplemented!()
+        self.accounts
+            .iter()
+            .map(|m| m.size())
+            .chain(self.transactions.iter().map(|m| m.size()))
+            .chain(self.entries.iter().map(|m| m.size()))
+            .sum::<usize>()
+            + self.block_meta.size()
     }
 }
 

@@ -171,8 +171,8 @@ enum DecodeXTokenError {
 
 fn decode_x_token(x_token: &str) -> Result<Vec<u8>, DecodeXTokenError> {
     Ok(match &x_token[0..7] {
-        "base64" => base64_engine.decode(x_token)?,
-        "base58" => bs58::decode(x_token).into_vec()?,
+        "base64:" => base64_engine.decode(x_token)?,
+        "base58:" => bs58::decode(x_token).into_vec()?,
         _ => x_token.as_bytes().to_vec(),
     })
 }

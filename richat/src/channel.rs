@@ -119,11 +119,14 @@ impl Messages {
         }
     }
 
-    pub fn subscribe(&self) -> Receiver {
+    pub fn to_receiver(&self) -> Receiver {
         Receiver {
             shared: Arc::clone(&self.shared),
-            head: self.shared.tail.load(Ordering::Relaxed),
         }
+    }
+
+    pub fn get_current_tail(&self) -> u64 {
+        self.shared.tail.load(Ordering::Relaxed)
     }
 
     pub async fn subscribe_source(
@@ -288,18 +291,15 @@ pub enum RecvError {
 #[derive(Debug)]
 pub struct Receiver {
     shared: Arc<Shared>,
-    head: u64,
 }
 
 impl Receiver {
-    pub fn try_recv(&mut self) -> Result<Option<ParsedMessage>, RecvError> {
+    pub fn try_recv(&mut self, head: u64) -> Result<Option<ParsedMessage>, RecvError> {
         let tail = self.shared.tail.load(Ordering::Relaxed);
-        if self.head < tail {
-            self.head = self.head.wrapping_add(1);
-
-            let idx = self.shared.get_idx(self.head);
+        if head < tail {
+            let idx = self.shared.get_idx(head);
             let item = self.shared.buffer_idx_read(idx);
-            if item.pos != self.head {
+            if item.pos != head {
                 return Err(RecvError::Lagged);
             }
 

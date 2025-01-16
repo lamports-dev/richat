@@ -11,8 +11,7 @@ use {
         de::{self, Deserializer},
         Deserialize,
     },
-    solana_sdk::pubkey::Pubkey,
-    std::{collections::HashSet, fs, path::Path, thread::Builder},
+    std::{fs, path::Path, thread::Builder},
     tokio::time::{sleep, Duration},
 };
 
@@ -141,7 +140,11 @@ impl ConfigAppsWorkers {
 
         let mut jhs = Vec::with_capacity(self.threads);
         for index in 0..self.threads {
-            let cpus = self.affinity.clone();
+            let cpus = if self.threads == self.affinity.len() {
+                vec![self.affinity[index]]
+            } else {
+                self.affinity.clone()
+            };
             let spawn_fn = spawn_fn.clone();
             let shutdown = shutdown.clone();
             let th = Builder::new().name(get_name(index)).spawn(move || {
@@ -162,18 +165,4 @@ impl ConfigAppsWorkers {
 
         try_join_all(jhs).await.map(|_| ())
     }
-}
-
-pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Vec::<&str>::deserialize(deserializer)?
-        .into_iter()
-        .map(|value| {
-            value
-                .parse()
-                .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
-        })
-        .collect::<Result<_, _>>()
 }

@@ -131,7 +131,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        sleep(Duration::from_millis(10));
+        sleep(Duration::from_millis(25));
     }
 
     Ok(())
