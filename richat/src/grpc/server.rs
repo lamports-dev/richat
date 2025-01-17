@@ -9,15 +9,17 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
     },
+    prost::Message,
     richat_filter::{
         config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
         filter::Filter,
     },
     richat_proto::geyser::{
-        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest,
+        subscribe_update::UpdateOneof, CommitmentLevel, GetBlockHeightRequest,
+        GetBlockHeightResponse, GetLatestBlockhashRequest, GetLatestBlockhashResponse,
+        GetSlotRequest, GetSlotResponse, GetVersionRequest, GetVersionResponse,
+        IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest, PongResponse,
+        SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
     },
     richat_shared::shutdown::Shutdown,
     solana_sdk::clock::MAX_PROCESSING_AGE,
@@ -31,7 +33,7 @@ use {
         },
         task::{Context, Poll},
         thread,
-        time::Duration,
+        time::{Duration, SystemTime},
     },
     tonic::{
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
@@ -272,6 +274,20 @@ impl gen::geyser_server::Geyser for GrpcServer {
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
+                            if let Some(SubscribeRequestPing { id }) = message.ping {
+                                let item: TonicResult<Vec<u8>> = Ok(SubscribeUpdate {
+                                    filters: vec![],
+                                    update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong {
+                                        id,
+                                    })),
+                                    created_at: Some(SystemTime::now().into()),
+                                }
+                                .encode_to_vec());
+                                // TODO: push to queue
+                                continue;
+                            }
+
+                            let subscribe_from_slot = message.from_slot;
                             let new_filter = ConfigFilter::try_from(message)
                                 .map_err(|error| {
                                     Status::invalid_argument(format!(

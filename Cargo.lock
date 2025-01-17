@@ -3414,6 +3414,7 @@ dependencies = [
  "json5",
  "lazy_static",
  "prometheus",
+ "prost 0.13.4",
  "richat-client",
  "richat-filter",
  "richat-proto",
