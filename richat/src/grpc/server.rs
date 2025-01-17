@@ -1,6 +1,7 @@
 use {
     crate::{
         channel::{Messages, ParsedMessage},
+        config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
     },
@@ -29,6 +30,8 @@ use {
             Arc, Mutex, MutexGuard,
         },
         task::{Context, Poll},
+        thread,
+        time::Duration,
     },
     tonic::{
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
@@ -63,13 +66,28 @@ impl GrpcServer {
         let (incoming, server_builder) = config.server.create_server_builder()?;
         info!("start server at {}", config.server.endpoint);
 
-        let (block_meta, block_meta_jh) = if config.unary.enabled {
-            let (meta, jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
-            (Some(Arc::new(meta)), jh.boxed())
+        // BlockMeta thread & task
+        let (block_meta, block_meta_jh, block_meta_task_jh) = if config.unary.enabled {
+            let (meta, task_jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
+
+            let jh = ConfigAppsWorkers::run_once(
+                "grpcWrkBM".to_owned(),
+                vec![config.unary.affinity],
+                {
+                    let messages = messages.clone();
+                    let meta = meta.clone();
+                    let shutdown = shutdown.clone();
+                    move || Self::worker_block_meta(messages, meta, shutdown)
+                },
+                shutdown.clone(),
+            )?;
+
+            (Some(Arc::new(meta)), jh.boxed(), task_jh.boxed())
         } else {
-            (None, ready(Ok(())).boxed())
+            (None, ready(Ok(())).boxed(), ready(Ok(())).boxed())
         };
 
+        // gRPC service
         let grpc_server = Self {
             messages,
             block_meta,
@@ -88,11 +106,11 @@ impl GrpcServer {
         }
 
         // Spawn workers pool
-        let threads = config
+        let workers = config
             .workers
             .run(
                 |index| format!("grpcWrk{index:02}"),
-                move |index| grpc_server.worker_messages(index),
+                move || grpc_server.worker_messages(),
                 shutdown.clone(),
             )
             .boxed();
@@ -123,7 +141,7 @@ impl GrpcServer {
         .boxed();
 
         // Wait spawned features
-        Ok(try_join_all([block_meta_jh, threads, server]).map_ok(|_| ()))
+        Ok(try_join_all([block_meta_jh, block_meta_task_jh, workers, server]).map_ok(|_| ()))
     }
 
     fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevel, Status> {
@@ -182,7 +200,43 @@ impl GrpcServer {
         self.subscribe_clients_lock().pop_front()
     }
 
-    fn worker_messages(&self, index: usize) -> anyhow::Result<()> {
+    fn worker_block_meta(
+        messages: Messages,
+        block_meta: BlockMetaStorage,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<()> {
+        let mut receiver = messages.to_receiver();
+        let mut head = messages.get_current_tail();
+
+        let mut counter = 0;
+        loop {
+            counter += 1;
+            if counter > 1_000 {
+                counter = 0;
+                if shutdown.is_set() {
+                    break;
+                }
+            }
+
+            let Some(message) = receiver.try_recv(head)? else {
+                counter = 1_000;
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            head += 1;
+
+            if matches!(
+                message,
+                ParsedMessage::Slot(_) | ParsedMessage::BlockMeta(_)
+            ) {
+                block_meta.push(message.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn worker_messages(&self) -> anyhow::Result<()> {
         let mut receiver = self.messages.to_receiver();
         let mut head = self.messages.get_current_tail();
         loop {
@@ -190,18 +244,6 @@ impl GrpcServer {
                 continue;
             };
             head += 1;
-
-            // Update block meta only from first thread
-            if index == 0 {
-                if let Some(block_meta_storage) = &self.block_meta {
-                    if matches!(
-                        message,
-                        ParsedMessage::Slot(_) | ParsedMessage::BlockMeta(_)
-                    ) {
-                        block_meta_storage.push(message.clone());
-                    }
-                }
-            }
 
             // todo!()
         }

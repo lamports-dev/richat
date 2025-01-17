@@ -80,6 +80,7 @@ apps:
     stream_channel_capacity: 100_000
     unary:
       enabled: true
+      affinity: 0
       requests_queue_size: 100
     filters:
       name_max: 128

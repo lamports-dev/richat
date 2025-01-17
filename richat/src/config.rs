@@ -133,7 +133,7 @@ impl ConfigAppsWorkers {
     pub async fn run(
         self,
         get_name: impl Fn(usize) -> String,
-        spawn_fn: impl Fn(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        spawn_fn: impl FnOnce() -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.threads > 0, "number of threads can be zero");
@@ -145,24 +145,37 @@ impl ConfigAppsWorkers {
             } else {
                 self.affinity.clone()
             };
-            let spawn_fn = spawn_fn.clone();
-            let shutdown = shutdown.clone();
-            let th = Builder::new().name(get_name(index)).spawn(move || {
-                affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
-                spawn_fn(index)
-            })?;
 
-            let jh = tokio::spawn(async move {
-                while !th.is_finished() {
-                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
-                    sleep(Duration::from_millis(ms)).await;
-                }
-                th.join().expect("failed to join thread")
-            });
-
-            jhs.push(jh.map_err(anyhow::Error::new).and_then(ready));
+            jhs.push(Self::run_once(
+                get_name(index),
+                cpus,
+                spawn_fn.clone(),
+                shutdown.clone(),
+            )?);
         }
 
         try_join_all(jhs).await.map(|_| ())
+    }
+
+    pub fn run_once(
+        name: String,
+        cpus: Vec<usize>,
+        spawn_fn: impl FnOnce() -> anyhow::Result<()> + Clone + Send + 'static,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
+        let th = Builder::new().name(name).spawn(move || {
+            affinity::set_thread_affinity(cpus).expect("failed to set affinity");
+            spawn_fn()
+        })?;
+
+        let jh = tokio::spawn(async move {
+            while !th.is_finished() {
+                let ms = if shutdown.is_set() { 10 } else { 2_000 };
+                sleep(Duration::from_millis(ms)).await;
+            }
+            th.join().expect("failed to join thread")
+        });
+
+        Ok(jh.map_err(anyhow::Error::new).and_then(ready))
     }
 }

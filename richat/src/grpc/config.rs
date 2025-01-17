@@ -39,6 +39,7 @@ impl Default for ConfigAppsGrpc {
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpcUnary {
     pub enabled: bool,
+    pub affinity: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub requests_queue_size: usize,
 }
@@ -47,6 +48,7 @@ impl Default for ConfigAppsGrpcUnary {
     fn default() -> Self {
         Self {
             enabled: true,
+            affinity: 0,
             requests_queue_size: 100,
         }
     }

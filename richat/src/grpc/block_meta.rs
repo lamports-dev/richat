@@ -28,7 +28,7 @@ struct BlockStatus {
     finalized: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockMetaStorage {
     messages_tx: mpsc::UnboundedSender<ParsedMessage>,
     requests_tx: mpsc::Sender<Request>,
