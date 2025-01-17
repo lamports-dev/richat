@@ -8,20 +8,25 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
     },
+    richat_filter::{
+        config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
+        filter::Filter,
+    },
     richat_proto::geyser::{
         CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeUpdate,
+        PongResponse, SubscribeRequest,
     },
     richat_shared::shutdown::Shutdown,
     solana_sdk::clock::MAX_PROCESSING_AGE,
     std::{
+        collections::{LinkedList, VecDeque},
         future::Future,
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
-            Arc,
+            Arc, Mutex, MutexGuard,
         },
         task::{Context, Poll},
     },
@@ -29,7 +34,7 @@ use {
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
         Streaming,
     },
-    tracing::{error, info},
+    tracing::{debug, error, info},
 };
 
 pub mod gen {
@@ -43,7 +48,9 @@ pub mod gen {
 pub struct GrpcServer {
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
+    filter_limits: Arc<ConfigFilterLimits>,
     subscribe_id: Arc<AtomicU64>,
+    subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
 }
 
 impl GrpcServer {
@@ -66,7 +73,9 @@ impl GrpcServer {
         let grpc_server = Self {
             messages,
             block_meta,
+            filter_limits: Arc::new(config.filter_limits),
             subscribe_id: Arc::new(AtomicU64::new(0)),
+            subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -155,6 +164,24 @@ impl GrpcServer {
         }
     }
 
+    #[inline]
+    fn subscribe_clients_lock(&self) -> MutexGuard<'_, VecDeque<SubscribeClient>> {
+        match self.subscribe_clients.lock() {
+            Ok(guard) => guard,
+            Err(error) => error.into_inner(),
+        }
+    }
+
+    #[inline]
+    fn push_client(&self, client: SubscribeClient) {
+        self.subscribe_clients_lock().push_back(client);
+    }
+
+    #[inline]
+    fn pop_client(&self) -> Option<SubscribeClient> {
+        self.subscribe_clients_lock().pop_front()
+    }
+
     fn worker_messages(&self, index: usize) -> anyhow::Result<()> {
         let mut receiver = self.messages.to_receiver();
         let mut head = self.messages.get_current_tail();
@@ -187,20 +214,61 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn subscribe(
         &self,
-        _request: Request<Streaming<SubscribeRequest>>,
+        request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
-        let _id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
+        info!(id, "new client");
 
-        let _rx = ReceiverStream;
-        // if self.ping_tx.send(rx.clone()).await.is_err() {
-        //     return Err(Status::unavailable(
-        //         "failed to send receive stream to ping worker",
-        //     ));
-        // }
+        let client = SubscribeClient::new(id);
+        self.push_client(client.clone());
 
-        //
+        tokio::spawn({
+            let mut stream = request.into_inner();
+            let client = client.clone();
+            let limits = Arc::clone(&self.filter_limits);
+            async move {
+                loop {
+                    match stream.message().await {
+                        Ok(Some(message)) => {
+                            let new_filter = ConfigFilter::try_from(message)
+                                .map_err(|error| {
+                                    Status::invalid_argument(format!(
+                                        "failed to create filter: {error:?}"
+                                    ))
+                                })
+                                .and_then(|config| {
+                                    limits
+                                        .check_filter(&config)
+                                        .map(|()| Filter::new(&config))
+                                        .map_err(|error| {
+                                            Status::invalid_argument(format!(
+                                                "failed to check filter: {error:?}"
+                                            ))
+                                        })
+                                });
 
-        todo!()
+                            let mut state = client.state_lock();
+                            match new_filter {
+                                Ok(filter) => {
+                                    // TODO: update id
+                                    state.filter = Some(filter);
+                                }
+                                Err(error) => {
+                                    state.messages.push_back(Err(error));
+                                    break;
+                                }
+                            }
+                        }
+                        Ok(None) => debug!(id, "incoming stream finished"),
+                        Err(error) => {
+                            error!(id, %error, "error to receive new filter");
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream { client }))
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {
@@ -275,6 +343,43 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
+#[derive(Debug, Clone)]
+struct SubscribeClient {
+    id: u64,
+    state: Arc<Mutex<SubscribeClientState>>,
+}
+
+impl Drop for SubscribeClient {
+    fn drop(&mut self) {
+        info!(id = self.id, "drop client rx stream");
+    }
+}
+
+impl SubscribeClient {
+    fn new(id: u64) -> Self {
+        Self {
+            id,
+            state: Arc::new(Mutex::new(SubscribeClientState::default())),
+        }
+    }
+
+    #[inline]
+    fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
+        match self.state.lock() {
+            Ok(guard) => guard,
+            Err(error) => error.into_inner(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct SubscribeClientState {
+    head: u64,
+    filter: Option<Filter>,
+    messages: LinkedList<TonicResult<Vec<u8>>>,
+    messages_total_len: usize,
+}
+
 // #[derive(Debug, Error)]
 // enum SendError {
 //     // #[error("channel is full")]
@@ -283,8 +388,10 @@ impl gen::geyser_server::Geyser for GrpcServer {
 //     // Closed,
 // }
 
-#[derive(Debug, Clone)]
-pub struct ReceiverStream;
+#[derive(Debug)]
+pub struct ReceiverStream {
+    client: SubscribeClient,
+}
 
 impl ReceiverStream {
     // fn send_update(&self) -> Result<(), SendError> {
@@ -297,7 +404,7 @@ impl ReceiverStream {
 }
 
 impl Stream for ReceiverStream {
-    type Item = TonicResult<SubscribeUpdate>;
+    type Item = TonicResult<Vec<u8>>;
 
     #[allow(unused)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -403,7 +403,7 @@ trait SubscribeMessage {
     fn encode(self, buf: &mut EncodeBuf<'_>);
 }
 
-impl SubscribeMessage for Arc<Vec<u8>> {
+impl SubscribeMessage for &[u8] {
     fn encode(self, buf: &mut EncodeBuf<'_>) {
         let required = self.len();
         let remaining = buf.remaining_mut();
@@ -414,7 +414,19 @@ impl SubscribeMessage for Arc<Vec<u8>> {
     }
 }
 
-struct SubscribeCodec<T, U> {
+impl SubscribeMessage for Vec<u8> {
+    fn encode(self, buf: &mut EncodeBuf<'_>) {
+        self.as_slice().encode(buf);
+    }
+}
+
+impl SubscribeMessage for Arc<Vec<u8>> {
+    fn encode(self, buf: &mut EncodeBuf<'_>) {
+        self.as_slice().encode(buf);
+    }
+}
+
+pub struct SubscribeCodec<T, U> {
     _pd: PhantomData<(T, U)>,
 }
 
