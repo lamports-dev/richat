@@ -1,8 +1,6 @@
 use {
     crate::version::VERSION as VERSION_INFO,
-    prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
-    richat_filter::message::MessageSlot,
-    richat_proto::geyser::CommitmentLevel,
+    prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry},
     richat_shared::config::ConfigPrometheus,
     solana_sdk::clock::Slot,
     std::{future::Future, sync::Once},
@@ -16,24 +14,6 @@ lazy_static::lazy_static! {
     static ref VERSION: IntCounterVec = IntCounterVec::new(
         Opts::new("version", "Richat App version info"),
         &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
-    ).unwrap();
-
-    // Channel
-    static ref CHANNEL_SLOT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("channel_slot", "Latest slot in channel by commitment"),
-        &["commitment"]
-    ).unwrap();
-
-    static ref CHANNEL_MESSAGES_TOTAL: IntGauge = IntGauge::new(
-        "channel_messages_total", "Total number of messages in channel"
-    ).unwrap();
-
-    static ref CHANNEL_SLOTS_TOTAL: IntGauge = IntGauge::new(
-        "channel_slots_total", "Total number of slots in channel"
-    ).unwrap();
-
-    static ref CHANNEL_BYTES_TOTAL: IntGauge = IntGauge::new(
-        "channel_bytes_total", "Total size of all messages in channel"
     ).unwrap();
 
     // Block build
@@ -57,10 +37,6 @@ pub async fn spawn_server(
             };
         }
         register!(VERSION);
-        register!(CHANNEL_SLOT);
-        register!(CHANNEL_MESSAGES_TOTAL);
-        register!(CHANNEL_SLOTS_TOTAL);
-        register!(CHANNEL_BYTES_TOTAL);
         register!(BLOCK_MESSAGE_FAILED);
 
         VERSION
@@ -81,46 +57,27 @@ pub async fn spawn_server(
         .map_err(Into::into)
 }
 
-pub fn channel_slot_set(message: &MessageSlot) {
-    if let Some(commitment) = match message.commitment() {
-        CommitmentLevel::Processed => Some("processed"),
-        CommitmentLevel::Confirmed => Some("confirmed"),
-        CommitmentLevel::Finalized => Some("finalized"),
-        _ => None,
-    } {
-        CHANNEL_SLOT
-            .with_label_values(&[commitment])
-            .set(message.slot() as i64)
-    }
-}
-
-pub fn channel_messages_set(count: usize) {
-    CHANNEL_MESSAGES_TOTAL.set(count as i64)
-}
-
-pub fn channel_slots_set(count: usize) {
-    CHANNEL_SLOTS_TOTAL.set(count as i64)
-}
-
-pub fn channel_bytes_set(count: usize) {
-    CHANNEL_BYTES_TOTAL.set(count as i64)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockMessageFailedReason {
     MissedBlockMeta,
-    MissedAccountUpdate,
-    TransactionsMismatch,
-    EntriesMismatch,
+    MismatchTransactions,
+    MismatchEntries,
+    ExtraAccount,
+    ExtraTransaction,
+    ExtraEntry,
+    ExtraBlockMeta,
 }
 
 impl BlockMessageFailedReason {
     const fn as_str(self) -> &'static str {
         match self {
             Self::MissedBlockMeta => "MissedBlockMeta",
-            Self::MissedAccountUpdate => "MissedAccountUpdate",
-            Self::TransactionsMismatch => "TransactionsMismatch",
-            Self::EntriesMismatch => "EntriesMismatch",
+            Self::MismatchTransactions => "MismatchTransactions",
+            Self::MismatchEntries => "MismatchEntries",
+            Self::ExtraAccount => "ExtraAccount",
+            Self::ExtraTransaction => "ExtraTransaction",
+            Self::ExtraEntry => "ExtraEntry",
+            Self::ExtraBlockMeta => "ExtraBlockMeta",
         }
     }
 }

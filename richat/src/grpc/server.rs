@@ -15,14 +15,14 @@ use {
         filter::Filter,
     },
     richat_proto::geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel, GetBlockHeightRequest,
-        GetBlockHeightResponse, GetLatestBlockhashRequest, GetLatestBlockhashResponse,
-        GetSlotRequest, GetSlotResponse, GetVersionRequest, GetVersionResponse,
-        IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest, PongResponse,
-        SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
+        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
+        GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
+        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
+        PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
     },
     richat_shared::shutdown::Shutdown,
-    solana_sdk::clock::MAX_PROCESSING_AGE,
+    solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
         collections::{LinkedList, VecDeque},
         future::Future,
@@ -146,9 +146,9 @@ impl GrpcServer {
         Ok(try_join_all([block_meta_jh, block_meta_task_jh, workers, server]).map_ok(|_| ()))
     }
 
-    fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevel, Status> {
-        let commitment = commitment.unwrap_or(CommitmentLevel::Processed as i32);
-        CommitmentLevel::try_from(commitment)
+    fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevelProto, Status> {
+        let commitment = commitment.unwrap_or(CommitmentLevelProto::Processed as i32);
+        CommitmentLevelProto::try_from(commitment)
             .map(Into::into)
             .map_err(|_error| {
                 let msg = format!("failed to create CommitmentLevel from {commitment:?}");
@@ -157,9 +157,9 @@ impl GrpcServer {
             .and_then(|commitment| {
                 if matches!(
                     commitment,
-                    CommitmentLevel::Processed
-                        | CommitmentLevel::Confirmed
-                        | CommitmentLevel::Finalized
+                    CommitmentLevelProto::Processed
+                        | CommitmentLevelProto::Confirmed
+                        | CommitmentLevelProto::Finalized
                 ) {
                     Ok(commitment)
                 } else {
@@ -208,7 +208,7 @@ impl GrpcServer {
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let mut receiver = messages.to_receiver();
-        let mut head = messages.get_current_tail();
+        let mut head = messages.get_current_tail(CommitmentLevel::Processed);
 
         let mut counter = 0;
         loop {
@@ -220,7 +220,7 @@ impl GrpcServer {
                 }
             }
 
-            let Some(message) = receiver.try_recv(head)? else {
+            let Some(message) = receiver.try_recv(head, CommitmentLevel::Processed)? else {
                 counter = 1_000;
                 thread::sleep(Duration::from_millis(2));
                 continue;
@@ -239,13 +239,13 @@ impl GrpcServer {
     }
 
     fn worker_messages(&self) -> anyhow::Result<()> {
-        let mut receiver = self.messages.to_receiver();
-        let mut head = self.messages.get_current_tail();
+        // let mut receiver = self.messages.to_receiver();
+        // let mut head = self.messages.get_current_tail();
         loop {
-            let Some(message) = receiver.try_recv(head)? else {
-                continue;
-            };
-            head += 1;
+            // let Some(message) = receiver.try_recv(head)? else {
+            //     continue;
+            // };
+            // head += 1;
 
             // todo!()
         }

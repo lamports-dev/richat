@@ -9,8 +9,8 @@ use {
         Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageParseError,
         MessageParserEncoding, MessageSlot, MessageTransaction,
     },
-    richat_proto::{geyser::CommitmentLevel, richat::GrpcSubscribeRequest},
-    solana_sdk::{clock::Slot, pubkey::Pubkey},
+    richat_proto::{geyser::CommitmentLevel as CommitmentLevelProto, richat::GrpcSubscribeRequest},
+    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
         fmt, mem,
@@ -20,7 +20,7 @@ use {
         },
     },
     thiserror::Error,
-    tracing::{debug, error},
+    tracing::error,
 };
 
 #[derive(Debug, Clone)]
@@ -125,7 +125,7 @@ impl Messages {
         }
     }
 
-    pub fn get_current_tail(&self) -> u64 {
+    pub fn get_current_tail(&self, commitment: CommitmentLevel) -> u64 {
         self.shared.tail.load(Ordering::Relaxed)
     }
 
@@ -242,23 +242,6 @@ impl Sender {
         }
 
         for message in [Some(message), message_block].into_iter().flatten() {
-            // update metrics
-            if let ParsedMessage::Slot(message) = &message {
-                metrics::channel_slot_set(message);
-                if message.commitment() == CommitmentLevel::Processed {
-                    debug!(
-                        "new processed {slot} / {} messages / {} slots / {} bytes",
-                        self.tail - self.head,
-                        self.slots.len(),
-                        self.bytes_total
-                    );
-
-                    metrics::channel_messages_set((self.tail - self.head) as usize);
-                    metrics::channel_slots_set(self.slots.len());
-                    metrics::channel_bytes_set(self.bytes_total);
-                }
-            }
-
             // push messages
             let pos = self.tail;
             self.tail = self.tail.wrapping_add(1);
@@ -294,7 +277,11 @@ pub struct Receiver {
 }
 
 impl Receiver {
-    pub fn try_recv(&mut self, head: u64) -> Result<Option<ParsedMessage>, RecvError> {
+    pub fn try_recv(
+        &mut self,
+        head: u64,
+        commitment: CommitmentLevel,
+    ) -> Result<Option<ParsedMessage>, RecvError> {
         let tail = self.shared.tail.load(Ordering::Relaxed);
         if head < tail {
             let idx = self.shared.get_idx(head);
@@ -345,29 +332,30 @@ impl Shared {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct SlotInfo {
     slot: Slot,
     head: u64,
+    block_created: bool,
+    failed: bool,
+    landed: bool,
     accounts: Vec<Option<Arc<MessageAccount>>>,
     accounts_dedup: HashMap<Pubkey, (u64, usize)>,
     transactions: Vec<Arc<MessageTransaction>>,
     entries: Vec<Arc<MessageEntry>>,
     block_meta: Option<Arc<MessageBlockMeta>>,
-    confirmed: bool,
-    block_created: bool,
 }
 
 impl Drop for SlotInfo {
     fn drop(&mut self) {
-        if self.confirmed && !self.block_created {
+        if !self.block_created && !self.failed && self.landed {
             let mut reasons = vec![];
             if let Some(block_meta) = &self.block_meta {
                 if block_meta.executed_transaction_count() as usize != self.transactions.len() {
-                    reasons.push(metrics::BlockMessageFailedReason::TransactionsMismatch);
+                    reasons.push(metrics::BlockMessageFailedReason::MismatchTransactions);
                 }
                 if block_meta.entries_count() as usize != self.entries.len() {
-                    reasons.push(metrics::BlockMessageFailedReason::EntriesMismatch);
+                    reasons.push(metrics::BlockMessageFailedReason::MismatchEntries);
                 }
             } else {
                 reasons.push(metrics::BlockMessageFailedReason::MissedBlockMeta);
@@ -383,27 +371,55 @@ impl SlotInfo {
         Self {
             slot,
             head,
+            block_created: false,
+            failed: false,
+            landed: false,
             accounts: Vec::new(),
             accounts_dedup: HashMap::new(),
             transactions: Vec::new(),
             entries: Vec::new(),
             block_meta: None,
-            confirmed: false,
-            block_created: false,
         }
     }
 
     fn get_block_message(&mut self, message: &ParsedMessage) -> Option<ParsedMessage> {
-        if self.block_created {
-            if let ParsedMessage::Slot(message) = message {
-                metrics::block_message_failed_inc(
-                    message.slot(),
-                    &[metrics::BlockMessageFailedReason::MissedAccountUpdate],
-                );
-                return None;
+        // mark as landed
+        if let ParsedMessage::Slot(message) = message {
+            if matches!(
+                message.commitment(),
+                CommitmentLevelProto::Confirmed | CommitmentLevelProto::Finalized
+            ) {
+                self.landed = true;
             }
         }
 
+        // report error if block already created
+        if self.block_created {
+            if !self.failed {
+                self.failed = true;
+                let mut reasons = vec![];
+                match message {
+                    ParsedMessage::Slot(_) => {}
+                    ParsedMessage::Account(_) => {
+                        reasons.push(metrics::BlockMessageFailedReason::ExtraAccount);
+                    }
+                    ParsedMessage::Transaction(_) => {
+                        reasons.push(metrics::BlockMessageFailedReason::ExtraTransaction);
+                    }
+                    ParsedMessage::Entry(_) => {
+                        reasons.push(metrics::BlockMessageFailedReason::ExtraEntry);
+                    }
+                    ParsedMessage::BlockMeta(_) => {
+                        reasons.push(metrics::BlockMessageFailedReason::ExtraBlockMeta);
+                    }
+                    ParsedMessage::Block(_) => {}
+                }
+                metrics::block_message_failed_inc(self.slot, &reasons);
+            }
+            return None;
+        }
+
+        // store message
         match message {
             ParsedMessage::Account(message) => {
                 let idx_new = self.accounts.len();
@@ -421,11 +437,7 @@ impl SlotInfo {
                         .insert(*pubkey, (write_version, idx_new));
                 }
             }
-            ParsedMessage::Slot(message) => {
-                if message.commitment() == CommitmentLevel::Confirmed {
-                    self.confirmed = true;
-                }
-            }
+            ParsedMessage::Slot(_message) => {}
             ParsedMessage::Transaction(message) => self.transactions.push(Arc::clone(message)),
             ParsedMessage::Entry(message) => self.entries.push(Arc::clone(message)),
             ParsedMessage::BlockMeta(message) => {
@@ -434,6 +446,7 @@ impl SlotInfo {
             ParsedMessage::Block(_message) => unreachable!(),
         }
 
+        //  attempt to create Block
         if let Some(block_meta) = &self.block_meta {
             if block_meta.executed_transaction_count() as usize == self.transactions.len()
                 && block_meta.entries_count() as usize == self.entries.len()
