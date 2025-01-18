@@ -7,7 +7,7 @@ use {
     richat_client::error::ReceiveError,
     richat_filter::message::{
         Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageParseError,
-        MessageParserEncoding, MessageSlot, MessageTransaction,
+        MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
     },
     richat_proto::{geyser::CommitmentLevel as CommitmentLevelProto, richat::GrpcSubscribeRequest},
     solana_nohash_hasher::NoHashHasher,
@@ -44,6 +44,19 @@ impl From<Message> for ParsedMessage {
             Message::Entry(msg) => Self::Entry(Arc::new(msg)),
             Message::BlockMeta(msg) => Self::BlockMeta(Arc::new(msg)),
             Message::Block(msg) => Self::Block(Arc::new(msg)),
+        }
+    }
+}
+
+impl<'a> From<&'a ParsedMessage> for MessageRef<'a> {
+    fn from(message: &'a ParsedMessage) -> Self {
+        match message {
+            ParsedMessage::Slot(msg) => Self::Slot(msg.as_ref()),
+            ParsedMessage::Account(msg) => Self::Account(msg.as_ref()),
+            ParsedMessage::Transaction(msg) => Self::Transaction(msg.as_ref()),
+            ParsedMessage::Entry(msg) => Self::Entry(msg.as_ref()),
+            ParsedMessage::BlockMeta(msg) => Self::BlockMeta(msg.as_ref()),
+            ParsedMessage::Block(msg) => Self::Block(msg.as_ref()),
         }
     }
 }

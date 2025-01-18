@@ -13,6 +13,7 @@ use {
     richat_filter::{
         config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
         filter::Filter,
+        message::MessageRef,
     },
     richat_proto::geyser::{
         subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
@@ -22,6 +23,7 @@ use {
         PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
     },
     richat_shared::shutdown::Shutdown,
+    smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
         collections::{LinkedList, VecDeque},
@@ -275,14 +277,15 @@ impl GrpcServer {
             }
 
             // filter messages
-            let Some(filter) = state.filter.as_ref() else {
+            if state.filter.is_none() {
                 continue;
-            };
-            let mut counter = 0;
-            while !state.is_full() && counter < messages_max_per_tick {
+            }
+
+            let mut count = 0;
+            while !state.is_full() && count < messages_max_per_tick {
                 let message = match receiver.try_recv(state.commitment, state.head) {
                     Ok(Some(message)) => {
-                        counter += 1;
+                        count += 1;
                         state.head += 1;
                         message
                     }
@@ -293,7 +296,18 @@ impl GrpcServer {
                     }
                 };
 
-                //
+                let message_ref: MessageRef = (&message).into();
+                if let Some(filter) = state.filter.as_ref() {
+                    let messages = filter
+                        .get_updates_ref(message_ref, state.commitment)
+                        .into_iter()
+                        .map(|msg| msg.encode())
+                        .collect::<SmallVec<[Vec<u8>; 2]>>();
+
+                    for message in messages {
+                        state.push_message(message);
+                    }
+                }
             }
         }
     }

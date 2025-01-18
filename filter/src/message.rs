@@ -46,6 +46,29 @@ pub enum MessageParserEncoding {
     Prost,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum MessageRef<'a> {
+    Slot(&'a MessageSlot),
+    Account(&'a MessageAccount),
+    Transaction(&'a MessageTransaction),
+    Entry(&'a MessageEntry),
+    BlockMeta(&'a MessageBlockMeta),
+    Block(&'a MessageBlock),
+}
+
+impl<'a> From<&'a Message> for MessageRef<'a> {
+    fn from(message: &'a Message) -> Self {
+        match message {
+            Message::Slot(msg) => Self::Slot(msg),
+            Message::Account(msg) => Self::Account(msg),
+            Message::Transaction(msg) => Self::Transaction(msg),
+            Message::Entry(msg) => Self::Entry(msg),
+            Message::BlockMeta(msg) => Self::BlockMeta(msg),
+            Message::Block(msg) => Self::Block(msg),
+        }
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Message {

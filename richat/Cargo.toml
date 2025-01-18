@@ -27,6 +27,7 @@ richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
+smallvec = { workspace = true }
 solana-nohash-hasher = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
