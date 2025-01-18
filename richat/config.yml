@@ -79,6 +79,8 @@ apps:
       affinity: 0-1
     stream:
       messages_len_max: 16_777_216
+      messages_max_per_tick: 100
+      ping_iterval: 15s
     unary:
       enabled: true
       affinity: 0

@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{Messages, ParsedMessage},
+        channel::{Messages, ParsedMessage, RecvError},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
@@ -114,7 +114,12 @@ impl GrpcServer {
             .workers
             .run(
                 |index| format!("grpcWrk{index:02}"),
-                move || grpc_server.worker_messages(config.stream.ping_iterval),
+                move || {
+                    grpc_server.worker_messages(
+                        config.stream.messages_max_per_tick,
+                        config.stream.ping_iterval,
+                    )
+                },
                 shutdown.clone(),
             )
             .boxed();
@@ -245,7 +250,11 @@ impl GrpcServer {
         Ok(())
     }
 
-    fn worker_messages(&self, ping_interval: Duration) -> anyhow::Result<()> {
+    fn worker_messages(
+        &self,
+        messages_max_per_tick: usize,
+        ping_interval: Duration,
+    ) -> anyhow::Result<()> {
         let receiver = self.messages.to_receiver();
         loop {
             // get client and state
@@ -269,14 +278,24 @@ impl GrpcServer {
             let Some(filter) = state.filter.as_ref() else {
                 continue;
             };
-            while !state.is_full() {
+            let mut counter = 0;
+            while !state.is_full() && counter < messages_max_per_tick {
+                let message = match receiver.try_recv(state.commitment, state.head) {
+                    Ok(Some(message)) => {
+                        counter += 1;
+                        state.head += 1;
+                        message
+                    }
+                    Ok(None) => break,
+                    Err(RecvError::Lagged) => {
+                        let item = Err(Status::data_loss("lagged"));
+                        state.push_message(item);
+                        break;
+                    }
+                };
+
                 //
             }
-
-            // let Some(message) = receiver.try_recv(head)? else {
-            //     continue;
-            // };
-            // head += 1;
         }
     }
 }
