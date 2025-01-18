@@ -260,7 +260,7 @@ impl SenderShared {
         &mut self,
         slot: Slot,
         message: ParsedMessage,
-        mut slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
+        slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
     ) {
         // bump current tail
         let pos = self.tail;
@@ -271,11 +271,15 @@ impl SenderShared {
         let mut item = self.shared.buffer_idx_write(idx);
 
         // drop existed message
-        let mut removed_slot = None;
         if let Some(message) = item.data.take() {
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
-            removed_slot = Some(item.slot);
+            if self.slots.remove(&item.slot).is_some() {
+                if let Some(slots) = slots {
+                    slots.remove(&item.slot);
+                }
+                self.shared.slots_lock().remove(&item.slot);
+            }
         }
 
         // store new message
@@ -284,11 +288,6 @@ impl SenderShared {
         item.slot = slot;
         item.data = Some(message);
         drop(item);
-
-        // remove slot head
-        if let Some(slot) = removed_slot {
-            self.remove_slot(slot, &mut slots); // TODO: need to remove before drop `item`
-        }
 
         // store new position for receivers
         self.shared.tail.store(pos, Ordering::Relaxed);
@@ -299,16 +298,6 @@ impl SenderShared {
             self.shared.slots_lock().insert(slot, obj);
             obj
         });
-    }
-
-    #[inline]
-    fn remove_slot(&mut self, slot: Slot, slots: &mut Option<&mut BTreeMap<Slot, SlotInfo>>) {
-        if self.slots.remove(&slot).is_some() {
-            if let Some(slots) = slots {
-                slots.remove(&slot);
-            }
-            self.shared.slots_lock().remove(&slot);
-        }
     }
 
     fn try_clear(
@@ -332,10 +321,12 @@ impl SenderShared {
 
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
-
-            let removed_slot = item.slot;
-            drop(item);
-            self.remove_slot(removed_slot, &mut slots); // TODO: before drop
+            if self.slots.remove(&item.slot).is_some() {
+                if let Some(slots) = slots.as_mut() {
+                    slots.remove(&item.slot);
+                }
+                self.shared.slots_lock().remove(&item.slot);
+            }
         }
 
         // drop messages by extra slots
@@ -366,10 +357,12 @@ impl SenderShared {
 
                 self.head = self.head.wrapping_add(1);
                 self.bytes_total -= message.size();
-
-                let removed_slot = item.slot;
-                drop(item);
-                self.remove_slot(removed_slot, &mut slots); // TODO: before drop
+                if self.slots.remove(&item.slot).is_some() {
+                    if let Some(slots) = slots.as_mut() {
+                        slots.remove(&item.slot);
+                    }
+                    self.shared.slots_lock().remove(&item.slot);
+                }
             }
 
             // remove messages while slot is same
