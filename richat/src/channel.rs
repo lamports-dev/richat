@@ -10,13 +10,15 @@ use {
         MessageParserEncoding, MessageSlot, MessageTransaction,
     },
     richat_proto::{geyser::CommitmentLevel as CommitmentLevelProto, richat::GrpcSubscribeRequest},
+    solana_nohash_hasher::NoHashHasher,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
-        fmt, mem,
+        fmt,
+        hash::BuildHasherDefault,
         sync::{
             atomic::{AtomicU64, Ordering},
-            Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+            Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
         },
     },
     thiserror::Error,
@@ -68,11 +70,37 @@ impl ParsedMessage {
             Self::Block(msg) => msg.size(),
         }
     }
+
+    fn get_account(&self) -> Option<Arc<MessageAccount>> {
+        if let Self::Account(msg) = self {
+            Some(Arc::clone(msg))
+        } else {
+            None
+        }
+    }
+
+    fn get_transaction(&self) -> Option<Arc<MessageTransaction>> {
+        if let Self::Transaction(msg) = self {
+            Some(Arc::clone(msg))
+        } else {
+            None
+        }
+    }
+
+    fn get_entry(&self) -> Option<Arc<MessageEntry>> {
+        if let Self::Entry(msg) = self {
+            Some(Arc::clone(msg))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Messages {
-    shared: Arc<Shared>,
+    shared_processed: Arc<Shared>,
+    shared_confirmed: Arc<Shared>,
+    shared_finalized: Arc<Shared>,
     max_messages: usize,
     max_slots: usize,
     max_bytes: usize,
@@ -82,23 +110,10 @@ pub struct Messages {
 impl Messages {
     pub fn new(config: ConfigChannelInner) -> Self {
         let max_messages = config.max_messages.next_power_of_two();
-        let mut buffer = Vec::with_capacity(max_messages);
-        for i in 0..max_messages {
-            buffer.push(RwLock::new(Item {
-                pos: i as u64,
-                slot: 0,
-                data: None,
-            }));
-        }
-
-        let shared = Arc::new(Shared {
-            tail: AtomicU64::new(max_messages as u64),
-            mask: (max_messages - 1) as u64,
-            buffer: buffer.into_boxed_slice(),
-        });
-
         Self {
-            shared,
+            shared_processed: Arc::new(Shared::new(max_messages)),
+            shared_confirmed: Arc::new(Shared::new(max_messages)),
+            shared_finalized: Arc::new(Shared::new(max_messages)),
             max_messages,
             max_slots: config.max_slots,
             max_bytes: config.max_bytes,
@@ -108,25 +123,40 @@ impl Messages {
 
     pub fn to_sender(&self) -> Sender {
         Sender {
-            shared: Arc::clone(&self.shared),
-            head: self.max_messages as u64,
-            tail: self.max_messages as u64,
-            slots: BTreeMap::new(),
-            slots_max: self.max_slots,
-            bytes_total: 0,
-            bytes_max: self.max_bytes,
             parser: self.parser,
+            slots_max: self.max_slots,
+            bytes_max: self.max_bytes,
+            slots: BTreeMap::new(),
+            processed: SenderShared::new(&self.shared_processed, self.max_messages),
+            confirmed: SenderShared::new(&self.shared_confirmed, self.max_messages),
+            finalized: SenderShared::new(&self.shared_finalized, self.max_messages),
         }
     }
 
     pub fn to_receiver(&self) -> Receiver {
         Receiver {
-            shared: Arc::clone(&self.shared),
+            shared_processed: Arc::clone(&self.shared_processed),
+            shared_confirmed: Arc::clone(&self.shared_confirmed),
+            shared_finalized: Arc::clone(&self.shared_finalized),
         }
     }
 
-    pub fn get_current_tail(&self, commitment: CommitmentLevel) -> u64 {
-        self.shared.tail.load(Ordering::Relaxed)
+    pub fn get_current_tail(
+        &self,
+        commitment: CommitmentLevel,
+        from_slot: Option<Slot>,
+    ) -> Option<u64> {
+        let shared = match commitment {
+            CommitmentLevel::Processed => &self.shared_processed,
+            CommitmentLevel::Confirmed => &self.shared_confirmed,
+            CommitmentLevel::Finalized => &self.shared_finalized,
+        };
+
+        if let Some(from_slot) = from_slot {
+            shared.slots_lock().get(&from_slot).map(|obj| obj.head)
+        } else {
+            Some(shared.tail.load(Ordering::Relaxed))
+        }
     }
 
     pub async fn subscribe_source(
@@ -154,14 +184,13 @@ impl Messages {
 
 #[derive(Debug)]
 pub struct Sender {
-    shared: Arc<Shared>,
-    head: u64,
-    tail: u64,
-    slots: BTreeMap<Slot, SlotInfo>,
-    slots_max: usize,
-    bytes_total: usize,
-    bytes_max: usize,
     parser: MessageParserEncoding,
+    slots_max: usize,
+    bytes_max: usize,
+    slots: BTreeMap<Slot, SlotInfo>,
+    processed: SenderShared,
+    confirmed: SenderShared,
+    finalized: SenderShared,
 }
 
 impl Sender {
@@ -173,14 +202,153 @@ impl Sender {
         let message_block = self
             .slots
             .entry(slot)
-            .or_insert_with(|| SlotInfo::new(slot, self.tail))
+            .or_insert_with(|| SlotInfo::new(slot))
             .get_block_message(&message);
 
-        // drop extra messages by extra slots
-        while self.slots.len() > self.slots_max {
-            let (slot, slot_info) = self
+        // push messages
+        for message in [Some(message), message_block].into_iter().flatten() {
+            // push messages to confirmed / finalized
+            if let ParsedMessage::Slot(msg) = &message {
+                self.confirmed.push(slot, message.clone(), None);
+                self.finalized.push(slot, message.clone(), None);
+
+                if let Some(sender_shared) = match msg.commitment() {
+                    CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
+                    CommitmentLevelProto::Finalized => Some(&mut self.finalized),
+                    _ => None,
+                } {
+                    if let Some(slot_info) = self.slots.get(&slot) {
+                        for message in slot_info.get_messages() {
+                            sender_shared.push(slot, message, None);
+                        }
+                        sender_shared.try_clear(self.bytes_max, self.slots_max, None);
+                    }
+                }
+            }
+
+            // push to processed
+            self.processed.push(slot, message, Some(&mut self.slots));
+        }
+        self.processed
+            .try_clear(self.bytes_max, self.slots_max, Some(&mut self.slots));
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct SenderShared {
+    shared: Arc<Shared>,
+    head: u64,
+    tail: u64,
+    bytes_total: usize,
+    slots: SlotHeads,
+}
+
+impl SenderShared {
+    fn new(shared: &Arc<Shared>, max_messages: usize) -> Self {
+        Self {
+            shared: Arc::clone(shared),
+            head: max_messages as u64,
+            tail: max_messages as u64,
+            bytes_total: 0,
+            slots: Default::default(),
+        }
+    }
+
+    fn push(
+        &mut self,
+        slot: Slot,
+        message: ParsedMessage,
+        mut slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
+    ) {
+        // bump current tail
+        let pos = self.tail;
+        self.tail = self.tail.wrapping_add(1);
+
+        // get item
+        let idx = self.shared.get_idx(pos);
+        let mut item = self.shared.buffer_idx_write(idx);
+
+        // drop existed message
+        let mut removed_slot = None;
+        if let Some(message) = item.data.take() {
+            self.head = self.head.wrapping_add(1);
+            self.bytes_total -= message.size();
+            removed_slot = Some(item.slot);
+        }
+
+        // store new message
+        self.bytes_total += message.size();
+        item.pos = pos;
+        item.slot = slot;
+        item.data = Some(message);
+        drop(item);
+
+        // remove slot head
+        if let Some(slot) = removed_slot {
+            self.remove_slot(slot, &mut slots); // TODO: need to remove before drop `item`
+        }
+
+        // store new position for receivers
+        self.shared.tail.store(pos, Ordering::Relaxed);
+
+        // update slot head info
+        self.slots.entry(slot).or_insert_with(|| {
+            let obj = SlotHead { head: pos };
+            self.shared.slots_lock().insert(slot, obj);
+            obj
+        });
+    }
+
+    #[inline]
+    fn remove_slot(&mut self, slot: Slot, slots: &mut Option<&mut BTreeMap<Slot, SlotInfo>>) {
+        if self.slots.remove(&slot).is_some() {
+            if let Some(slots) = slots {
+                slots.remove(&slot);
+            }
+            self.shared.slots_lock().remove(&slot);
+        }
+    }
+
+    fn try_clear(
+        &mut self,
+        bytes_max: usize,
+        slots_max: usize,
+        mut slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
+    ) {
+        // drop messages by extra bytes
+        while self.bytes_total > bytes_max {
+            assert!(
+                self.head < self.tail,
+                "head overflow tail on remove process by bytes limit"
+            );
+
+            let idx = self.shared.get_idx(self.head);
+            let mut item = self.shared.buffer_idx_write(idx);
+            let Some(message) = item.data.take() else {
+                panic!("nothing to remove to keep bytes under limit")
+            };
+
+            self.head = self.head.wrapping_add(1);
+            self.bytes_total -= message.size();
+
+            let removed_slot = item.slot;
+            drop(item);
+            self.remove_slot(removed_slot, &mut slots); // TODO: before drop
+        }
+
+        // drop messages by extra slots
+        while self.slots.len() > slots_max {
+            let slot_min = self
                 .slots
-                .pop_first()
+                .keys()
+                .min()
+                .copied()
+                .expect("nothing to remove to keep slots under limit #1");
+            let slot_info = self
+                .slots
+                .remove(&slot_min)
                 .expect("nothing to remove to keep slots under limit #1");
 
             // remove everything up to beginning of removed slot (messages from geyser are not ordered)
@@ -197,8 +365,11 @@ impl Sender {
                 };
 
                 self.head = self.head.wrapping_add(1);
-                self.slots.remove(&item.slot);
                 self.bytes_total -= message.size();
+
+                let removed_slot = item.slot;
+                drop(item);
+                self.remove_slot(removed_slot, &mut slots); // TODO: before drop
             }
 
             // remove messages while slot is same
@@ -210,7 +381,7 @@ impl Sender {
 
                 let idx = self.shared.get_idx(self.head);
                 let mut item = self.shared.buffer_idx_write(idx);
-                if slot != item.slot {
+                if slot_min != item.slot {
                     break;
                 }
                 let Some(message) = item.data.take() else {
@@ -221,47 +392,6 @@ impl Sender {
                 self.bytes_total -= message.size();
             }
         }
-
-        // drop extra messages by max bytes
-        self.bytes_total += message.size();
-        while self.bytes_total > self.bytes_max {
-            assert!(
-                self.head < self.tail,
-                "head overflow tail on remove process by bytes limit"
-            );
-
-            let idx = self.shared.get_idx(self.head);
-            let mut item = self.shared.buffer_idx_write(idx);
-            let Some(message) = item.data.take() else {
-                panic!("nothing to remove to keep bytes under limit")
-            };
-
-            self.head = self.head.wrapping_add(1);
-            self.slots.remove(&item.slot);
-            self.bytes_total -= message.size();
-        }
-
-        for message in [Some(message), message_block].into_iter().flatten() {
-            // push messages
-            let pos = self.tail;
-            self.tail = self.tail.wrapping_add(1);
-            let idx = self.shared.get_idx(pos);
-            let mut item = self.shared.buffer_idx_write(idx);
-            if let Some(message) = item.data.take() {
-                self.head = self.head.wrapping_add(1);
-                self.slots.remove(&item.slot);
-                self.bytes_total -= message.size();
-            }
-            item.pos = pos;
-            item.slot = slot;
-            item.data = Some(message);
-            drop(item);
-
-            // store new position for receivers
-            self.shared.tail.store(pos, Ordering::Relaxed);
-        }
-
-        Ok(())
     }
 }
 
@@ -273,7 +403,9 @@ pub enum RecvError {
 
 #[derive(Debug)]
 pub struct Receiver {
-    shared: Arc<Shared>,
+    shared_processed: Arc<Shared>,
+    shared_confirmed: Arc<Shared>,
+    shared_finalized: Arc<Shared>,
 }
 
 impl Receiver {
@@ -282,10 +414,16 @@ impl Receiver {
         head: u64,
         commitment: CommitmentLevel,
     ) -> Result<Option<ParsedMessage>, RecvError> {
-        let tail = self.shared.tail.load(Ordering::Relaxed);
+        let shared = match commitment {
+            CommitmentLevel::Processed => &self.shared_processed,
+            CommitmentLevel::Confirmed => &self.shared_confirmed,
+            CommitmentLevel::Finalized => &self.shared_finalized,
+        };
+
+        let tail = shared.tail.load(Ordering::Relaxed);
         if head < tail {
-            let idx = self.shared.get_idx(head);
-            let item = self.shared.buffer_idx_read(idx);
+            let idx = shared.get_idx(head);
+            let item = shared.buffer_idx_read(idx);
             if item.pos != head {
                 return Err(RecvError::Lagged);
             }
@@ -301,6 +439,7 @@ struct Shared {
     tail: AtomicU64,
     mask: u64,
     buffer: Box<[RwLock<Item>]>,
+    slots: Mutex<SlotHeads>,
 }
 
 impl fmt::Debug for Shared {
@@ -310,6 +449,24 @@ impl fmt::Debug for Shared {
 }
 
 impl Shared {
+    fn new(max_messages: usize) -> Self {
+        let mut buffer = Vec::with_capacity(max_messages);
+        for i in 0..max_messages {
+            buffer.push(RwLock::new(Item {
+                pos: i as u64,
+                slot: 0,
+                data: None,
+            }));
+        }
+
+        Shared {
+            tail: AtomicU64::new(max_messages as u64),
+            mask: (max_messages - 1) as u64,
+            buffer: buffer.into_boxed_slice(),
+            slots: Mutex::default(),
+        }
+    }
+
     #[inline]
     const fn get_idx(&self, pos: u64) -> usize {
         (pos & self.mask) as usize
@@ -330,19 +487,33 @@ impl Shared {
             Err(p_err) => p_err.into_inner(),
         }
     }
+
+    #[inline]
+    fn slots_lock(&self) -> MutexGuard<'_, SlotHeads> {
+        match self.slots.lock() {
+            Ok(lock) => lock,
+            Err(p_err) => p_err.into_inner(),
+        }
+    }
+}
+
+type SlotHeads = HashMap<Slot, SlotHead, BuildHasherDefault<NoHashHasher<Slot>>>;
+
+#[derive(Debug, Clone, Copy)]
+struct SlotHead {
+    head: u64,
 }
 
 #[derive(Debug, Default)]
 struct SlotInfo {
     slot: Slot,
-    head: u64,
     block_created: bool,
     failed: bool,
     landed: bool,
-    accounts: Vec<Option<Arc<MessageAccount>>>,
+    messages: Vec<Option<ParsedMessage>>,
     accounts_dedup: HashMap<Pubkey, (u64, usize)>,
-    transactions: Vec<Arc<MessageTransaction>>,
-    entries: Vec<Arc<MessageEntry>>,
+    transactions_count: usize,
+    entries_count: usize,
     block_meta: Option<Arc<MessageBlockMeta>>,
 }
 
@@ -351,10 +522,10 @@ impl Drop for SlotInfo {
         if !self.block_created && !self.failed && self.landed {
             let mut reasons = vec![];
             if let Some(block_meta) = &self.block_meta {
-                if block_meta.executed_transaction_count() as usize != self.transactions.len() {
+                if block_meta.executed_transaction_count() as usize != self.transactions_count {
                     reasons.push(metrics::BlockMessageFailedReason::MismatchTransactions);
                 }
-                if block_meta.entries_count() as usize != self.entries.len() {
+                if block_meta.entries_count() as usize != self.entries_count {
                     reasons.push(metrics::BlockMessageFailedReason::MismatchEntries);
                 }
             } else {
@@ -367,17 +538,16 @@ impl Drop for SlotInfo {
 }
 
 impl SlotInfo {
-    fn new(slot: Slot, head: u64) -> Self {
+    fn new(slot: Slot) -> Self {
         Self {
             slot,
-            head,
             block_created: false,
             failed: false,
             landed: false,
-            accounts: Vec::new(),
+            messages: Vec::with_capacity(16_384),
             accounts_dedup: HashMap::new(),
-            transactions: Vec::new(),
-            entries: Vec::new(),
+            transactions_count: 0,
+            entries_count: 0,
             block_meta: None,
         }
     }
@@ -422,14 +592,15 @@ impl SlotInfo {
         // store message
         match message {
             ParsedMessage::Account(message) => {
-                let idx_new = self.accounts.len();
-                self.accounts.push(Some(Arc::clone(message)));
+                let idx_new = self.messages.len();
+                let item = ParsedMessage::Account(Arc::clone(message));
+                self.messages.push(Some(item));
 
                 let pubkey = message.pubkey();
                 let write_version = message.write_version();
                 if let Some(entry) = self.accounts_dedup.get_mut(pubkey) {
                     if entry.0 < write_version {
-                        self.accounts[entry.1] = None;
+                        self.messages[entry.1] = None;
                         *entry = (write_version, idx_new);
                     }
                 } else {
@@ -438,9 +609,19 @@ impl SlotInfo {
                 }
             }
             ParsedMessage::Slot(_message) => {}
-            ParsedMessage::Transaction(message) => self.transactions.push(Arc::clone(message)),
-            ParsedMessage::Entry(message) => self.entries.push(Arc::clone(message)),
+            ParsedMessage::Transaction(message) => {
+                let item = ParsedMessage::Transaction(Arc::clone(message));
+                self.messages.push(Some(item));
+                self.transactions_count += 1;
+            }
+            ParsedMessage::Entry(message) => {
+                let item = ParsedMessage::Entry(Arc::clone(message));
+                self.messages.push(Some(item));
+                self.entries_count += 1
+            }
             ParsedMessage::BlockMeta(message) => {
+                let item = ParsedMessage::BlockMeta(Arc::clone(message));
+                self.messages.push(Some(item));
                 self.block_meta = Some(Arc::clone(message));
             }
             ParsedMessage::Block(_message) => unreachable!(),
@@ -448,23 +629,46 @@ impl SlotInfo {
 
         //  attempt to create Block
         if let Some(block_meta) = &self.block_meta {
-            if block_meta.executed_transaction_count() as usize == self.transactions.len()
-                && block_meta.entries_count() as usize == self.entries.len()
+            if block_meta.executed_transaction_count() as usize == self.transactions_count
+                && block_meta.entries_count() as usize == self.entries_count
             {
                 self.block_created = true;
-                return Some(ParsedMessage::Block(Arc::new(
-                    Message::unchecked_create_block(
-                        self.accounts.drain(..).flatten().collect(),
-                        mem::take(&mut self.transactions),
-                        mem::take(&mut self.entries),
-                        Arc::clone(block_meta),
-                        block_meta.created_at(),
-                    ),
+
+                let accounts = self
+                    .messages
+                    .iter()
+                    .filter_map(|item| item.as_ref().and_then(|item| item.get_account()))
+                    .collect();
+                let transactions = self
+                    .messages
+                    .iter()
+                    .filter_map(|item| item.as_ref().and_then(|item| item.get_transaction()))
+                    .collect();
+                let entries = self
+                    .messages
+                    .iter()
+                    .filter_map(|item| item.as_ref().and_then(|item| item.get_entry()))
+                    .collect();
+                let message = ParsedMessage::Block(Arc::new(Message::unchecked_create_block(
+                    accounts,
+                    transactions,
+                    entries,
+                    Arc::clone(block_meta),
+                    block_meta.created_at(),
                 )));
+                self.messages.push(Some(message.clone()));
+
+                return Some(message);
             }
         }
 
         None
+    }
+
+    fn get_messages(&self) -> impl Iterator<Item = ParsedMessage> + '_ {
+        self.messages
+            .iter()
+            .filter_map(|item| item.as_ref().cloned())
     }
 }
 

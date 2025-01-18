@@ -208,7 +208,11 @@ impl GrpcServer {
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let mut receiver = messages.to_receiver();
-        let mut head = messages.get_current_tail(CommitmentLevel::Processed);
+        let mut head = messages
+            .get_current_tail(CommitmentLevel::Processed, None)
+            .ok_or(anyhow::anyhow!(
+                "failed to get head position for block meta worker"
+            ))?;
 
         let mut counter = 0;
         loop {

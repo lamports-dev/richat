@@ -3422,6 +3422,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "signal-hook",
+ "solana-nohash-hasher",
  "solana-sdk",
  "thiserror 2.0.7",
  "tokio",
@@ -4412,6 +4413,12 @@ name = "solana-native-token"
 version = "2.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe69b2e7a08b2e3c399164ec39f578adfbfb873bfa3e444680a7c6bca86766ef"
+
+[[package]]
+name = "solana-nohash-hasher"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b8a731ed60e89177c8a7ab05fe0f1511cedd3e70e773f288f9de33a9cfdc21e"
 
 [[package]]
 name = "solana-packet"
