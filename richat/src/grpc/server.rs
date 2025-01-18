@@ -56,6 +56,7 @@ pub struct GrpcServer {
     filter_limits: Arc<ConfigFilterLimits>,
     subscribe_id: Arc<AtomicU64>,
     subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
+    subscribe_messages_len_max: usize,
 }
 
 impl GrpcServer {
@@ -96,6 +97,7 @@ impl GrpcServer {
             filter_limits: Arc::new(config.filter_limits),
             subscribe_id: Arc::new(AtomicU64::new(0)),
             subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
+            subscribe_messages_len_max: config.stream.messages_len_max,
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -268,7 +270,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         info!(id, "new client");
 
-        let client = SubscribeClient::new(id);
+        let client = SubscribeClient::new(id, self.subscribe_messages_len_max);
         self.push_client(client.clone());
 
         tokio::spawn({
@@ -417,10 +419,10 @@ impl Drop for SubscribeClient {
 }
 
 impl SubscribeClient {
-    fn new(id: u64) -> Self {
+    fn new(id: u64, messages_len_max: usize) -> Self {
         Self {
             id,
-            state: Arc::new(Mutex::new(SubscribeClientState::default())),
+            state: Arc::new(Mutex::new(SubscribeClientState::new(messages_len_max))),
         }
     }
 
@@ -433,17 +435,30 @@ impl SubscribeClient {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct SubscribeClientState {
     commitment: CommitmentLevel,
     head: u64,
     filter: Option<Filter>,
+    messages_len_max: usize,
     messages_len_total: usize,
     messages: LinkedList<TonicResult<Vec<u8>>>,
     messages_waker: Option<Waker>,
 }
 
 impl SubscribeClientState {
+    fn new(messages_len_max: usize) -> Self {
+        Self {
+            commitment: CommitmentLevel::default(),
+            head: 0,
+            filter: None,
+            messages_len_max,
+            messages_len_total: 0,
+            messages: LinkedList::new(),
+            messages_waker: None,
+        }
+    }
+
     fn create_ping(id: i32) -> TonicResult<Vec<u8>> {
         Ok(SubscribeUpdate {
             filters: vec![],
@@ -451,6 +466,10 @@ impl SubscribeClientState {
             created_at: Some(SystemTime::now().into()),
         }
         .encode_to_vec())
+    }
+
+    fn is_full(&self) -> bool {
+        self.messages_len_max > self.messages_len_total
     }
 
     fn push_message(&mut self, message: TonicResult<Vec<u8>>) {

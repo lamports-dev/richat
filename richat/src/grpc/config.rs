@@ -9,28 +9,29 @@ use {
     std::collections::HashSet,
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpc {
     pub server: ConfigAppGrpcServer,
     pub workers: ConfigAppsWorkers,
-    #[serde(deserialize_with = "deserialize_num_str")]
-    pub stream_channel_capacity: usize,
+    pub stream: ConfigAppsGrpcStream,
     pub unary: ConfigAppsGrpcUnary,
     pub filter_limits: ConfigFilterLimits,
     #[serde(deserialize_with = "deserialize_x_token_set")]
     pub x_token: HashSet<Vec<u8>>,
 }
 
-impl Default for ConfigAppsGrpc {
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigAppsGrpcStream {
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub messages_len_max: usize,
+}
+
+impl Default for ConfigAppsGrpcStream {
     fn default() -> Self {
         Self {
-            server: ConfigAppGrpcServer::default(),
-            workers: ConfigAppsWorkers::default(),
-            stream_channel_capacity: 100_000,
-            unary: ConfigAppsGrpcUnary::default(),
-            filter_limits: ConfigFilterLimits::default(),
-            x_token: HashSet::default(),
+            messages_len_max: 16 * 1024 * 1024,
         }
     }
 }

@@ -77,7 +77,8 @@ apps:
     workers:
       threads: 2
       affinity: 0-1
-    stream_channel_capacity: 100_000
+    stream:
+      messages_len_max: 16_777_216
     unary:
       enabled: true
       affinity: 0
