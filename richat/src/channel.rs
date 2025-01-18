@@ -395,7 +395,7 @@ pub struct Receiver {
 
 impl Receiver {
     pub fn try_recv(
-        &mut self,
+        &self,
         commitment: CommitmentLevel,
         head: u64,
     ) -> Result<Option<ParsedMessage>, RecvError> {

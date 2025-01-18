@@ -114,7 +114,7 @@ impl GrpcServer {
             .workers
             .run(
                 |index| format!("grpcWrk{index:02}"),
-                move || grpc_server.worker_messages(),
+                move || grpc_server.worker_messages(config.stream.ping_iterval),
                 shutdown.clone(),
             )
             .boxed();
@@ -209,7 +209,7 @@ impl GrpcServer {
         block_meta: BlockMetaStorage,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
-        let mut receiver = messages.to_receiver();
+        let receiver = messages.to_receiver();
         let mut head = messages
             .get_current_tail(CommitmentLevel::Processed, None)
             .ok_or(anyhow::anyhow!(
@@ -245,16 +245,38 @@ impl GrpcServer {
         Ok(())
     }
 
-    fn worker_messages(&self) -> anyhow::Result<()> {
-        // let mut receiver = self.messages.to_receiver();
-        // let mut head = self.messages.get_current_tail();
+    fn worker_messages(&self, ping_interval: Duration) -> anyhow::Result<()> {
+        let receiver = self.messages.to_receiver();
         loop {
+            // get client and state
+            let Some(client) = self.pop_client() else {
+                continue;
+            };
+            let mut state = client.state_lock();
+
+            // send ping
+            let ts = SystemTime::now();
+            if !state.is_full()
+                && ts.duration_since(state.ping_ts_latest).unwrap_or_default() > ping_interval
+            {
+                state.ping_ts_latest = ts;
+                let message = SubscribeClientState::create_ping(state.ping_id);
+                state.push_message(message);
+                state.ping_id += 1;
+            }
+
+            // filter messages
+            let Some(filter) = state.filter.as_ref() else {
+                continue;
+            };
+            while !state.is_full() {
+                //
+            }
+
             // let Some(message) = receiver.try_recv(head)? else {
             //     continue;
             // };
             // head += 1;
-
-            // todo!()
         }
     }
 }
@@ -444,6 +466,8 @@ struct SubscribeClientState {
     messages_len_total: usize,
     messages: LinkedList<TonicResult<Vec<u8>>>,
     messages_waker: Option<Waker>,
+    ping_id: i32,
+    ping_ts_latest: SystemTime,
 }
 
 impl SubscribeClientState {
@@ -456,6 +480,8 @@ impl SubscribeClientState {
             messages_len_total: 0,
             messages: LinkedList::new(),
             messages_waker: None,
+            ping_id: 0,
+            ping_ts_latest: SystemTime::now(),
         }
     }
 
@@ -468,7 +494,7 @@ impl SubscribeClientState {
         .encode_to_vec())
     }
 
-    fn is_full(&self) -> bool {
+    const fn is_full(&self) -> bool {
         self.messages_len_max > self.messages_len_total
     }
 
@@ -498,7 +524,7 @@ pub struct ReceiverStream {
 }
 
 impl ReceiverStream {
-    fn new(client: SubscribeClient) -> Self {
+    const fn new(client: SubscribeClient) -> Self {
         Self {
             client,
             finished: false,
