@@ -19,6 +19,7 @@ use {
         Deserialize, Serialize,
     },
     solana_sdk::{
+        commitment_config::CommitmentLevel,
         pubkey::{ParsePubkeyError, Pubkey},
         signature::{ParseSignatureError, Signature},
     },
@@ -954,5 +955,15 @@ impl From<ConfigFilterCommitment> for i32 {
             ConfigFilterCommitment::Confirmed => CommitmentLevelProto::Confirmed,
             ConfigFilterCommitment::Finalized => CommitmentLevelProto::Finalized,
         }) as i32
+    }
+}
+
+impl From<ConfigFilterCommitment> for CommitmentLevel {
+    fn from(value: ConfigFilterCommitment) -> Self {
+        match value {
+            ConfigFilterCommitment::Processed => Self::Processed,
+            ConfigFilterCommitment::Confirmed => Self::Confirmed,
+            ConfigFilterCommitment::Finalized => Self::Finalized,
+        }
     }
 }

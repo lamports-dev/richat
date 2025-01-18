@@ -396,8 +396,8 @@ pub struct Receiver {
 impl Receiver {
     pub fn try_recv(
         &mut self,
-        head: u64,
         commitment: CommitmentLevel,
+        head: u64,
     ) -> Result<Option<ParsedMessage>, RecvError> {
         let shared = match commitment {
             CommitmentLevel::Processed => &self.shared_processed,

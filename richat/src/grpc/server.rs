@@ -31,7 +31,7 @@ use {
             atomic::{AtomicU64, Ordering},
             Arc, Mutex, MutexGuard,
         },
-        task::{Context, Poll},
+        task::{Context, Poll, Waker},
         thread,
         time::{Duration, SystemTime},
     },
@@ -215,17 +215,18 @@ impl GrpcServer {
             ))?;
 
         let mut counter = 0;
+        const COUNTER_LIMIT: i32 = 10_000;
         loop {
             counter += 1;
-            if counter > 1_000 {
+            if counter > COUNTER_LIMIT {
                 counter = 0;
                 if shutdown.is_set() {
                     break;
                 }
             }
 
-            let Some(message) = receiver.try_recv(head, CommitmentLevel::Processed)? else {
-                counter = 1_000;
+            let Some(message) = receiver.try_recv(CommitmentLevel::Processed, head)? else {
+                counter = COUNTER_LIMIT;
                 thread::sleep(Duration::from_millis(2));
                 continue;
             };
@@ -235,7 +236,7 @@ impl GrpcServer {
                 message,
                 ParsedMessage::Slot(_) | ParsedMessage::BlockMeta(_)
             ) {
-                block_meta.push(message.clone());
+                block_meta.push(message);
             }
         }
 
@@ -272,22 +273,17 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
         tokio::spawn({
             let mut stream = request.into_inner();
-            let client = client.clone();
             let limits = Arc::clone(&self.filter_limits);
+            let client = client.clone();
+            let messages = self.messages.clone();
             async move {
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
                             if let Some(SubscribeRequestPing { id }) = message.ping {
-                                let item: TonicResult<Vec<u8>> = Ok(SubscribeUpdate {
-                                    filters: vec![],
-                                    update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong {
-                                        id,
-                                    })),
-                                    created_at: Some(SystemTime::now().into()),
-                                }
-                                .encode_to_vec());
-                                // TODO: push to queue
+                                let message = SubscribeClientState::create_ping(id);
+                                let mut state = client.state_lock();
+                                state.push_message(message);
                                 continue;
                             }
 
@@ -310,15 +306,18 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                 });
 
                             let mut state = client.state_lock();
-                            match new_filter {
-                                Ok(filter) => {
-                                    // TODO: update id
-                                    state.filter = Some(filter);
-                                }
-                                Err(error) => {
-                                    state.messages.push_back(Err(error));
-                                    break;
-                                }
+                            if let Err(error) = new_filter.map(|filter| {
+                                state.commitment = filter.commitment().into();
+                                state.head = messages
+                                    .get_current_tail(state.commitment, subscribe_from_slot)
+                                    .ok_or(Status::invalid_argument(format!(
+                                        "failed to get slot {subscribe_from_slot:?}"
+                                    )))?;
+                                state.filter = Some(filter);
+                                Ok::<(), Status>(())
+                            }) {
+                                state.push_message(Err(error));
+                                break;
                             }
                         }
                         Ok(None) => debug!(id, "incoming stream finished"),
@@ -330,7 +329,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
             }
         });
 
-        Ok(Response::new(ReceiverStream { client }))
+        Ok(Response::new(ReceiverStream::new(client)))
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {
@@ -436,40 +435,73 @@ impl SubscribeClient {
 
 #[derive(Debug, Default)]
 struct SubscribeClientState {
+    commitment: CommitmentLevel,
     head: u64,
     filter: Option<Filter>,
+    messages_len_total: usize,
     messages: LinkedList<TonicResult<Vec<u8>>>,
-    messages_total_len: usize,
+    messages_waker: Option<Waker>,
 }
 
-// #[derive(Debug, Error)]
-// enum SendError {
-//     // #[error("channel is full")]
-//     // Full,
-//     // #[error("channel closed")]
-//     // Closed,
-// }
+impl SubscribeClientState {
+    fn create_ping(id: i32) -> TonicResult<Vec<u8>> {
+        Ok(SubscribeUpdate {
+            filters: vec![],
+            update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong { id })),
+            created_at: Some(SystemTime::now().into()),
+        }
+        .encode_to_vec())
+    }
+
+    fn push_message(&mut self, message: TonicResult<Vec<u8>>) {
+        self.messages_len_total += message.as_ref().map(|v| v.len()).unwrap_or_default();
+        self.messages.push_back(message);
+        if let Some(waker) = self.messages_waker.take() {
+            waker.wake();
+        }
+    }
+
+    fn pop_message(&mut self, cx: &Context) -> Option<TonicResult<Vec<u8>>> {
+        if let Some(message) = self.messages.pop_front() {
+            self.messages_len_total -= message.as_ref().map(|v| v.len()).unwrap_or_default();
+            Some(message)
+        } else {
+            self.messages_waker = Some(cx.waker().clone());
+            None
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ReceiverStream {
     client: SubscribeClient,
+    finished: bool,
 }
 
 impl ReceiverStream {
-    // fn send_update(&self) -> Result<(), SendError> {
-    //     Ok(())
-    // }
-
-    // fn send_pong(&self) -> Result<(), SendError> {
-    //     Ok(())
-    // }
+    fn new(client: SubscribeClient) -> Self {
+        Self {
+            client,
+            finished: false,
+        }
+    }
 }
 
 impl Stream for ReceiverStream {
     type Item = TonicResult<Vec<u8>>;
 
-    #[allow(unused)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+        if self.finished {
+            return Poll::Ready(None);
+        }
+
+        let mut state = self.client.state_lock();
+        if let Some(item) = state.pop_message(cx) {
+            drop(state);
+            self.finished = item.is_err();
+            Poll::Ready(Some(item))
+        } else {
+            Poll::Pending
+        }
     }
 }
