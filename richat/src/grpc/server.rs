@@ -288,8 +288,7 @@ impl GrpcServer {
                     }
                     Ok(None) => break,
                     Err(RecvError::Lagged) => {
-                        let item = Err(Status::data_loss("lagged"));
-                        state.push_message(item);
+                        state.push_error(Status::data_loss("lagged"));
                         break;
                     }
                 };
@@ -359,7 +358,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                 state.filter = Some(filter);
                                 Ok::<(), Status>(())
                             }) {
-                                state.push_message(Err(error));
+                                state.push_error(error);
                                 break;
                             }
                         }
@@ -481,9 +480,10 @@ struct SubscribeClientState {
     commitment: CommitmentLevel,
     head: u64,
     filter: Option<Filter>,
+    messages_error: Option<Status>,
     messages_len_max: usize,
     messages_len_total: usize,
-    messages: LinkedList<TonicResult<Vec<u8>>>,
+    messages: LinkedList<Vec<u8>>,
     messages_waker: Option<Waker>,
     ping_id: i32,
     ping_ts_latest: SystemTime,
@@ -495,6 +495,7 @@ impl SubscribeClientState {
             commitment: CommitmentLevel::default(),
             head: 0,
             filter: None,
+            messages_error: None,
             messages_len_max,
             messages_len_total: 0,
             messages: LinkedList::new(),
@@ -504,21 +505,28 @@ impl SubscribeClientState {
         }
     }
 
-    fn create_ping(id: i32) -> TonicResult<Vec<u8>> {
-        Ok(SubscribeUpdate {
+    fn create_ping(id: i32) -> Vec<u8> {
+        SubscribeUpdate {
             filters: vec![],
             update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong { id })),
             created_at: Some(SystemTime::now().into()),
         }
-        .encode_to_vec())
+        .encode_to_vec()
     }
 
     const fn is_full(&self) -> bool {
         self.messages_len_max > self.messages_len_total
     }
 
-    fn push_message(&mut self, message: TonicResult<Vec<u8>>) {
-        self.messages_len_total += message.as_ref().map(|v| v.len()).unwrap_or_default();
+    fn push_error(&mut self, error: Status) {
+        self.messages_error = Some(error);
+        if let Some(waker) = self.messages_waker.take() {
+            waker.wake();
+        }
+    }
+
+    fn push_message(&mut self, message: Vec<u8>) {
+        self.messages_len_total += message.len();
         self.messages.push_back(message);
         if let Some(waker) = self.messages_waker.take() {
             waker.wake();
@@ -526,9 +534,13 @@ impl SubscribeClientState {
     }
 
     fn pop_message(&mut self, cx: &Context) -> Option<TonicResult<Vec<u8>>> {
+        if let Some(error) = self.messages_error.take() {
+            return Some(Err(error));
+        }
+
         if let Some(message) = self.messages.pop_front() {
-            self.messages_len_total -= message.as_ref().map(|v| v.len()).unwrap_or_default();
-            Some(message)
+            self.messages_len_total -= message.len();
+            Some(Ok(message))
         } else {
             self.messages_waker = Some(cx.waker().clone());
             None
