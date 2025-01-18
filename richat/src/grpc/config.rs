@@ -13,7 +13,7 @@ use {
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpc {
     pub server: ConfigAppGrpcServer,
-    pub workers: ConfigAppsWorkers,
+    pub workers: ConfigAppsGrpcWorkers,
     pub stream: ConfigAppsGrpcStream,
     pub unary: ConfigAppsGrpcUnary,
     pub filter_limits: ConfigFilterLimits,
@@ -22,6 +22,24 @@ pub struct ConfigAppsGrpc {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigAppsGrpcWorkers {
+    #[serde(flatten)]
+    pub threads: ConfigAppsWorkers,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub messages_cached_max: usize,
+}
+
+impl Default for ConfigAppsGrpcWorkers {
+    fn default() -> Self {
+        Self {
+            threads: ConfigAppsWorkers::default(),
+            messages_cached_max: 1_024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpcStream {
     #[serde(deserialize_with = "deserialize_num_str")]
@@ -42,7 +60,7 @@ impl Default for ConfigAppsGrpcStream {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpcUnary {
     pub enabled: bool,

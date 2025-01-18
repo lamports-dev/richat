@@ -77,6 +77,7 @@ apps:
     workers:
       threads: 2
       affinity: 0-1
+      messages_cached_max: 1_024
     stream:
       messages_len_max: 16_777_216
       messages_max_per_tick: 100

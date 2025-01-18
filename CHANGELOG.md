@@ -15,3 +15,26 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 ### Breaking
+
+## 2025-01-??
+
+?
+
+### Features
+
+- richat: impl grpc dragon's mouth ([#42](https://github.com/lamports-dev/richat/pull/42))
+
+## 2025-01-14
+
+- cli-v2.0.0
+- cli-v1.0.0
+- client-v2.0.0
+- client-v1.0.0
+- filter-v2.0.0
+- filter-v1.0.0
+- plugin-agave-v2.0.0
+- plugin-agave-v1.0.0
+- proto-v2.0.0
+- proto-v1.0.0
+- shared-v2.0.0
+- shared-v1.0.0

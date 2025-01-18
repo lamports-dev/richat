@@ -457,7 +457,7 @@ impl Shared {
             }));
         }
 
-        Shared {
+        Self {
             tail: AtomicU64::new(max_messages as u64),
             mask: (max_messages - 1) as u64,
             buffer: buffer.into_boxed_slice(),

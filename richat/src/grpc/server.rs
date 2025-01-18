@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{Messages, ParsedMessage, RecvError},
+        channel::{Messages, ParsedMessage, Receiver, RecvError},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
@@ -26,7 +26,9 @@ use {
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
+        borrow::Cow,
         collections::{LinkedList, VecDeque},
+        fmt,
         future::Future,
         pin::Pin,
         sync::{
@@ -114,10 +116,12 @@ impl GrpcServer {
         // Spawn workers pool
         let workers = config
             .workers
+            .threads
             .run(
                 |index| format!("grpcWrk{index:02}"),
                 move || {
                     grpc_server.worker_messages(
+                        config.workers.messages_cached_max,
                         config.stream.messages_max_per_tick,
                         config.stream.ping_iterval,
                     )
@@ -254,9 +258,15 @@ impl GrpcServer {
 
     fn worker_messages(
         &self,
+        messages_cached_max: usize,
         messages_max_per_tick: usize,
         ping_interval: Duration,
     ) -> anyhow::Result<()> {
+        let messages_cached_max = messages_cached_max.next_power_of_two();
+        let mut messages_cache_processed = MessagesCache::new(messages_cached_max);
+        let mut messages_cache_confirmed = MessagesCache::new(messages_cached_max);
+        let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
+
         let receiver = self.messages.to_receiver();
         loop {
             // get client and state
@@ -281,9 +291,15 @@ impl GrpcServer {
                 continue;
             }
 
+            let messages_cache = match state.commitment {
+                CommitmentLevel::Processed => &mut messages_cache_processed,
+                CommitmentLevel::Confirmed => &mut messages_cache_confirmed,
+                CommitmentLevel::Finalized => &mut messages_cache_finalized,
+            };
             let mut count = 0;
             while !state.is_full() && count < messages_max_per_tick {
-                let message = match receiver.try_recv(state.commitment, state.head) {
+                let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
+                {
                     Ok(Some(message)) => {
                         count += 1;
                         state.head += 1;
@@ -296,7 +312,7 @@ impl GrpcServer {
                     }
                 };
 
-                let message_ref: MessageRef = (&message).into();
+                let message_ref: MessageRef = message.as_ref().into();
                 if let Some(filter) = state.filter.as_ref() {
                     let messages = filter
                         .get_updates_ref(message_ref, state.commitment)
@@ -594,4 +610,78 @@ impl Stream for ReceiverStream {
             Poll::Pending
         }
     }
+}
+
+struct MessagesCache {
+    head: u64,
+    mask: u64,
+    buffer: Box<[MessagesCacheItem]>,
+}
+
+impl fmt::Debug for MessagesCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessagesCache")
+            .field("head", &self.head)
+            .field("mask", &self.mask)
+            .finish()
+    }
+}
+
+impl MessagesCache {
+    fn new(max_messages: usize) -> Self {
+        let buffer = (0..max_messages)
+            .map(|_| MessagesCacheItem {
+                pos: u64::MAX,
+                msg: None,
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            head: 0,
+            mask: (max_messages - 1) as u64,
+            buffer: buffer.into_boxed_slice(),
+        }
+    }
+
+    #[inline]
+    const fn get_idx(&self, pos: u64) -> usize {
+        (pos & self.mask) as usize
+    }
+
+    fn try_recv(
+        &mut self,
+        receiver: &Receiver,
+        commitment: CommitmentLevel,
+        head: u64,
+    ) -> Result<Option<Cow<'_, ParsedMessage>>, RecvError> {
+        if head > self.head {
+            self.head = head;
+        }
+        let inrange = head >= self.head - self.mask;
+
+        // return if item cached
+        let idx = self.get_idx(head);
+        if inrange && self.buffer[idx].pos == head {
+            return Ok(self.buffer[idx].msg.as_ref().map(Cow::Borrowed));
+        }
+
+        // try to get from the channel
+        let Some(item) = receiver.try_recv(commitment, head)? else {
+            return Ok(None);
+        };
+
+        // save item if in range
+        if inrange {
+            self.buffer[idx] = MessagesCacheItem {
+                pos: head,
+                msg: Some(item.clone()),
+            };
+        }
+        Ok(Some(Cow::Owned(item)))
+    }
+}
+
+struct MessagesCacheItem {
+    pos: u64,
+    msg: Option<ParsedMessage>,
 }
