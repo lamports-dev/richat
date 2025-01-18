@@ -209,8 +209,8 @@ impl Sender {
         for message in [Some(message), message_block].into_iter().flatten() {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
-                self.confirmed.push(slot, message.clone(), None);
-                self.finalized.push(slot, message.clone(), None);
+                self.confirmed.push(slot, message.clone());
+                self.finalized.push(slot, message.clone());
 
                 if let Some(sender_shared) = match msg.commitment() {
                     CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
@@ -219,18 +219,29 @@ impl Sender {
                 } {
                     if let Some(slot_info) = self.slots.get(&slot) {
                         for message in slot_info.get_messages() {
-                            sender_shared.push(slot, message, None);
+                            sender_shared.push(slot, message);
                         }
-                        sender_shared.try_clear(self.bytes_max, self.slots_max, None);
+                        sender_shared.try_clear(self.bytes_max, self.slots_max);
+                    }
+                }
+
+                // remove slot info
+                if msg.commitment() == CommitmentLevelProto::Finalized {
+                    loop {
+                        match self.slots.keys().next().copied() {
+                            Some(slot_min) if slot_min <= slot => {
+                                self.slots.remove(&slot_min);
+                            }
+                            _ => break,
+                        }
                     }
                 }
             }
 
             // push to processed
-            self.processed.push(slot, message, Some(&mut self.slots));
+            self.processed.push(slot, message);
         }
-        self.processed
-            .try_clear(self.bytes_max, self.slots_max, Some(&mut self.slots));
+        self.processed.try_clear(self.bytes_max, self.slots_max);
 
         Ok(())
     }
@@ -256,12 +267,7 @@ impl SenderShared {
         }
     }
 
-    fn push(
-        &mut self,
-        slot: Slot,
-        message: ParsedMessage,
-        slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
-    ) {
+    fn push(&mut self, slot: Slot, message: ParsedMessage) {
         // bump current tail
         let pos = self.tail;
         self.tail = self.tail.wrapping_add(1);
@@ -275,9 +281,6 @@ impl SenderShared {
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
             if self.slots.remove(&item.slot).is_some() {
-                if let Some(slots) = slots {
-                    slots.remove(&item.slot);
-                }
                 self.shared.slots_lock().remove(&item.slot);
             }
         }
@@ -300,12 +303,7 @@ impl SenderShared {
         });
     }
 
-    fn try_clear(
-        &mut self,
-        bytes_max: usize,
-        slots_max: usize,
-        mut slots: Option<&mut BTreeMap<Slot, SlotInfo>>,
-    ) {
+    fn try_clear(&mut self, bytes_max: usize, slots_max: usize) {
         // drop messages by extra bytes
         while self.bytes_total > bytes_max {
             assert!(
@@ -322,9 +320,6 @@ impl SenderShared {
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
             if self.slots.remove(&item.slot).is_some() {
-                if let Some(slots) = slots.as_mut() {
-                    slots.remove(&item.slot);
-                }
                 self.shared.slots_lock().remove(&item.slot);
             }
         }
@@ -358,9 +353,6 @@ impl SenderShared {
                 self.head = self.head.wrapping_add(1);
                 self.bytes_total -= message.size();
                 if self.slots.remove(&item.slot).is_some() {
-                    if let Some(slots) = slots.as_mut() {
-                        slots.remove(&item.slot);
-                    }
                     self.shared.slots_lock().remove(&item.slot);
                 }
             }
