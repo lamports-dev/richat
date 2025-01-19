@@ -119,7 +119,7 @@ impl GrpcServer {
             .workers
             .threads
             .run(
-                |index| format!("grpcWrk{index:02}"),
+                |index| format!("richatGrpcWrk{index:02}"),
                 {
                     let shutdown = shutdown.clone();
                     move |index| {
