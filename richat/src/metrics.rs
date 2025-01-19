@@ -85,7 +85,7 @@ impl BlockMessageFailedReason {
 pub fn block_message_failed_inc(slot: Slot, reasons: &[BlockMessageFailedReason]) {
     if !reasons.is_empty() {
         error!(
-            "full block failed ({slot}): {}",
+            "failed to build block ({slot}): {}",
             reasons
                 .iter()
                 .map(|r| r.as_str())
