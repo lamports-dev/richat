@@ -676,3 +676,92 @@ struct Item {
     slot: Slot,
     data: Option<ParsedMessage>,
 }
+
+pub mod binary {
+    use std::{
+        fmt,
+        sync::{Arc, Mutex, MutexGuard},
+    };
+
+    pub fn channel(max_messages: usize) -> (Sender, Receiver) {
+        let shared = Arc::new(Shared::new(max_messages));
+        (
+            Sender {
+                shared: Arc::clone(&shared),
+                tail: 0,
+            },
+            Receiver { shared, head: 0 },
+        )
+    }
+
+    #[derive(Debug)]
+    pub struct Sender {
+        shared: Arc<Shared>,
+        tail: u64,
+    }
+
+    impl Sender {
+        pub fn send(&mut self, item: Vec<u8>) -> Option<Vec<u8>> {
+            let mut locked = self.shared.get_locked(self.tail);
+            if locked.is_some() {
+                Some(item)
+            } else {
+                *locked = Some(item);
+                self.tail += 1;
+                None
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Receiver {
+        shared: Arc<Shared>,
+        head: u64,
+    }
+
+    impl Receiver {
+        pub fn recv(&mut self) -> Option<Vec<u8>> {
+            let item = self.shared.get_locked(self.head).take();
+            if item.is_some() {
+                self.head += 1;
+            }
+            item
+        }
+    }
+
+    struct Shared {
+        mask: u64,
+        buffer: Box<[Mutex<Option<Vec<u8>>>]>,
+    }
+
+    impl fmt::Debug for Shared {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("Shared").field("mask", &self.mask).finish()
+        }
+    }
+
+    impl Shared {
+        fn new(max_messages: usize) -> Self {
+            Self {
+                mask: (max_messages - 1) as u64,
+                buffer: (0..max_messages)
+                    .map(|_| Mutex::new(None))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            }
+        }
+
+        #[inline]
+        const fn get_idx(&self, pos: u64) -> usize {
+            (pos & self.mask) as usize
+        }
+
+        #[inline]
+        fn get_locked(&self, pos: u64) -> MutexGuard<'_, Option<Vec<u8>>> {
+            match self.buffer[self.get_idx(pos)].lock() {
+                Ok(lock) => lock,
+                Err(p_err) => p_err.into_inner(),
+            }
+        }
+    }
+}

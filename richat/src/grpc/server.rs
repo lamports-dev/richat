@@ -227,8 +227,8 @@ impl GrpcServer {
                 "failed to get head position for block meta worker"
             ))?;
 
-        let mut counter = 0;
         const COUNTER_LIMIT: i32 = 10_000;
+        let mut counter = 0;
         loop {
             counter += 1;
             if counter > COUNTER_LIMIT {
