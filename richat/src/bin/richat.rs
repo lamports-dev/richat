@@ -46,11 +46,11 @@ fn main() -> anyhow::Result<()> {
     let (mut msg_tx, mut msg_rx) =
         channel::binary::channel(config.channel.config.parser_channel_size);
     let source_jh = thread::Builder::new()
-        .name("richatChan".to_owned())
+        .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
             || {
-                let runtime = config.channel.tokio.build_runtime("richatChan")?;
+                let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let mut stream = channel::Messages::subscribe_source(config.channel.source)
                         .await
