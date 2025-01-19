@@ -293,6 +293,7 @@ impl GrpcServer {
                 continue;
             };
             let mut state = client.state_lock();
+            // drop client if only 1 instance left
             if state.ref_count == 1 {
                 continue;
             }
@@ -310,6 +311,8 @@ impl GrpcServer {
 
             // filter messages
             if state.filter.is_none() {
+                drop(state);
+                self.push_client(client);
                 continue;
             }
 
@@ -318,6 +321,7 @@ impl GrpcServer {
                 CommitmentLevel::Confirmed => &mut messages_cache_confirmed,
                 CommitmentLevel::Finalized => &mut messages_cache_finalized,
             };
+            let mut errored = false;
             let mut count = 0;
             while !state.is_full() && count < messages_max_per_tick {
                 let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
@@ -330,6 +334,7 @@ impl GrpcServer {
                     Ok(None) => break,
                     Err(RecvError::Lagged) => {
                         state.push_error(Status::data_loss("lagged"));
+                        errored = true;
                         break;
                     }
                 };
@@ -346,6 +351,10 @@ impl GrpcServer {
                         state.push_message(message);
                     }
                 }
+            }
+            drop(state);
+            if !errored {
+                self.push_client(client);
             }
         }
     }
@@ -590,7 +599,7 @@ impl SubscribeClientState {
     }
 
     const fn is_full(&self) -> bool {
-        self.messages_len_max > self.messages_len_total
+        self.messages_len_total > self.messages_len_max
     }
 
     fn push_error(&mut self, error: Status) {
