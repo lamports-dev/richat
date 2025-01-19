@@ -55,6 +55,7 @@ pub mod gen {
 
 #[derive(Debug, Clone)]
 pub struct GrpcServer {
+    shutdown: Shutdown,
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
     filter_limits: Arc<ConfigFilterLimits>,
@@ -97,6 +98,7 @@ impl GrpcServer {
 
         // gRPC service
         let grpc_server = Self {
+            shutdown: shutdown.clone(),
             messages,
             block_meta,
             filter_limits: Arc::new(config.filter_limits),
@@ -282,6 +284,7 @@ impl GrpcServer {
             if counter > COUNTER_LIMIT {
                 counter = 0;
                 if shutdown.is_set() {
+                    while self.pop_client().is_some() {}
                     info!("gRPC worker#{index:02} shutdown");
                     return Ok(());
                 }
@@ -376,61 +379,67 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
         tokio::spawn({
             let mut stream = request.into_inner();
+            let shutdown = self.shutdown.clone();
             let limits = Arc::clone(&self.filter_limits);
             let client = client.clone();
             let messages = self.messages.clone();
             async move {
+                tokio::pin!(shutdown);
                 loop {
-                    match stream.message().await {
-                        Ok(Some(message)) => {
-                            if let Some(SubscribeRequestPing { id }) = message.ping {
-                                let message = SubscribeClientState::create_ping(id);
+                    tokio::select! {
+                        message = stream.message() => match message {
+                            Ok(Some(message)) => {
+                                if let Some(SubscribeRequestPing { id }) = message.ping {
+                                    let message = SubscribeClientState::create_ping(id);
+                                    let mut state = client.state_lock();
+                                    state.push_message(message);
+                                    continue;
+                                }
+
+                                let subscribe_from_slot = message.from_slot;
+                                let new_filter = ConfigFilter::try_from(message)
+                                    .map_err(|error| {
+                                        Status::invalid_argument(format!(
+                                            "failed to create filter: {error:?}"
+                                        ))
+                                    })
+                                    .and_then(|config| {
+                                        limits
+                                            .check_filter(&config)
+                                            .map(|()| Filter::new(&config))
+                                            .map_err(|error| {
+                                                Status::invalid_argument(format!(
+                                                    "failed to check filter: {error:?}"
+                                                ))
+                                            })
+                                    });
+
                                 let mut state = client.state_lock();
-                                state.push_message(message);
-                                continue;
+                                if let Err(error) = new_filter.map(|filter| {
+                                    state.commitment = filter.commitment().into();
+                                    state.head = messages
+                                        .get_current_tail(state.commitment, subscribe_from_slot)
+                                        .ok_or(Status::invalid_argument(format!(
+                                            "failed to get slot {subscribe_from_slot:?}"
+                                        )))?;
+                                    state.filter = Some(filter);
+                                    Ok::<(), Status>(())
+                                }) {
+                                    warn!(id, %error, "failed to handle request");
+                                    state.push_error(error);
+                                } else {
+                                    info!(id, "set new filter");
+                                    continue;
+                                }
                             }
-
-                            let subscribe_from_slot = message.from_slot;
-                            let new_filter = ConfigFilter::try_from(message)
-                                .map_err(|error| {
-                                    Status::invalid_argument(format!(
-                                        "failed to create filter: {error:?}"
-                                    ))
-                                })
-                                .and_then(|config| {
-                                    limits
-                                        .check_filter(&config)
-                                        .map(|()| Filter::new(&config))
-                                        .map_err(|error| {
-                                            Status::invalid_argument(format!(
-                                                "failed to check filter: {error:?}"
-                                            ))
-                                        })
-                                });
-
+                            Ok(None) => info!(id, "tx stream finished"),
+                            Err(error) => warn!(id, %error, "error to receive new filter"),
+                        },
+                        () = &mut shutdown => {
                             let mut state = client.state_lock();
-                            if let Err(error) = new_filter.map(|filter| {
-                                state.commitment = filter.commitment().into();
-                                state.head = messages
-                                    .get_current_tail(state.commitment, subscribe_from_slot)
-                                    .ok_or(Status::invalid_argument(format!(
-                                        "failed to get slot {subscribe_from_slot:?}"
-                                    )))?;
-                                state.filter = Some(filter);
-                                Ok::<(), Status>(())
-                            }) {
-                                warn!(id, %error, "failed to handle request");
-                                state.push_error(error);
-                            } else {
-                                info!(id, "set new filter");
-                                continue;
-                            }
+                            state.push_error(Status::internal("shutdown"));
                         }
-                        Ok(None) => info!(id, "tx stream finished"),
-                        Err(error) => {
-                            warn!(id, %error, "error to receive new filter");
-                        }
-                    }
+                    };
                     break;
                 }
                 info!(id, "drop client tx stream");
