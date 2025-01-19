@@ -43,7 +43,7 @@ use {
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
         Streaming,
     },
-    tracing::{debug, error, info},
+    tracing::{error, info, warn},
 };
 
 pub mod gen {
@@ -410,15 +410,16 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                 state.filter = Some(filter);
                                 Ok::<(), Status>(())
                             }) {
-                                info!(id, %error, "failed to handle request");
+                                warn!(id, %error, "failed to handle request");
                                 state.push_error(error);
                             } else {
+                                info!(id, "set new filter");
                                 continue;
                             }
                         }
-                        Ok(None) => debug!(id, "incoming stream finished"),
+                        Ok(None) => info!(id, "tx stream finished"),
                         Err(error) => {
-                            error!(id, %error, "error to receive new filter");
+                            warn!(id, %error, "error to receive new filter");
                         }
                     }
                     break;
