@@ -78,13 +78,14 @@ impl GrpcServer {
             let (meta, task_jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
 
             let jh = ConfigAppsWorkers::run_once(
+                0,
                 "grpcWrkBM".to_owned(),
                 vec![config.unary.affinity],
                 {
                     let messages = messages.clone();
                     let meta = meta.clone();
                     let shutdown = shutdown.clone();
-                    move || Self::worker_block_meta(messages, meta, shutdown)
+                    move |_index| Self::worker_block_meta(messages, meta, shutdown)
                 },
                 shutdown.clone(),
             )?;
@@ -119,12 +120,17 @@ impl GrpcServer {
             .threads
             .run(
                 |index| format!("grpcWrk{index:02}"),
-                move || {
-                    grpc_server.worker_messages(
-                        config.workers.messages_cached_max,
-                        config.stream.messages_max_per_tick,
-                        config.stream.ping_iterval,
-                    )
+                {
+                    let shutdown = shutdown.clone();
+                    move |index| {
+                        grpc_server.worker_messages(
+                            index,
+                            config.workers.messages_cached_max,
+                            config.stream.messages_max_per_tick,
+                            config.stream.ping_iterval,
+                            shutdown,
+                        )
+                    }
                 },
                 shutdown.clone(),
             )
@@ -149,7 +155,7 @@ impl GrpcServer {
             {
                 error!("server error: {error:?}")
             } else {
-                info!("shutdown")
+                info!("gRPC server shutdown")
             }
         })
         .map_err(anyhow::Error::new)
@@ -234,7 +240,8 @@ impl GrpcServer {
             if counter > COUNTER_LIMIT {
                 counter = 0;
                 if shutdown.is_set() {
-                    break;
+                    info!("gRPC block meta thread shutdown");
+                    return Ok(());
                 }
             }
 
@@ -252,15 +259,15 @@ impl GrpcServer {
                 block_meta.push(message);
             }
         }
-
-        Ok(())
     }
 
     fn worker_messages(
         &self,
+        index: usize,
         messages_cached_max: usize,
         messages_max_per_tick: usize,
         ping_interval: Duration,
+        shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let messages_cached_max = messages_cached_max.next_power_of_two();
         let mut messages_cache_processed = MessagesCache::new(messages_cached_max);
@@ -268,9 +275,21 @@ impl GrpcServer {
         let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
 
         let receiver = self.messages.to_receiver();
+        const COUNTER_LIMIT: i32 = 10_000;
+        let mut counter = 0;
         loop {
+            counter += 1;
+            if counter > COUNTER_LIMIT {
+                counter = 0;
+                if shutdown.is_set() {
+                    info!("gRPC worker#{index:02} shutdown");
+                    return Ok(());
+                }
+            }
+
             // get client and state
             let Some(client) = self.pop_client() else {
+                counter = COUNTER_LIMIT;
                 continue;
             };
             let mut state = client.state_lock();

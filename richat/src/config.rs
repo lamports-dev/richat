@@ -138,7 +138,7 @@ impl ConfigAppsWorkers {
     pub async fn run(
         self,
         get_name: impl Fn(usize) -> String,
-        spawn_fn: impl FnOnce() -> anyhow::Result<()> + Clone + Send + 'static,
+        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.threads > 0, "number of threads can be zero");
@@ -152,6 +152,7 @@ impl ConfigAppsWorkers {
             };
 
             jhs.push(Self::run_once(
+                index,
                 get_name(index),
                 cpus,
                 spawn_fn.clone(),
@@ -163,14 +164,15 @@ impl ConfigAppsWorkers {
     }
 
     pub fn run_once(
+        index: usize,
         name: String,
         cpus: Vec<usize>,
-        spawn_fn: impl FnOnce() -> anyhow::Result<()> + Clone + Send + 'static,
+        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
         let th = Builder::new().name(name).spawn(move || {
             affinity::set_thread_affinity(cpus).expect("failed to set affinity");
-            spawn_fn()
+            spawn_fn(index)
         })?;
 
         let jh = tokio::spawn(async move {

@@ -163,6 +163,7 @@ fn main() -> anyhow::Result<()> {
                 if jh.is_finished() {
                     jh.join()
                         .unwrap_or_else(|_| panic!("{name} thread join failed"))?;
+                    info!("thread {name} finished");
                 } else {
                     *tjh = Some(jh);
                 }
