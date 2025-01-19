@@ -293,6 +293,9 @@ impl GrpcServer {
                 continue;
             };
             let mut state = client.state_lock();
+            if state.ref_count == 1 {
+                continue;
+            }
 
             // send ping
             let ts = SystemTime::now();
@@ -407,8 +410,10 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                 state.filter = Some(filter);
                                 Ok::<(), Status>(())
                             }) {
+                                info!(id, %error, "failed to handle request");
                                 state.push_error(error);
-                                break;
+                            } else {
+                                continue;
                             }
                         }
                         Ok(None) => debug!(id, "incoming stream finished"),
@@ -416,7 +421,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
                             error!(id, %error, "error to receive new filter");
                         }
                     }
+                    break;
                 }
+                info!(id, "drop client tx stream");
             }
         });
 
@@ -495,23 +502,31 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SubscribeClient {
-    id: u64,
     state: Arc<Mutex<SubscribeClientState>>,
+}
+
+impl Clone for SubscribeClient {
+    fn clone(&self) -> Self {
+        self.state_lock().ref_count += 1;
+        Self {
+            state: Arc::clone(&self.state),
+        }
+    }
 }
 
 impl Drop for SubscribeClient {
     fn drop(&mut self) {
-        info!(id = self.id, "drop client rx stream");
+        self.state_lock().ref_count -= 1;
     }
 }
 
 impl SubscribeClient {
     fn new(id: u64, messages_len_max: usize) -> Self {
+        let state = SubscribeClientState::new(id, messages_len_max);
         Self {
-            id,
-            state: Arc::new(Mutex::new(SubscribeClientState::new(messages_len_max))),
+            state: Arc::new(Mutex::new(state)),
         }
     }
 
@@ -526,6 +541,8 @@ impl SubscribeClient {
 
 #[derive(Debug)]
 struct SubscribeClientState {
+    id: u64,
+    ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
     head: u64,
     filter: Option<Filter>,
@@ -538,9 +555,17 @@ struct SubscribeClientState {
     ping_ts_latest: SystemTime,
 }
 
+impl Drop for SubscribeClientState {
+    fn drop(&mut self) {
+        info!(id = self.id, "drop client state");
+    }
+}
+
 impl SubscribeClientState {
-    fn new(messages_len_max: usize) -> Self {
+    fn new(id: u64, messages_len_max: usize) -> Self {
         Self {
+            id,
+            ref_count: 1,
             commitment: CommitmentLevel::default(),
             head: 0,
             filter: None,
