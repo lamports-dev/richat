@@ -356,7 +356,7 @@ impl ArgsAppStreamGrpc {
         info!("connected to {endpoint} over gRPC");
 
         let stream = client
-            .subscribe_richat_once(GrpcSubscribeRequest {
+            .subscribe_richat(GrpcSubscribeRequest {
                 replay_from_slot,
                 filter: Some(filter),
             })

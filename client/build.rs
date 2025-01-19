@@ -22,7 +22,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         .method(
             Method::builder()
                 .name("subscribe_richat")
-                .route_name("SubscribeRichat")
+                .route_name("Subscribe")
                 .input_type("richat_proto::richat::GrpcSubscribeRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc::SubscribeCodec")

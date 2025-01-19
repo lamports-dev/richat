@@ -425,31 +425,16 @@ impl<F: Interceptor> GrpcClient<F> {
     // Subscribe Richat
     pub async fn subscribe_richat(
         &mut self,
-    ) -> Result<
-        (
-            impl Sink<GrpcSubscribeRequest, Error = mpsc::SendError>,
-            GrpcClientStream,
-        ),
-        Status,
-    > {
-        let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
-        let response: Response<Streaming<Vec<u8>>> =
-            self.geyser.subscribe_richat(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
-        Ok((subscribe_tx, stream))
-    }
-
-    pub async fn subscribe_richat_once(
-        &mut self,
         request: GrpcSubscribeRequest,
     ) -> Result<GrpcClientStream, Status> {
-        let (mut tx, rx) = self.subscribe_richat().await?;
+        let (mut tx, rx) = mpsc::unbounded();
         tx.send(request)
             .await
             .expect("failed to send to unbounded channel");
-        Ok(rx)
+
+        let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe_richat(rx).await?;
+        let stream = response.into_inner();
+        Ok(GrpcClientStream { stream })
     }
 
     // RPC calls

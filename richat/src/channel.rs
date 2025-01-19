@@ -185,7 +185,7 @@ impl Messages {
             ConfigChannelSource::Grpc(config) => config
                 .connect()
                 .await?
-                .subscribe_richat_once(GrpcSubscribeRequest {
+                .subscribe_richat(GrpcSubscribeRequest {
                     replay_from_slot: None,
                     filter: None,
                 })
