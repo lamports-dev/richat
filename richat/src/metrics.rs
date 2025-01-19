@@ -83,21 +83,23 @@ impl BlockMessageFailedReason {
 }
 
 pub fn block_message_failed_inc(slot: Slot, reasons: &[BlockMessageFailedReason]) {
-    error!(
-        "full block failed ({slot}): {}",
-        reasons
-            .iter()
-            .map(|r| r.as_str())
-            .collect::<Vec<_>>()
-            .join(",")
-    );
+    if !reasons.is_empty() {
+        error!(
+            "full block failed ({slot}): {}",
+            reasons
+                .iter()
+                .map(|r| r.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
 
-    for reason in reasons {
+        for reason in reasons {
+            BLOCK_MESSAGE_FAILED
+                .with_label_values(&[reason.as_str()])
+                .inc();
+        }
         BLOCK_MESSAGE_FAILED
-            .with_label_values(&[reason.as_str()])
-            .inc();
+            .with_label_values(&["Total"])
+            .add(reasons.len() as i64);
     }
-    BLOCK_MESSAGE_FAILED
-        .with_label_values(&["Total"])
-        .add(reasons.len() as i64);
 }
