@@ -60,8 +60,8 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .name("subscribe")
                 .route_name("Subscribe")
                 .input_type("richat_proto::geyser::SubscribeRequest")
-                .output_type("richat_proto::geyser::SubscribeUpdate")
-                .codec_path("tonic::codec::ProstCodec")
+                .output_type("Vec<u8>")
+                .codec_path("richat_shared::transports::grpc::SubscribeCodec")
                 .client_streaming()
                 .server_streaming()
                 .build(),

@@ -53,10 +53,11 @@ prost_011 = { package = "prost", version = "0.11.9" }
 protobuf-src = "1.1.0"
 quinn = "0.11.6"
 rcgen = "0.13.1"
-richat-client = { path = "client", version = "1.0.0" }
+richat-client = { path = "client", version = "1.1.0" }
+richat-filter = { path = "filter", version = "1.1.0" }
 richat-plugin-agave = { path = "plugin-agave", version = "1.0.0" }
 richat-proto = { path = "proto", version = "1.0.0" }
-richat-shared = { path = "shared", version = "1.0.0" }
+richat-shared = { path = "shared", version = "1.1.0" }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
@@ -67,6 +68,7 @@ signal-hook = "0.3.17"
 smallvec = "1.13.2"
 solana-account-decoder = "~2.0.15"
 solana-logger = "~2.0.15"
+solana-nohash-hasher = "0.2.1"
 solana-sdk = "~2.0.15"
 solana-storage-proto = "~2.0.15"
 solana-transaction-status = "~2.0.15"

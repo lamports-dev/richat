@@ -2,6 +2,7 @@ use {
     crate::grpc::config::ConfigAppsGrpc,
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
+    richat_filter::message::MessageParserEncoding,
     richat_shared::{
         config::{deserialize_num_str, parse_taskset, ConfigPrometheus, ConfigTokio},
         shutdown::Shutdown,
@@ -10,8 +11,7 @@ use {
         de::{self, Deserializer},
         Deserialize,
     },
-    solana_sdk::pubkey::Pubkey,
-    std::{collections::HashSet, fs, path::Path, thread::Builder},
+    std::{fs, path::Path, thread::Builder},
     tokio::time::{sleep, Duration},
 };
 
@@ -78,6 +78,10 @@ pub struct ConfigChannelInner {
     pub max_slots: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
+    pub parser: MessageParserEncoding,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub parser_channel_size: usize,
+    pub parser_affinity: usize,
 }
 
 impl Default for ConfigChannelInner {
@@ -86,6 +90,9 @@ impl Default for ConfigChannelInner {
             max_messages: 2_097_152, // assume 20k messages per slot, aligned to power of 2
             max_slots: 100,
             max_bytes: 10 * 1024 * 1024 * 1024, // 10GiB, assume 100MiB per slot
+            parser: MessageParserEncoding::Prost,
+            parser_channel_size: 65_536,
+            parser_affinity: 0,
         }
     }
 }
@@ -131,46 +138,51 @@ impl ConfigAppsWorkers {
     pub async fn run(
         self,
         get_name: impl Fn(usize) -> String,
-        spawn_fn: impl Fn(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.threads > 0, "number of threads can be zero");
 
         let mut jhs = Vec::with_capacity(self.threads);
         for index in 0..self.threads {
-            let cpus = self.affinity.clone();
-            let spawn_fn = spawn_fn.clone();
-            let shutdown = shutdown.clone();
-            let th = Builder::new().name(get_name(index)).spawn(move || {
-                affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
-                spawn_fn(index)
-            })?;
+            let cpus = if self.threads == self.affinity.len() {
+                vec![self.affinity[index]]
+            } else {
+                self.affinity.clone()
+            };
 
-            let jh = tokio::spawn(async move {
-                while !th.is_finished() {
-                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
-                    sleep(Duration::from_millis(ms)).await;
-                }
-                th.join().expect("failed to join thread")
-            });
-
-            jhs.push(jh.map_err(anyhow::Error::new).and_then(ready));
+            jhs.push(Self::run_once(
+                index,
+                get_name(index),
+                cpus,
+                spawn_fn.clone(),
+                shutdown.clone(),
+            )?);
         }
 
         try_join_all(jhs).await.map(|_| ())
     }
-}
 
-pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Vec::<&str>::deserialize(deserializer)?
-        .into_iter()
-        .map(|value| {
-            value
-                .parse()
-                .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
-        })
-        .collect::<Result<_, _>>()
+    pub fn run_once(
+        index: usize,
+        name: String,
+        cpus: Vec<usize>,
+        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
+        let th = Builder::new().name(name).spawn(move || {
+            affinity::set_thread_affinity(cpus).expect("failed to set affinity");
+            spawn_fn(index)
+        })?;
+
+        let jh = tokio::spawn(async move {
+            while !th.is_finished() {
+                let ms = if shutdown.is_set() { 10 } else { 2_000 };
+                sleep(Duration::from_millis(ms)).await;
+            }
+            th.join().expect("failed to join thread")
+        });
+
+        Ok(jh.map_err(anyhow::Error::new).and_then(ready))
+    }
 }

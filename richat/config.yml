@@ -17,12 +17,14 @@ channel:
     # max_backlog: null
     # insecure: false
     # cert: null
+    # x_token: null
     # ---
     transport: tcp
     endpoint: 127.0.0.1:10101
     keepalive: null
     nodelay: true
     recv_buffer_size: null
+    x_token: null
     # ---
     # transport: grpc
     # endpoint: http://127.0.0.1:10102
@@ -47,10 +49,12 @@ channel:
     max_messages: 2_097_152
     max_slots: 100
     max_bytes: 10_737_418_240
+    parser: prost
+    parser_affinity: 2
 apps:
   tokio:
-    worker_threads: 4
-    affinity: 0-3
+    worker_threads: 2
+    affinity: 3-4
   grpc:
     server:
       endpoint: 127.0.0.1:10102
@@ -73,14 +77,19 @@ apps:
       server_initial_connection_window_size:
       server_initial_stream_window_size:
     workers:
-      threads: 1
-      affinity:
-    worker_ping_affinity:
-    stream_channel_capacity: 100_000
+      threads: 2
+      affinity: 5-6
+      messages_cached_max: 1_024
+    stream:
+      messages_len_max: 16_777_216
+      messages_max_per_tick: 100
+      ping_iterval: 15s
     unary:
       enabled: true
+      affinity: 7
       requests_queue_size: 100
     filters:
+      name_max: 128
       accounts:
         max: 1
         any: false

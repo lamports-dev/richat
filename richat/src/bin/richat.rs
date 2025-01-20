@@ -8,7 +8,10 @@ use {
     richat::{channel, config::Config, grpc::server::GrpcServer},
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
-    std::{thread::sleep, time::Duration},
+    std::{
+        thread::{self, sleep},
+        time::Duration,
+    },
     tracing::{info, warn},
 };
 
@@ -29,6 +32,7 @@ fn main() -> anyhow::Result<()> {
     let config = Config::load_from_file(&args.config)
         .with_context(|| format!("failed to load config from {}", args.config))?;
     if args.check {
+        info!("Config is OK!");
         return Ok(());
     }
 
@@ -39,16 +43,16 @@ fn main() -> anyhow::Result<()> {
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages = channel::Messages::new(config.channel.config);
-    let mut chan_jh = std::thread::Builder::new()
-        .name("richatChan".to_owned())
+    let (mut msg_tx, mut msg_rx) =
+        channel::binary::channel(config.channel.config.parser_channel_size);
+    let source_jh = thread::Builder::new()
+        .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let mut messages = messages.clone().to_sender();
             || {
-                let runtime = config.channel.tokio.build_runtime("richatChan")?;
+                let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let mut stream = channel::source::subscribe(config.channel.source)
+                    let mut stream = channel::Messages::subscribe_source(config.channel.source)
                         .await
                         .context("failed to subscribe")?;
                     tokio::pin!(shutdown);
@@ -56,7 +60,18 @@ fn main() -> anyhow::Result<()> {
                     loop {
                         tokio::select! {
                             message = stream.next() => match message {
-                                Some(Ok(message)) => messages.push(message)?,
+                                Some(Ok(message)) => {
+                                    let mut maybe_message = Some(message);
+                                    loop {
+                                        let Some(message) = maybe_message.take() else {
+                                            break;
+                                        };
+                                        maybe_message = msg_tx.send(message);
+                                        if maybe_message.is_some() && shutdown.is_set() {
+                                            break;
+                                        }
+                                    }
+                                },
                                 Some(Err(error)) => return Err(anyhow::Error::new(error)),
                                 None => anyhow::bail!("source stream finished"),
                             },
@@ -65,42 +80,70 @@ fn main() -> anyhow::Result<()> {
                     }
                 })
             }
-        })
-        .map(Some)?;
+        })?;
 
-    // Create runtime for incoming connections
-    let mut app_jh = std::thread::Builder::new()
-        .name("richatApp".to_owned())
+    // Create parser channel
+    let messages = channel::Messages::new(config.channel.config);
+    let parser_jh = thread::Builder::new()
+        .name("richatParser".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
+            let mut messages = messages.to_sender();
             move || {
-                let runtime = config.apps.tokio.build_runtime("richatApp")?;
-                runtime.block_on(async move {
-                    let grpc_fut = if let Some(config) = config.apps.grpc {
-                        GrpcServer::spawn(config, messages, shutdown.clone())?.boxed()
-                    } else {
-                        pending().boxed()
-                    };
+                const COUNTER_LIMIT: i32 = 10_000;
+                let mut counter = 0;
+                loop {
+                    counter += 1;
+                    if counter > COUNTER_LIMIT {
+                        counter = 0;
+                        if shutdown.is_set() {
+                            break;
+                        }
+                    }
 
-                    let prometheus_fut = if let Some(config) = config.prometheus {
-                        richat::metrics::spawn_server(config, shutdown)
-                            .await?
-                            .map_err(anyhow::Error::from)
-                            .boxed()
-                    } else {
-                        pending().boxed()
-                    };
-
-                    try_join_all(vec![grpc_fut, prometheus_fut])
-                        .await
-                        .map(|_| ())
-                })
+                    if let Some(message) = msg_rx.recv() {
+                        messages.push(message)?;
+                    }
+                }
+                Ok::<(), anyhow::Error>(())
             }
-        })
-        .map(Some)?;
+        })?;
+
+    // Create runtime for incoming connections
+    let apps_jh = thread::Builder::new().name("richatApp".to_owned()).spawn({
+        let shutdown = shutdown.clone();
+        move || {
+            let runtime = config.apps.tokio.build_runtime("richatApp")?;
+            runtime.block_on(async move {
+                let grpc_fut = if let Some(config) = config.apps.grpc {
+                    GrpcServer::spawn(config, messages, shutdown.clone())?.boxed()
+                } else {
+                    pending().boxed()
+                };
+
+                let prometheus_fut = if let Some(config) = config.prometheus {
+                    richat::metrics::spawn_server(config, shutdown)
+                        .await?
+                        .map_err(anyhow::Error::from)
+                        .boxed()
+                } else {
+                    pending().boxed()
+                };
+
+                try_join_all(vec![grpc_fut, prometheus_fut])
+                    .await
+                    .map(|_| ())
+            })
+        }
+    })?;
 
     let mut signals = Signals::new([SIGINT])?;
-    'outer: while chan_jh.is_some() || app_jh.is_some() {
+    let mut threads = [
+        ("source", Some(source_jh)),
+        ("parser", Some(parser_jh)),
+        ("apps", Some(apps_jh)),
+    ];
+    'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {
                 SIGINT => {
@@ -115,23 +158,19 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        if let Some(jh) = chan_jh.take() {
-            if jh.is_finished() {
-                jh.join().expect("chan thread join failed")?;
-            } else {
-                chan_jh = Some(jh);
+        for (name, tjh) in threads.iter_mut() {
+            if let Some(jh) = tjh.take() {
+                if jh.is_finished() {
+                    jh.join()
+                        .unwrap_or_else(|_| panic!("{name} thread join failed"))?;
+                    info!("thread {name} finished");
+                } else {
+                    *tjh = Some(jh);
+                }
             }
         }
 
-        if let Some(jh) = app_jh.take() {
-            if jh.is_finished() {
-                jh.join().expect("app thread join failed")?;
-            } else {
-                app_jh = Some(jh);
-            }
-        }
-
-        sleep(Duration::from_millis(10));
+        sleep(Duration::from_millis(25));
     }
 
     Ok(())

@@ -3062,10 +3062,12 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "0.0.0"
+version = "1.1.0"
 dependencies = [
  "affinity",
  "anyhow",
+ "base64 0.22.1",
+ "bs58",
  "futures",
  "hostname",
  "http 1.2.0",

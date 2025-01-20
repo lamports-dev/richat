@@ -8,7 +8,7 @@ use {
         },
         message::{
             Message, MessageAccount, MessageBlock, MessageBlockCreatedAt, MessageBlockMeta,
-            MessageEntry, MessageSlot, MessageTransaction,
+            MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
         protobuf::SubscribeUpdateMessage,
     },
@@ -135,14 +135,22 @@ impl Filter {
         message: &'a Message,
         commitment: CommitmentLevel,
     ) -> SmallVec<[FilteredUpdate<'a>; 2]> {
+        self.get_updates_ref(message.into(), commitment)
+    }
+
+    pub fn get_updates_ref<'a>(
+        &'a self,
+        message: MessageRef<'a>,
+        commitment: CommitmentLevel,
+    ) -> SmallVec<[FilteredUpdate<'a>; 2]> {
         let mut vec = SmallVec::<[FilteredUpdate; 2]>::new();
         match message {
-            Message::Slot(message) => {
+            MessageRef::Slot(message) => {
                 if let Some(update) = self.slots.get_update(message, commitment) {
                     vec.push(update);
                 }
             }
-            Message::Account(message) => {
+            MessageRef::Account(message) => {
                 if let Some(update) = self
                     .accounts
                     .get_update(message, &self.accounts_data_slices)
@@ -150,7 +158,7 @@ impl Filter {
                     vec.push(update);
                 }
             }
-            Message::Transaction(message) => {
+            MessageRef::Transaction(message) => {
                 if let Some(update) = self.transactions.get_update(message) {
                     vec.push(update);
                 }
@@ -158,17 +166,17 @@ impl Filter {
                     vec.push(update);
                 }
             }
-            Message::Entry(message) => {
+            MessageRef::Entry(message) => {
                 if let Some(update) = self.entries.get_update(message) {
                     vec.push(update);
                 }
             }
-            Message::BlockMeta(message) => {
+            MessageRef::BlockMeta(message) => {
                 if let Some(update) = self.blocks_meta.get_update(message) {
                     vec.push(update);
                 }
             }
-            Message::Block(message) => {
+            MessageRef::Block(message) => {
                 for update in self.blocks.get_updates(message, &self.accounts_data_slices) {
                     vec.push(update);
                 }
@@ -713,6 +721,7 @@ impl<'a> FilteredUpdate<'a> {
                     parent,
                     commitment,
                     created_at,
+                    ..
                 } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::Slot(SubscribeUpdateSlot {
@@ -796,7 +805,9 @@ impl<'a> FilteredUpdate<'a> {
             },
             FilteredUpdateType::Entry { message } => match message {
                 MessageEntry::Limited => todo!(),
-                MessageEntry::Prost { entry, created_at } => SubscribeUpdateMessage {
+                MessageEntry::Prost {
+                    entry, created_at, ..
+                } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::Entry(entry.clone()),
                     created_at: *created_at,
@@ -808,6 +819,7 @@ impl<'a> FilteredUpdate<'a> {
                 MessageBlockMeta::Prost {
                     block_meta,
                     created_at,
+                    ..
                 } => SubscribeUpdateMessage {
                     filters: &self.filters,
                     update: UpdateOneof::BlockMeta(block_meta.clone()),

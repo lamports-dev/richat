@@ -19,6 +19,7 @@ use {
         Deserialize, Serialize,
     },
     solana_sdk::{
+        commitment_config::CommitmentLevel,
         pubkey::{ParsePubkeyError, Pubkey},
         signature::{ParseSignatureError, Signature},
     },
@@ -33,6 +34,8 @@ pub const MAX_DATA_BASE64_SIZE: usize = 172;
 
 #[derive(Debug, Error)]
 pub enum ConfigLimitsError {
+    #[error("Filter name exceeds limit, max {max}")]
+    FilterNameOverflow { max: usize },
     #[error("Max amount of filters/data_slices reached, only {max} allowed")]
     FiltersOverflow { max: usize },
     #[error("Subscribe on full stream with `any` is not allowed, at least one filter required")]
@@ -55,9 +58,10 @@ pub enum ConfigLimitsError {
     BlocksNotAllowed(&'static str),
 }
 
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigLimits {
+    pub name_max: usize,
     pub slots: ConfigLimitsSlots,
     pub accounts: ConfigLimitsAccounts,
     pub transactions: ConfigLimitsTransactions,
@@ -67,7 +71,40 @@ pub struct ConfigLimits {
     pub blocks: ConfigLimitsBlocks,
 }
 
+impl Default for ConfigLimits {
+    fn default() -> Self {
+        Self {
+            name_max: 128,
+            slots: Default::default(),
+            accounts: Default::default(),
+            transactions: Default::default(),
+            transactions_status: Default::default(),
+            entries: Default::default(),
+            blocks_meta: Default::default(),
+            blocks: Default::default(),
+        }
+    }
+}
+
 impl ConfigLimits {
+    const fn check_name_max(len: usize, max: usize) -> Result<(), ConfigLimitsError> {
+        if len <= max {
+            Ok(())
+        } else {
+            Err(ConfigLimitsError::FilterNameOverflow { max })
+        }
+    }
+
+    fn check_names_max<'a>(
+        names: impl Iterator<Item = &'a String>,
+        max: usize,
+    ) -> Result<(), ConfigLimitsError> {
+        for key in names {
+            Self::check_name_max(key.len(), max)?;
+        }
+        Ok(())
+    }
+
     const fn check_max(len: usize, max: usize) -> Result<(), ConfigLimitsError> {
         if len <= max {
             Ok(())
@@ -104,15 +141,17 @@ impl ConfigLimits {
     }
 
     pub fn check_filter(&self, filter: &ConfigFilter) -> Result<(), ConfigLimitsError> {
-        self.slots.check_filter(&filter.slots)?;
+        self.slots.check_filter(self.name_max, &filter.slots)?;
         self.accounts
-            .check_filter(&filter.accounts, &filter.accounts_data_slice)?;
-        self.transactions.check_filter(&filter.transactions)?;
+            .check_filter(self.name_max, &filter.accounts, &filter.accounts_data_slice)?;
+        self.transactions
+            .check_filter(self.name_max, &filter.transactions)?;
         self.transactions_status
-            .check_filter(&filter.transactions_status)?;
-        self.entries.check_filter(&filter.entries)?;
-        self.blocks_meta.check_filter(&filter.blocks_meta)?;
-        self.blocks.check_filter(&filter.blocks)?;
+            .check_filter(self.name_max, &filter.transactions_status)?;
+        self.entries.check_filter(self.name_max, &filter.entries)?;
+        self.blocks_meta
+            .check_filter(self.name_max, &filter.blocks_meta)?;
+        self.blocks.check_filter(self.name_max, &filter.blocks)?;
 
         Ok(())
     }
@@ -134,8 +173,10 @@ impl Default for ConfigLimitsSlots {
 impl ConfigLimitsSlots {
     pub fn check_filter(
         &self,
+        name_max: usize,
         filters: &HashMap<String, ConfigFilterSlots>,
     ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.keys(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)
     }
 }
@@ -171,9 +212,11 @@ impl Default for ConfigLimitsAccounts {
 impl ConfigLimitsAccounts {
     pub fn check_filter(
         &self,
+        name_max: usize,
         filters: &HashMap<String, ConfigFilterAccounts>,
         data_slices: &[ConfigFilterAccountsDataSlice],
     ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.keys(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)?;
 
         for filter in filters.values() {
@@ -270,8 +313,10 @@ impl Default for ConfigLimitsTransactions {
 impl ConfigLimitsTransactions {
     pub fn check_filter(
         &self,
+        name_max: usize,
         filters: &HashMap<String, ConfigFilterTransactions>,
     ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.keys(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)?;
 
         for filter in filters.values() {
@@ -313,7 +358,12 @@ impl Default for ConfigLimitsEntries {
 }
 
 impl ConfigLimitsEntries {
-    pub fn check_filter(&self, filters: &HashSet<String>) -> Result<(), ConfigLimitsError> {
+    pub fn check_filter(
+        &self,
+        name_max: usize,
+        filters: &HashSet<String>,
+    ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.iter(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)
     }
 }
@@ -332,7 +382,12 @@ impl Default for ConfigLimitsBlocksMeta {
 }
 
 impl ConfigLimitsBlocksMeta {
-    pub fn check_filter(&self, filters: &HashSet<String>) -> Result<(), ConfigLimitsError> {
+    pub fn check_filter(
+        &self,
+        name_max: usize,
+        filters: &HashSet<String>,
+    ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.iter(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)
     }
 }
@@ -369,8 +424,10 @@ impl Default for ConfigLimitsBlocks {
 impl ConfigLimitsBlocks {
     pub fn check_filter(
         &self,
+        name_max: usize,
         filters: &HashMap<String, ConfigFilterBlocks>,
     ) -> Result<(), ConfigLimitsError> {
+        ConfigLimits::check_names_max(filters.keys(), name_max)?;
         ConfigLimits::check_max(filters.len(), self.max)?;
 
         for filter in filters.values() {
@@ -619,13 +676,11 @@ impl<'de> Deserialize<'de> for ConfigFilterAccountsFilter {
         Ok(match Config::deserialize(deserializer)? {
             Config::Memcmp { offset, data } => {
                 let data = match data {
-                    ConfigMemcmpData::Str(data) => {
-                        if data.starts_with("base64") {
-                            base64_engine.decode(data).map_err(de::Error::custom)?
-                        } else {
-                            bs58::decode(data).into_vec().map_err(de::Error::custom)?
-                        }
-                    }
+                    ConfigMemcmpData::Str(data) => match &data[0..7] {
+                        "base64" => base64_engine.decode(data).map_err(de::Error::custom)?,
+                        "base58" => bs58::decode(data).into_vec().map_err(de::Error::custom)?,
+                        _ => data.as_bytes().to_vec(),
+                    },
                     ConfigMemcmpData::Bytes(data) => data,
                 };
                 Self::Memcmp { offset, data }
@@ -899,5 +954,15 @@ impl From<ConfigFilterCommitment> for i32 {
             ConfigFilterCommitment::Confirmed => CommitmentLevelProto::Confirmed,
             ConfigFilterCommitment::Finalized => CommitmentLevelProto::Finalized,
         }) as i32
+    }
+}
+
+impl From<ConfigFilterCommitment> for CommitmentLevel {
+    fn from(value: ConfigFilterCommitment) -> Self {
+        match value {
+            ConfigFilterCommitment::Processed => Self::Processed,
+            ConfigFilterCommitment::Confirmed => Self::Confirmed,
+            ConfigFilterCommitment::Finalized => Self::Finalized,
+        }
     }
 }

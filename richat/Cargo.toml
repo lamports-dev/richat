@@ -19,12 +19,16 @@ humantime-serde = { workspace = true }
 json5 = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
+prost = { workspace = true }
 richat-client = { workspace = true }
+richat-filter = { workspace = true }
 richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
+smallvec = { workspace = true }
+solana-nohash-hasher = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

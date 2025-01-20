@@ -1,4 +1,5 @@
 use {
+    base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
     serde::{
         de::{self, Deserializer},
         Deserialize,
@@ -12,6 +13,7 @@ use {
         str::FromStr,
         sync::atomic::{AtomicU64, Ordering},
     },
+    thiserror::Error,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -159,12 +161,41 @@ where
     }
 }
 
+#[derive(Debug, Error)]
+enum DecodeXTokenError {
+    #[error(transparent)]
+    Base64(#[from] base64::DecodeError),
+    #[error(transparent)]
+    Base58(#[from] bs58::decode::Error),
+}
+
+fn decode_x_token(x_token: &str) -> Result<Vec<u8>, DecodeXTokenError> {
+    Ok(match &x_token[0..7] {
+        "base64:" => base64_engine.decode(x_token)?,
+        "base58:" => bs58::decode(x_token).into_vec()?,
+        _ => x_token.as_bytes().to_vec(),
+    })
+}
+
+pub fn deserialize_maybe_x_token<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let x_token: Option<&str> = Deserialize::deserialize(deserializer)?;
+    x_token
+        .map(|x_token| decode_x_token(x_token).map_err(de::Error::custom))
+        .transpose()
+}
+
 pub fn deserialize_x_token_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Vec::<&str>::deserialize(deserializer)
-        .map(|vec| vec.into_iter().map(|s| s.as_bytes().to_vec()).collect())
+    Vec::<&str>::deserialize(deserializer).and_then(|vec| {
+        vec.into_iter()
+            .map(|x_token| decode_x_token(x_token).map_err(de::Error::custom))
+            .collect::<Result<_, _>>()
+    })
 }
 
 pub fn deserialize_pubkey_set<'de, D>(deserializer: D) -> Result<HashSet<Pubkey>, D::Error>

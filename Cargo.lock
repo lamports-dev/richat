@@ -1345,7 +1345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3089,7 +3089,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3324,12 +3324,16 @@ dependencies = [
  "json5",
  "lazy_static",
  "prometheus",
+ "prost 0.13.4",
  "richat-client",
+ "richat-filter",
  "richat-proto",
  "richat-shared",
  "serde",
  "serde_yaml",
  "signal-hook",
+ "smallvec",
+ "solana-nohash-hasher",
  "solana-sdk",
  "thiserror 2.0.7",
  "tokio",
@@ -3342,7 +3346,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3367,7 +3371,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3393,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
@@ -3457,10 +3461,12 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "affinity",
  "anyhow",
+ "base64 0.22.1",
+ "bs58",
  "futures",
  "hostname",
  "http 1.2.0",
@@ -3532,7 +3538,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4085,6 +4091,12 @@ dependencies = [
  "solana-sdk",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "solana-nohash-hasher"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b8a731ed60e89177c8a7ab05fe0f1511cedd3e70e773f288f9de33a9cfdc21e"
 
 [[package]]
 name = "solana-program"
@@ -4657,7 +4669,7 @@ dependencies = [
  "fastrand",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5409,7 +5421,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

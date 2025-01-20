@@ -183,7 +183,8 @@ impl ArgsAppStreamQuic {
             .set_max_idle_timeout(Some(Duration::from_millis(self.max_idle_timeout)))
             .set_server_name(self.server_name.clone())
             .set_recv_streams(self.recv_streams)
-            .set_max_backlog(self.max_backlog);
+            .set_max_backlog(self.max_backlog)
+            .set_x_token(x_token);
 
         let client = if self.insecure {
             builder.insecure().connect(self.endpoint.clone()).await
@@ -197,7 +198,7 @@ impl ArgsAppStreamQuic {
         info!("connected to {} over Quic", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot, Some(filter), x_token)
+            .subscribe(replay_from_slot, Some(filter))
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -221,13 +222,14 @@ impl ArgsAppStreamTcp {
         x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<SubscribeStreamInput> {
         let client = TcpClient::build()
+            .set_x_token(x_token)
             .connect(&self.endpoint)
             .await
             .context("failed to connect")?;
         info!("connected to {} over Tcp", self.endpoint);
 
         let stream = client
-            .subscribe(replay_from_slot, Some(filter), x_token)
+            .subscribe(replay_from_slot, Some(filter))
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
@@ -301,7 +303,7 @@ impl ArgsAppStreamGrpc {
         x_token: Option<Vec<u8>>,
     ) -> anyhow::Result<GrpcClient<impl Interceptor>> {
         let mut builder = GrpcClient::build_from_shared(self.endpoint)?
-            .x_token(x_token.map(String::from_utf8).transpose()?)?
+            .x_token(x_token)?
             .tls_config_native_roots(self.ca_certificate.as_ref())
             .await?
             .max_decoding_message_size(self.max_decoding_message_size);
@@ -354,7 +356,7 @@ impl ArgsAppStreamGrpc {
         info!("connected to {endpoint} over gRPC");
 
         let stream = client
-            .subscribe_richat_once(GrpcSubscribeRequest {
+            .subscribe_richat(GrpcSubscribeRequest {
                 replay_from_slot,
                 filter: Some(filter),
             })

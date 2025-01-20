@@ -23,7 +23,7 @@ use {
         richat::GrpcSubscribeRequest,
     },
     richat_shared::{
-        config::deserialize_num_str,
+        config::{deserialize_maybe_x_token, deserialize_num_str},
         transports::grpc::{ConfigGrpcCompression, ConfigGrpcServer},
     },
     serde::Deserialize,
@@ -40,7 +40,7 @@ use {
     tokio::fs,
     tonic::{
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        metadata::{errors::InvalidMetadataValue, AsciiMetadataKey, AsciiMetadataValue},
+        metadata::{errors::InvalidMetadataValueBytes, AsciiMetadataKey, AsciiMetadataValue},
         service::{interceptor::InterceptedService, Interceptor},
         transport::{
             channel::{Channel, ClientTlsConfig, Endpoint},
@@ -74,7 +74,8 @@ pub struct ConfigGrpcClient {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_decoding_message_size: usize,
     pub compression: ConfigGrpcCompression,
-    pub x_token: Option<String>,
+    #[serde(deserialize_with = "deserialize_maybe_x_token")]
+    pub x_token: Option<Vec<u8>>,
 }
 
 impl Default for ConfigGrpcClient {
@@ -149,7 +150,7 @@ pub enum GrpcClientBuilderError {
     #[error("tonic error: {0}")]
     Tonic(#[from] tonic::transport::Error),
     #[error("x-token error: {0}")]
-    XToken(#[from] InvalidMetadataValue),
+    XToken(#[from] InvalidMetadataValueBytes),
 }
 
 #[derive(Debug)]
@@ -312,9 +313,9 @@ impl GrpcClientBuilder {
     }
 
     // Metadata
-    pub fn x_token<T>(mut self, x_token: Option<T>) -> Result<Self, InvalidMetadataValue>
+    pub fn x_token<T>(mut self, x_token: Option<T>) -> Result<Self, InvalidMetadataValueBytes>
     where
-        T: TryInto<AsciiMetadataValue, Error = InvalidMetadataValue>,
+        T: TryInto<AsciiMetadataValue, Error = InvalidMetadataValueBytes>,
     {
         if let Some(x_token) = x_token {
             self.interceptor.metadata.insert(
@@ -424,31 +425,16 @@ impl<F: Interceptor> GrpcClient<F> {
     // Subscribe Richat
     pub async fn subscribe_richat(
         &mut self,
-    ) -> Result<
-        (
-            impl Sink<GrpcSubscribeRequest, Error = mpsc::SendError>,
-            GrpcClientStream,
-        ),
-        Status,
-    > {
-        let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
-        let response: Response<Streaming<Vec<u8>>> =
-            self.geyser.subscribe_richat(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
-        Ok((subscribe_tx, stream))
-    }
-
-    pub async fn subscribe_richat_once(
-        &mut self,
         request: GrpcSubscribeRequest,
     ) -> Result<GrpcClientStream, Status> {
-        let (mut tx, rx) = self.subscribe_richat().await?;
+        let (mut tx, rx) = mpsc::unbounded();
         tx.send(request)
             .await
             .expect("failed to send to unbounded channel");
-        Ok(rx)
+
+        let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe_richat(rx).await?;
+        let stream = response.into_inner();
+        Ok(GrpcClientStream { stream })
     }
 
     // RPC calls

@@ -1,5 +1,5 @@
 use {
-    crate::channel::message::{Message, MessageBlockMeta, MessageSlot},
+    crate::channel::ParsedMessage,
     futures::future::TryFutureExt,
     richat_proto::geyser::CommitmentLevel,
     solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
@@ -28,9 +28,9 @@ struct BlockStatus {
     finalized: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockMetaStorage {
-    messages_tx: mpsc::UnboundedSender<Arc<Message>>,
+    messages_tx: mpsc::UnboundedSender<ParsedMessage>,
     requests_tx: mpsc::Sender<Request>,
 }
 
@@ -49,7 +49,7 @@ impl BlockMetaStorage {
     }
 
     async fn work(
-        mut messages_rx: mpsc::UnboundedReceiver<Arc<Message>>,
+        mut messages_rx: mpsc::UnboundedReceiver<ParsedMessage>,
         mut requests_rx: mpsc::Receiver<Request>,
     ) {
         let mut blocks = HashMap::<Slot, BlockMeta>::new();
@@ -61,8 +61,10 @@ impl BlockMetaStorage {
         loop {
             tokio::select! {
                 biased;
-                message = messages_rx.recv() => match message.map(|m| m.as_ref().clone()) {
-                    Some(Message::Slot(MessageSlot { commitment, slot, .. })) => {
+                message = messages_rx.recv() => match message {
+                    Some(ParsedMessage::Slot(msg)) => {
+                        let slot = msg.slot();
+                        let commitment = msg.commitment();
                         if commitment == CommitmentLevel::Confirmed {
                             let entry = blocks.entry(slot).or_default();
                             entry.confirmed = true;
@@ -79,14 +81,15 @@ impl BlockMetaStorage {
                             blocks.retain(|bslot, _block| *bslot >= slot);
                         }
                     }
-                    Some(Message::BlockMeta(MessageBlockMeta { slot, blockhash, block_height, .. })) => {
+                    Some(ParsedMessage::BlockMeta(msg)) => {
+                        let slot = msg.slot();
                         let entry = blocks.entry(slot).or_default();
                         entry.slot = slot;
-                        entry.blockhash = Arc::new(blockhash.clone());
-                        entry.block_height = block_height;
+                        entry.blockhash = Arc::new(msg.blockhash().to_owned());
+                        entry.block_height = msg.block_height().unwrap_or_default();
                         entry.processed = true;
                         let bentry = blockhashes.entry(Arc::clone(&entry.blockhash)).or_default();
-                        bentry.last_valid_block_height = block_height + MAX_PROCESSING_AGE as u64;
+                        bentry.last_valid_block_height = entry.block_height + MAX_PROCESSING_AGE as u64;
                         bentry.processed = true;
                         processed = processed.max(slot);
                     }
@@ -122,7 +125,7 @@ impl BlockMetaStorage {
         }
     }
 
-    pub fn push(&self, message: Arc<Message>) {
+    pub fn push(&self, message: ParsedMessage) {
         let _ = self.messages_tx.send(message);
     }
 

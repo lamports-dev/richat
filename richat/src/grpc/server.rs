@@ -1,6 +1,7 @@
 use {
     crate::{
-        channel::{message::Message, Messages},
+        channel::{Messages, ParsedMessage, Receiver, RecvError},
+        config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
     },
@@ -8,32 +9,41 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
     },
+    prost::Message,
+    richat_filter::{
+        config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
+        filter::Filter,
+        message::MessageRef,
+    },
     richat_proto::geyser::{
-        CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
+        GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeUpdate,
+        PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
     },
     richat_shared::shutdown::Shutdown,
-    solana_sdk::clock::MAX_PROCESSING_AGE,
+    smallvec::SmallVec,
+    solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
+        borrow::Cow,
+        collections::{LinkedList, VecDeque},
+        fmt,
         future::Future,
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
-            Arc,
+            Arc, Mutex, MutexGuard,
         },
-        task::{Context, Poll},
+        task::{Context, Poll, Waker},
         thread,
-        time::{Duration, Instant},
+        time::{Duration, SystemTime},
     },
-    thiserror::Error,
-    tokio::{sync::mpsc, time::sleep},
     tonic::{
         service::interceptor::interceptor, Request, Response, Result as TonicResult, Status,
         Streaming,
     },
-    tracing::{error, info},
+    tracing::{error, info, warn},
 };
 
 pub mod gen {
@@ -45,10 +55,13 @@ pub mod gen {
 
 #[derive(Debug, Clone)]
 pub struct GrpcServer {
+    shutdown: Shutdown,
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
+    filter_limits: Arc<ConfigFilterLimits>,
     subscribe_id: Arc<AtomicU64>,
-    ping_tx: mpsc::Sender<ReceiverStream>,
+    subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
+    subscribe_messages_len_max: usize,
 }
 
 impl GrpcServer {
@@ -57,48 +70,41 @@ impl GrpcServer {
         messages: Messages,
         shutdown: Shutdown,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
-        // Spawn ping messages sender
-        let (ping_tx, ping_rx) = mpsc::channel(4_096);
-        let ping_jh = tokio::spawn({
-            let th = thread::Builder::new().spawn({
-                let shutdown = shutdown.clone();
-                move || {
-                    if let Some(cpus) = config.worker_ping_affinity {
-                        affinity::set_thread_affinity(&cpus).expect("failed to set affinity");
-                    }
-                    Self::worker_send_ping(ping_rx, shutdown)
-                }
-            })?;
-
-            let shutdown = shutdown.clone();
-            async move {
-                while !th.is_finished() {
-                    let ms = if shutdown.is_set() { 10 } else { 2_000 };
-                    sleep(Duration::from_millis(ms)).await;
-                }
-                th.join().expect("failed to join thread")
-            }
-        })
-        .map_err(anyhow::Error::new)
-        .and_then(ready)
-        .boxed();
-
         // Create gRPC server
         let (incoming, server_builder) = config.server.create_server_builder()?;
         info!("start server at {}", config.server.endpoint);
 
-        let (block_meta, block_meta_jh) = if config.unary.enabled {
-            let (meta, jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
-            (Some(Arc::new(meta)), jh.boxed())
+        // BlockMeta thread & task
+        let (block_meta, block_meta_jh, block_meta_task_jh) = if config.unary.enabled {
+            let (meta, task_jh) = BlockMetaStorage::new(config.unary.requests_queue_size);
+
+            let jh = ConfigAppsWorkers::run_once(
+                0,
+                "richatGrpcWrkBM".to_owned(),
+                vec![config.unary.affinity],
+                {
+                    let messages = messages.clone();
+                    let meta = meta.clone();
+                    let shutdown = shutdown.clone();
+                    move |_index| Self::worker_block_meta(messages, meta, shutdown)
+                },
+                shutdown.clone(),
+            )?;
+
+            (Some(Arc::new(meta)), jh.boxed(), task_jh.boxed())
         } else {
-            (None, ready(Ok(())).boxed())
+            (None, ready(Ok(())).boxed(), ready(Ok(())).boxed())
         };
 
+        // gRPC service
         let grpc_server = Self {
+            shutdown: shutdown.clone(),
             messages,
             block_meta,
+            filter_limits: Arc::new(config.filter_limits),
             subscribe_id: Arc::new(AtomicU64::new(0)),
-            ping_tx,
+            subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
+            subscribe_messages_len_max: config.stream.messages_len_max,
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -111,11 +117,23 @@ impl GrpcServer {
         }
 
         // Spawn workers pool
-        let threads = config
+        let workers = config
             .workers
+            .threads
             .run(
-                |index| format!("grpcWrk{index:02}"),
-                move |index| grpc_server.worker_messages(index),
+                |index| format!("richatGrpcWrk{index:02}"),
+                {
+                    let shutdown = shutdown.clone();
+                    move |index| {
+                        grpc_server.worker_messages(
+                            index,
+                            config.workers.messages_cached_max,
+                            config.stream.messages_max_per_tick,
+                            config.stream.ping_iterval,
+                            shutdown,
+                        )
+                    }
+                },
                 shutdown.clone(),
             )
             .boxed();
@@ -139,19 +157,19 @@ impl GrpcServer {
             {
                 error!("server error: {error:?}")
             } else {
-                info!("shutdown")
+                info!("gRPC server shutdown")
             }
         })
         .map_err(anyhow::Error::new)
         .boxed();
 
         // Wait spawned features
-        Ok(try_join_all([threads, server, block_meta_jh, ping_jh]).map_ok(|_| ()))
+        Ok(try_join_all([block_meta_jh, block_meta_task_jh, workers, server]).map_ok(|_| ()))
     }
 
-    fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevel, Status> {
-        let commitment = commitment.unwrap_or(CommitmentLevel::Processed as i32);
-        CommitmentLevel::try_from(commitment)
+    fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevelProto, Status> {
+        let commitment = commitment.unwrap_or(CommitmentLevelProto::Processed as i32);
+        CommitmentLevelProto::try_from(commitment)
             .map(Into::into)
             .map_err(|_error| {
                 let msg = format!("failed to create CommitmentLevel from {commitment:?}");
@@ -160,9 +178,9 @@ impl GrpcServer {
             .and_then(|commitment| {
                 if matches!(
                     commitment,
-                    CommitmentLevel::Processed
-                        | CommitmentLevel::Confirmed
-                        | CommitmentLevel::Finalized
+                    CommitmentLevelProto::Processed
+                        | CommitmentLevelProto::Confirmed
+                        | CommitmentLevelProto::Finalized
                 ) {
                     Ok(commitment)
                 } else {
@@ -187,49 +205,161 @@ impl GrpcServer {
         }
     }
 
-    fn worker_messages(&self, index: usize) -> anyhow::Result<()> {
-        let mut receiver = self.messages.subscribe();
-        loop {
-            let Some(message) = receiver.try_recv()? else {
-                continue;
-            };
-
-            // Update block meta only from first thread
-            if index == 0 {
-                if let Some(block_meta_storage) = &self.block_meta {
-                    if matches!(message.as_ref(), Message::Slot(_) | Message::BlockMeta(_)) {
-                        block_meta_storage.push(Arc::clone(&message));
-                    }
-                }
-            }
-
-            todo!()
+    #[inline]
+    fn subscribe_clients_lock(&self) -> MutexGuard<'_, VecDeque<SubscribeClient>> {
+        match self.subscribe_clients.lock() {
+            Ok(guard) => guard,
+            Err(error) => error.into_inner(),
         }
     }
 
-    fn worker_send_ping(
-        mut rx: mpsc::Receiver<ReceiverStream>,
+    #[inline]
+    fn push_client(&self, client: SubscribeClient) {
+        self.subscribe_clients_lock().push_back(client);
+    }
+
+    #[inline]
+    fn pop_client(&self) -> Option<SubscribeClient> {
+        self.subscribe_clients_lock().pop_front()
+    }
+
+    fn worker_block_meta(
+        messages: Messages,
+        block_meta: BlockMetaStorage,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
-        const PING_INTERVAL: Duration = Duration::from_secs(15);
+        let receiver = messages.to_receiver();
+        let mut head = messages
+            .get_current_tail(CommitmentLevel::Processed, None)
+            .ok_or(anyhow::anyhow!(
+                "failed to get head position for block meta worker"
+            ))?;
 
-        let mut streams = vec![];
-        let mut ts_msg = Instant::now();
-        while !shutdown.is_set() {
-            match rx.try_recv() {
-                Ok(rx) => streams.push(rx),
-                Err(mpsc::error::TryRecvError::Disconnected) => break,
-                Err(mpsc::error::TryRecvError::Empty) => {
-                    if ts_msg.elapsed() > PING_INTERVAL {
-                        ts_msg = Instant::now();
-                        streams.retain(|rx| rx.send_ping().is_ok());
-                    } else {
-                        thread::sleep(Duration::from_millis(10));
+        const COUNTER_LIMIT: i32 = 10_000;
+        let mut counter = 0;
+        loop {
+            counter += 1;
+            if counter > COUNTER_LIMIT {
+                counter = 0;
+                if shutdown.is_set() {
+                    info!("gRPC block meta thread shutdown");
+                    return Ok(());
+                }
+            }
+
+            let Some(message) = receiver.try_recv(CommitmentLevel::Processed, head)? else {
+                counter = COUNTER_LIMIT;
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            head += 1;
+
+            if matches!(
+                message,
+                ParsedMessage::Slot(_) | ParsedMessage::BlockMeta(_)
+            ) {
+                block_meta.push(message);
+            }
+        }
+    }
+
+    fn worker_messages(
+        &self,
+        index: usize,
+        messages_cached_max: usize,
+        messages_max_per_tick: usize,
+        ping_interval: Duration,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<()> {
+        let messages_cached_max = messages_cached_max.next_power_of_two();
+        let mut messages_cache_processed = MessagesCache::new(messages_cached_max);
+        let mut messages_cache_confirmed = MessagesCache::new(messages_cached_max);
+        let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
+
+        let receiver = self.messages.to_receiver();
+        const COUNTER_LIMIT: i32 = 10_000;
+        let mut counter = 0;
+        loop {
+            counter += 1;
+            if counter > COUNTER_LIMIT {
+                counter = 0;
+                if shutdown.is_set() {
+                    while self.pop_client().is_some() {}
+                    info!("gRPC worker#{index:02} shutdown");
+                    return Ok(());
+                }
+            }
+
+            // get client and state
+            let Some(client) = self.pop_client() else {
+                counter = COUNTER_LIMIT;
+                continue;
+            };
+            let mut state = client.state_lock();
+            // drop client if only 1 instance left
+            if state.ref_count == 1 {
+                continue;
+            }
+
+            // send ping
+            let ts = SystemTime::now();
+            if !state.is_full()
+                && ts.duration_since(state.ping_ts_latest).unwrap_or_default() > ping_interval
+            {
+                state.ping_ts_latest = ts;
+                let message = SubscribeClientState::create_ping(state.ping_id);
+                state.push_message(message);
+                state.ping_id += 1;
+            }
+
+            // filter messages
+            if state.filter.is_none() {
+                drop(state);
+                self.push_client(client);
+                continue;
+            }
+
+            let messages_cache = match state.commitment {
+                CommitmentLevel::Processed => &mut messages_cache_processed,
+                CommitmentLevel::Confirmed => &mut messages_cache_confirmed,
+                CommitmentLevel::Finalized => &mut messages_cache_finalized,
+            };
+            let mut errored = false;
+            let mut count = 0;
+            while !state.is_full() && count < messages_max_per_tick {
+                let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
+                {
+                    Ok(Some(message)) => {
+                        count += 1;
+                        state.head += 1;
+                        message
+                    }
+                    Ok(None) => break,
+                    Err(RecvError::Lagged) => {
+                        state.push_error(Status::data_loss("lagged"));
+                        errored = true;
+                        break;
+                    }
+                };
+
+                let message_ref: MessageRef = message.as_ref().into();
+                if let Some(filter) = state.filter.as_ref() {
+                    let messages = filter
+                        .get_updates_ref(message_ref, state.commitment)
+                        .into_iter()
+                        .map(|msg| msg.encode())
+                        .collect::<SmallVec<[Vec<u8>; 2]>>();
+
+                    for message in messages {
+                        state.push_message(message);
                     }
                 }
             }
+            drop(state);
+            if !errored {
+                self.push_client(client);
+            }
         }
-        Ok(())
     }
 }
 
@@ -239,20 +369,84 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn subscribe(
         &self,
-        _request: Request<Streaming<SubscribeRequest>>,
+        request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
-        let _id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
+        info!(id, "new client");
 
-        let rx = ReceiverStream;
-        if self.ping_tx.send(rx.clone()).await.is_err() {
-            return Err(Status::unavailable(
-                "failed to send receive stream to ping worker",
-            ));
-        }
+        let client = SubscribeClient::new(id, self.subscribe_messages_len_max);
+        self.push_client(client.clone());
 
-        //
+        tokio::spawn({
+            let mut stream = request.into_inner();
+            let shutdown = self.shutdown.clone();
+            let limits = Arc::clone(&self.filter_limits);
+            let client = client.clone();
+            let messages = self.messages.clone();
+            async move {
+                tokio::pin!(shutdown);
+                loop {
+                    tokio::select! {
+                        message = stream.message() => match message {
+                            Ok(Some(message)) => {
+                                if let Some(SubscribeRequestPing { id }) = message.ping {
+                                    let message = SubscribeClientState::create_ping(id);
+                                    let mut state = client.state_lock();
+                                    state.push_message(message);
+                                    continue;
+                                }
 
-        todo!()
+                                let subscribe_from_slot = message.from_slot;
+                                let new_filter = ConfigFilter::try_from(message)
+                                    .map_err(|error| {
+                                        Status::invalid_argument(format!(
+                                            "failed to create filter: {error:?}"
+                                        ))
+                                    })
+                                    .and_then(|config| {
+                                        limits
+                                            .check_filter(&config)
+                                            .map(|()| Filter::new(&config))
+                                            .map_err(|error| {
+                                                Status::invalid_argument(format!(
+                                                    "failed to check filter: {error:?}"
+                                                ))
+                                            })
+                                    });
+
+                                let mut state = client.state_lock();
+                                if let Err(error) = new_filter.map(|filter| {
+                                    state.commitment = filter.commitment().into();
+                                    state.head = messages
+                                        .get_current_tail(state.commitment, subscribe_from_slot)
+                                        .ok_or(Status::invalid_argument(format!(
+                                            "failed to get slot {subscribe_from_slot:?}"
+                                        )))?;
+                                    state.filter = Some(filter);
+                                    Ok::<(), Status>(())
+                                }) {
+                                    warn!(id, %error, "failed to handle request");
+                                    state.push_error(error);
+                                } else {
+                                    info!(id, "set new filter");
+                                    continue;
+                                }
+                            }
+                            Ok(None) => info!(id, "tx stream finished"),
+                            Err(error) => warn!(id, %error, "error to receive new filter"),
+                        },
+                        () = &mut shutdown => {
+                            let mut state = client.state_lock();
+                            state.push_error(Status::internal("shutdown"));
+                        }
+                    };
+                    break;
+                }
+                info!(id, "drop client tx stream");
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(client)))
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {
@@ -327,36 +521,230 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug, Error)]
-enum SendError {
-    // #[error("channel is full")]
-    // Full,
-    // #[error("channel closed")]
-    // Closed,
+#[derive(Debug)]
+struct SubscribeClient {
+    state: Arc<Mutex<SubscribeClientState>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ReceiverStream;
+impl Clone for SubscribeClient {
+    fn clone(&self) -> Self {
+        self.state_lock().ref_count += 1;
+        Self {
+            state: Arc::clone(&self.state),
+        }
+    }
+}
 
-impl ReceiverStream {
-    // fn send_update(&self) -> Result<(), SendError> {
-    //     Ok(())
-    // }
+impl Drop for SubscribeClient {
+    fn drop(&mut self) {
+        self.state_lock().ref_count -= 1;
+    }
+}
 
-    const fn send_ping(&self) -> Result<(), SendError> {
-        Ok(())
+impl SubscribeClient {
+    fn new(id: u64, messages_len_max: usize) -> Self {
+        let state = SubscribeClientState::new(id, messages_len_max);
+        Self {
+            state: Arc::new(Mutex::new(state)),
+        }
     }
 
-    // fn send_pong(&self) -> Result<(), SendError> {
-    //     Ok(())
-    // }
+    #[inline]
+    fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
+        match self.state.lock() {
+            Ok(guard) => guard,
+            Err(error) => error.into_inner(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SubscribeClientState {
+    id: u64,
+    ref_count: u32, // check in worker with acquiring mutex
+    commitment: CommitmentLevel,
+    head: u64,
+    filter: Option<Filter>,
+    messages_error: Option<Status>,
+    messages_len_max: usize,
+    messages_len_total: usize,
+    messages: LinkedList<Vec<u8>>,
+    messages_waker: Option<Waker>,
+    ping_id: i32,
+    ping_ts_latest: SystemTime,
+}
+
+impl Drop for SubscribeClientState {
+    fn drop(&mut self) {
+        info!(id = self.id, "drop client state");
+    }
+}
+
+impl SubscribeClientState {
+    fn new(id: u64, messages_len_max: usize) -> Self {
+        Self {
+            id,
+            ref_count: 1,
+            commitment: CommitmentLevel::default(),
+            head: 0,
+            filter: None,
+            messages_error: None,
+            messages_len_max,
+            messages_len_total: 0,
+            messages: LinkedList::new(),
+            messages_waker: None,
+            ping_id: 0,
+            ping_ts_latest: SystemTime::now(),
+        }
+    }
+
+    fn create_ping(id: i32) -> Vec<u8> {
+        SubscribeUpdate {
+            filters: vec![],
+            update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong { id })),
+            created_at: Some(SystemTime::now().into()),
+        }
+        .encode_to_vec()
+    }
+
+    const fn is_full(&self) -> bool {
+        self.messages_len_total > self.messages_len_max
+    }
+
+    fn push_error(&mut self, error: Status) {
+        self.messages_error = Some(error);
+        if let Some(waker) = self.messages_waker.take() {
+            waker.wake();
+        }
+    }
+
+    fn push_message(&mut self, message: Vec<u8>) {
+        self.messages_len_total += message.len();
+        self.messages.push_back(message);
+        if let Some(waker) = self.messages_waker.take() {
+            waker.wake();
+        }
+    }
+
+    fn pop_message(&mut self, cx: &Context) -> Option<TonicResult<Vec<u8>>> {
+        if let Some(error) = self.messages_error.take() {
+            return Some(Err(error));
+        }
+
+        if let Some(message) = self.messages.pop_front() {
+            self.messages_len_total -= message.len();
+            Some(Ok(message))
+        } else {
+            self.messages_waker = Some(cx.waker().clone());
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReceiverStream {
+    client: SubscribeClient,
+    finished: bool,
+}
+
+impl ReceiverStream {
+    const fn new(client: SubscribeClient) -> Self {
+        Self {
+            client,
+            finished: false,
+        }
+    }
 }
 
 impl Stream for ReceiverStream {
-    type Item = TonicResult<SubscribeUpdate>;
+    type Item = TonicResult<Vec<u8>>;
 
-    #[allow(unused)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+        if self.finished {
+            return Poll::Ready(None);
+        }
+
+        let mut state = self.client.state_lock();
+        if let Some(item) = state.pop_message(cx) {
+            drop(state);
+            self.finished = item.is_err();
+            Poll::Ready(Some(item))
+        } else {
+            Poll::Pending
+        }
     }
+}
+
+struct MessagesCache {
+    head: u64,
+    mask: u64,
+    buffer: Box<[MessagesCacheItem]>,
+}
+
+impl fmt::Debug for MessagesCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessagesCache")
+            .field("head", &self.head)
+            .field("mask", &self.mask)
+            .finish()
+    }
+}
+
+impl MessagesCache {
+    fn new(max_messages: usize) -> Self {
+        let buffer = (0..max_messages)
+            .map(|_| MessagesCacheItem {
+                pos: u64::MAX,
+                msg: None,
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            head: 0,
+            mask: (max_messages - 1) as u64,
+            buffer: buffer.into_boxed_slice(),
+        }
+    }
+
+    #[inline]
+    const fn get_idx(&self, pos: u64) -> usize {
+        (pos & self.mask) as usize
+    }
+
+    fn try_recv(
+        &mut self,
+        receiver: &Receiver,
+        commitment: CommitmentLevel,
+        head: u64,
+    ) -> Result<Option<Cow<'_, ParsedMessage>>, RecvError> {
+        if head > self.head {
+            self.head = head;
+        }
+        let inrange = head >= self.head - self.mask;
+
+        // return if item cached
+        let idx = self.get_idx(head);
+        if inrange && self.buffer[idx].pos == head {
+            return Ok(self.buffer[idx].msg.as_ref().map(Cow::Borrowed));
+        }
+
+        // try to get from the channel
+        let Some(item) = receiver.try_recv(commitment, head)? else {
+            return Ok(None);
+        };
+
+        // save item if in range
+        if inrange {
+            self.buffer[idx] = MessagesCacheItem {
+                pos: head,
+                msg: Some(item.clone()),
+            };
+        }
+        Ok(Some(Cow::Owned(item)))
+    }
+}
+
+struct MessagesCacheItem {
+    pos: u64,
+    msg: Option<ParsedMessage>,
 }
