@@ -28,6 +28,57 @@ flowchart LR
     R2 -->|filtered stream| C4(client)
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph agave1 [**agave**]
+        subgraph geyser1 [richat-plugin-agave]
+        end
+    end
+
+    subgraph richat1 [**richat**]
+        subgraph tokio1 [Tokio Runtime]
+            richat1_tokio1_receiver(receiver)
+        end
+
+        subgraph tokio2 [Tokio Runtime]
+            subgraph grpc1 [gRPC]
+                richat1_grpc1_streaming1(streaming)
+                richat1_grpc1_unary(unary)
+            end
+
+            richat1_tokio2_blockmeta[(block meta<br/>storage)]
+            richat1_tokio2_grpc1_subscriptions[(clients<br/>subscriptions)]
+        end
+
+        subgraph messages [Messages Thread]
+            richat1_parser(message parser)
+            richat1_channel[(messages<br/>storage)]
+        end
+
+        richat1_blockmeta(bock meta)
+        richat1_worker1(gRPC filters<br/>worker 1)
+        richat1_worker2(gRPC filters<br/>worker N)
+    end
+
+    client1(client)
+
+    geyser1 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    richat1_tokio1_receiver --> richat1_parser
+    richat1_parser --> richat1_channel
+    richat1_channel --> richat1_blockmeta
+    richat1_channel --> richat1_worker1
+    richat1_channel --> richat1_worker2
+    richat1_blockmeta --> richat1_tokio2_blockmeta
+    richat1_tokio2_blockmeta <--> richat1_grpc1_unary
+    richat1_worker1 <--> richat1_tokio2_grpc1_subscriptions
+    richat1_worker2 <--> richat1_tokio2_grpc1_subscriptions
+    richat1_tokio2_grpc1_subscriptions <--> richat1_grpc1_streaming1
+    client1 <--> |gRPC<br/>filtered stream| richat1_grpc1_streaming1
+    client1 --> richat1_grpc1_unary
+```
+
 ## Components
 
 - `cli` — CLI client for full stream, gRPC stream with filters, simple Solana PubSub
