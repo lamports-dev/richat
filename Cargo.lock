@@ -3436,7 +3436,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3461,7 +3461,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3487,7 +3487,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
@@ -3551,7 +3551,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "affinity",
  "anyhow",

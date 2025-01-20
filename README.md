@@ -28,7 +28,7 @@ flowchart LR
     R2 -->|filtered stream| C4(client)
 ```
 
-## Architecture
+## Blueprint
 
 ```mermaid
 flowchart LR
