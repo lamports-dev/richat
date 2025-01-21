@@ -14,6 +14,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: add metrics (backport of [#1](https://github.com/lamports-dev/richat-private/pull/1)) ([#44](https://github.com/lamports-dev/richat/pull/44))
+
 ### Breaking
 
 ## 2025-01-19

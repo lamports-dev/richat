@@ -20,7 +20,8 @@ use {
         GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePong,
+        PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing,
+        SubscribeUpdatePong,
     },
     richat_shared::shutdown::Shutdown,
     smallvec::SmallVec,
@@ -307,9 +308,8 @@ impl GrpcServer {
                 && ts.duration_since(state.ping_ts_latest).unwrap_or_default() > ping_interval
             {
                 state.ping_ts_latest = ts;
-                let message = SubscribeClientState::create_ping(state.ping_id);
+                let message = SubscribeClientState::create_ping();
                 state.push_message(message);
-                state.ping_id += 1;
             }
 
             // filter messages
@@ -344,13 +344,13 @@ impl GrpcServer {
 
                 let message_ref: MessageRef = message.as_ref().into();
                 if let Some(filter) = state.filter.as_ref() {
-                    let messages = filter
+                    let items = filter
                         .get_updates_ref(message_ref, state.commitment)
-                        .into_iter()
+                        .iter()
                         .map(|msg| msg.encode())
                         .collect::<SmallVec<[Vec<u8>; 2]>>();
 
-                    for message in messages {
+                    for message in items {
                         state.push_message(message);
                     }
                 }
@@ -372,8 +372,6 @@ impl gen::geyser_server::Geyser for GrpcServer {
         request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
-        info!(id, "new client");
-
         let client = SubscribeClient::new(id, self.subscribe_messages_len_max);
         self.push_client(client.clone());
 
@@ -390,7 +388,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                         message = stream.message() => match message {
                             Ok(Some(message)) => {
                                 if let Some(SubscribeRequestPing { id }) = message.ping {
-                                    let message = SubscribeClientState::create_ping(id);
+                                    let message = SubscribeClientState::create_pong(id);
                                     let mut state = client.state_lock();
                                     state.push_message(message);
                                     continue;
@@ -570,7 +568,6 @@ struct SubscribeClientState {
     messages_len_total: usize,
     messages: LinkedList<Vec<u8>>,
     messages_waker: Option<Waker>,
-    ping_id: i32,
     ping_ts_latest: SystemTime,
 }
 
@@ -582,6 +579,7 @@ impl Drop for SubscribeClientState {
 
 impl SubscribeClientState {
     fn new(id: u64, messages_len_max: usize) -> Self {
+        info!(id, "new client");
         Self {
             id,
             ref_count: 1,
@@ -593,18 +591,28 @@ impl SubscribeClientState {
             messages_len_total: 0,
             messages: LinkedList::new(),
             messages_waker: None,
-            ping_id: 0,
             ping_ts_latest: SystemTime::now(),
         }
     }
 
-    fn create_ping(id: i32) -> Vec<u8> {
+    #[inline]
+    fn serialize_ping_pong(oneof: UpdateOneof) -> Vec<u8> {
         SubscribeUpdate {
             filters: vec![],
-            update_oneof: Some(UpdateOneof::Pong(SubscribeUpdatePong { id })),
+            update_oneof: Some(oneof),
             created_at: Some(SystemTime::now().into()),
         }
         .encode_to_vec()
+    }
+
+    #[inline]
+    fn create_ping() -> Vec<u8> {
+        Self::serialize_ping_pong(UpdateOneof::Ping(SubscribeUpdatePing {}))
+    }
+
+    #[inline]
+    fn create_pong(id: i32) -> Vec<u8> {
+        Self::serialize_ping_pong(UpdateOneof::Pong(SubscribeUpdatePong { id }))
     }
 
     const fn is_full(&self) -> bool {
@@ -667,6 +675,7 @@ impl Stream for ReceiverStream {
         let mut state = self.client.state_lock();
         if let Some(item) = state.pop_message(cx) {
             drop(state);
+
             self.finished = item.is_err();
             Poll::Ready(Some(item))
         } else {
