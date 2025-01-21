@@ -1,7 +1,7 @@
 use {
     crate::channel::ParsedMessage,
     futures::future::TryFutureExt,
-    richat_proto::geyser::CommitmentLevel,
+    richat_proto::geyser::CommitmentLevel as CommitmentLevelProto,
     solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
     std::{collections::HashMap, future::Future, sync::Arc},
     tokio::sync::{mpsc, oneshot},
@@ -65,12 +65,12 @@ impl BlockMetaStorage {
                     Some(ParsedMessage::Slot(msg)) => {
                         let slot = msg.slot();
                         let commitment = msg.commitment();
-                        if commitment == CommitmentLevel::Confirmed {
+                        if commitment == CommitmentLevelProto::Confirmed {
                             let entry = blocks.entry(slot).or_default();
                             entry.confirmed = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().confirmed = true;
                             confirmed = slot;
-                        } else if commitment == CommitmentLevel::Finalized {
+                        } else if commitment == CommitmentLevelProto::Finalized {
                             let entry = blocks.entry(slot).or_default();
                             entry.finalized = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().finalized = true;
@@ -96,30 +96,32 @@ impl BlockMetaStorage {
                     Some(_) => {}
                     None => break,
                 },
-                request = requests_rx.recv() => match request {
-                    Some(Request::GetBlock(tx, commitment)) => {
-                        let block = match commitment {
-                            CommitmentLevel::Processed => Some(processed),
-                            CommitmentLevel::Confirmed => Some(confirmed),
-                            CommitmentLevel::Finalized => Some(finalized),
-                        }.and_then(|slot| blocks.get(&slot).cloned());
-                        let _ = tx.send(block);
+                request = requests_rx.recv() => {
+                    match request {
+                        Some(Request::GetBlock(tx, commitment)) => {
+                            let block = match commitment {
+                                CommitmentLevelProto::Processed => Some(processed),
+                                CommitmentLevelProto::Confirmed => Some(confirmed),
+                                CommitmentLevelProto::Finalized => Some(finalized),
+                            }.and_then(|slot| blocks.get(&slot).cloned());
+                            let _ = tx.send(block);
+                        }
+                        Some(Request::IsBlockhashValid(tx, blockhash, commitment)) => {
+                            let block = match commitment {
+                                CommitmentLevelProto::Processed => Some(processed),
+                                CommitmentLevelProto::Confirmed => Some(confirmed),
+                                CommitmentLevelProto::Finalized => Some(finalized),
+                            }.and_then(|slot| blocks.get(&slot).cloned());
+                            let value = if let (Some(block), Some(entry)) = (block, blockhashes.get(&blockhash)) {
+                                let valid = block.block_height < entry.last_valid_block_height;
+                                Some((valid, block.slot))
+                            } else {
+                                None
+                            };
+                            let _ = tx.send(value);
+                        }
+                        None => break,
                     }
-                    Some(Request::IsBlockhashValid(tx, blockhash, commitment)) => {
-                        let block = match commitment {
-                            CommitmentLevel::Processed => Some(processed),
-                            CommitmentLevel::Confirmed => Some(confirmed),
-                            CommitmentLevel::Finalized => Some(finalized),
-                        }.and_then(|slot| blocks.get(&slot).cloned());
-                        let value = if let (Some(block), Some(entry)) = (block, blockhashes.get(&blockhash)) {
-                            let valid = block.block_height < entry.last_valid_block_height;
-                            Some((valid, block.slot))
-                        } else {
-                            None
-                        };
-                        let _ = tx.send(value);
-                    }
-                    None => break,
                 }
             };
         }
@@ -145,7 +147,7 @@ impl BlockMetaStorage {
         }
     }
 
-    pub async fn get_block(&self, commitment: CommitmentLevel) -> tonic::Result<BlockMeta> {
+    pub async fn get_block(&self, commitment: CommitmentLevelProto) -> tonic::Result<BlockMeta> {
         let (tx, rx) = oneshot::channel();
         let request = Request::GetBlock(tx, commitment);
         self.send_request(request, rx).await
@@ -154,7 +156,7 @@ impl BlockMetaStorage {
     pub async fn is_blockhash_valid(
         &self,
         blockhash: String,
-        commitment: CommitmentLevel,
+        commitment: CommitmentLevelProto,
     ) -> tonic::Result<(bool, Slot)> {
         let (tx, rx) = oneshot::channel();
         let request = Request::IsBlockhashValid(tx, blockhash, commitment);
@@ -163,10 +165,10 @@ impl BlockMetaStorage {
 }
 
 enum Request {
-    GetBlock(oneshot::Sender<Option<BlockMeta>>, CommitmentLevel),
+    GetBlock(oneshot::Sender<Option<BlockMeta>>, CommitmentLevelProto),
     IsBlockhashValid(
         oneshot::Sender<Option<(bool, Slot)>>,
         String,
-        CommitmentLevel,
+        CommitmentLevelProto,
     ),
 }
