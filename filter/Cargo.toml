@@ -1,6 +1,6 @@
 [package]
 name = "richat-filter"
-version = "2.1.0"
+version = "2.2.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Filters"

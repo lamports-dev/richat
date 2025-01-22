@@ -10,6 +10,7 @@ use {
         MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
     },
     richat_proto::{geyser::CommitmentLevel as CommitmentLevelProto, richat::GrpcSubscribeRequest},
+    richat_shared::transports::RecvError,
     solana_nohash_hasher::NoHashHasher,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
@@ -21,8 +22,6 @@ use {
             Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
         },
     },
-    thiserror::Error,
-    tracing::error,
 };
 
 #[derive(Debug, Clone)]
@@ -111,6 +110,7 @@ impl ParsedMessage {
 
 #[derive(Debug, Clone)]
 pub struct Messages {
+    grpc: bool,
     shared_processed: Arc<Shared>,
     shared_confirmed: Arc<Shared>,
     shared_finalized: Arc<Shared>,
@@ -121,12 +121,17 @@ pub struct Messages {
 }
 
 impl Messages {
-    pub fn new(config: ConfigChannelInner) -> Self {
+    pub fn new(config: ConfigChannelInner, grpc: bool) -> Self {
         let max_messages = config.max_messages.next_power_of_two();
         Self {
+            grpc,
             shared_processed: Arc::new(Shared::new(max_messages)),
-            shared_confirmed: Arc::new(Shared::new(max_messages)),
-            shared_finalized: Arc::new(Shared::new(max_messages)),
+            shared_confirmed: Arc::new(Shared::new(
+                grpc.then_some(max_messages).unwrap_or_default(),
+            )),
+            shared_finalized: Arc::new(Shared::new(
+                grpc.then_some(max_messages).unwrap_or_default(),
+            )),
             max_messages,
             max_slots: config.max_slots,
             max_bytes: config.max_bytes,
@@ -140,14 +145,15 @@ impl Messages {
             slots_max: self.max_slots,
             bytes_max: self.max_bytes,
             slots: BTreeMap::new(),
+            grpc: self.grpc,
             processed: SenderShared::new(&self.shared_processed, self.max_messages),
             confirmed: SenderShared::new(&self.shared_confirmed, self.max_messages),
             finalized: SenderShared::new(&self.shared_finalized, self.max_messages),
         }
     }
 
-    pub fn to_receiver(&self) -> Receiver {
-        Receiver {
+    pub fn to_receiver(&self) -> ReceiverSync {
+        ReceiverSync {
             shared_processed: Arc::clone(&self.shared_processed),
             shared_confirmed: Arc::clone(&self.shared_confirmed),
             shared_finalized: Arc::clone(&self.shared_finalized),
@@ -157,7 +163,7 @@ impl Messages {
     pub fn get_current_tail(
         &self,
         commitment: CommitmentLevel,
-        from_slot: Option<Slot>,
+        replay_from_slot: Option<Slot>,
     ) -> Option<u64> {
         let shared = match commitment {
             CommitmentLevel::Processed => &self.shared_processed,
@@ -165,8 +171,11 @@ impl Messages {
             CommitmentLevel::Finalized => &self.shared_finalized,
         };
 
-        if let Some(from_slot) = from_slot {
-            shared.slots_lock().get(&from_slot).map(|obj| obj.head)
+        if let Some(replay_from_slot) = replay_from_slot {
+            shared
+                .slots_lock()
+                .get(&replay_from_slot)
+                .map(|obj| obj.head)
         } else {
             Some(shared.tail.load(Ordering::Relaxed))
         }
@@ -201,6 +210,7 @@ pub struct Sender {
     slots_max: usize,
     bytes_max: usize,
     slots: BTreeMap<Slot, SlotInfo>,
+    grpc: bool,
     processed: SenderShared,
     confirmed: SenderShared,
     finalized: SenderShared,
@@ -221,31 +231,33 @@ impl Sender {
         // push messages
         for message in [Some(message), message_block].into_iter().flatten() {
             // push messages to confirmed / finalized
-            if let ParsedMessage::Slot(msg) = &message {
-                self.confirmed.push(slot, message.clone());
-                self.finalized.push(slot, message.clone());
+            if self.grpc {
+                if let ParsedMessage::Slot(msg) = &message {
+                    self.confirmed.push(slot, message.clone());
+                    self.finalized.push(slot, message.clone());
 
-                if let Some(sender_shared) = match msg.commitment() {
-                    CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
-                    CommitmentLevelProto::Finalized => Some(&mut self.finalized),
-                    _ => None,
-                } {
-                    if let Some(slot_info) = self.slots.get(&slot) {
-                        for message in slot_info.get_messages() {
-                            sender_shared.push(slot, message);
-                        }
-                        sender_shared.try_clear(self.bytes_max, self.slots_max);
-                    }
-                }
-
-                // remove slot info
-                if msg.commitment() == CommitmentLevelProto::Finalized {
-                    loop {
-                        match self.slots.keys().next().copied() {
-                            Some(slot_min) if slot_min <= slot => {
-                                self.slots.remove(&slot_min);
+                    if let Some(sender_shared) = match msg.commitment() {
+                        CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
+                        CommitmentLevelProto::Finalized => Some(&mut self.finalized),
+                        _ => None,
+                    } {
+                        if let Some(slot_info) = self.slots.get(&slot) {
+                            for message in slot_info.get_messages() {
+                                sender_shared.push(slot, message);
                             }
-                            _ => break,
+                            sender_shared.try_clear(self.bytes_max, self.slots_max);
+                        }
+                    }
+
+                    // remove slot info
+                    if msg.commitment() == CommitmentLevelProto::Finalized {
+                        loop {
+                            match self.slots.keys().next().copied() {
+                                Some(slot_min) if slot_min <= slot => {
+                                    self.slots.remove(&slot_min);
+                                }
+                                _ => break,
+                            }
                         }
                     }
                 }
@@ -393,20 +405,14 @@ impl SenderShared {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum RecvError {
-    #[error("channel lagged")]
-    Lagged,
-}
-
 #[derive(Debug)]
-pub struct Receiver {
+pub struct ReceiverSync {
     shared_processed: Arc<Shared>,
     shared_confirmed: Arc<Shared>,
     shared_finalized: Arc<Shared>,
 }
 
-impl Receiver {
+impl ReceiverSync {
     pub fn try_recv(
         &self,
         commitment: CommitmentLevel,

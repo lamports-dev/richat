@@ -55,6 +55,45 @@ apps:
   tokio:
     worker_threads: 2
     affinity: 3-4
+  richat:
+    quic:
+      endpoint: '127.0.0.1:10100'
+      tls_config:
+        # cert: /path/to/cert.cert
+        # key: /path/to/key.key
+        self_signed_alt_names:
+          - localhost
+      expected_rtt: 100
+      max_stream_bandwidth: 12500000
+      max_recv_streams: 16
+      x_tokens: []
+    tcp:
+      endpoint: '127.0.0.1:10101'
+      backlog: 1024
+      keepalive: null
+      nodelay: true
+      send_buffer_size: null
+      x_tokens: []
+    grpc:
+      endpoint: '127.0.0.1:10102'
+      tls_config:
+        cert: /path/to/cert.cert
+        key: /path/to/key.key
+      compression:
+        accept:
+          - gzip
+          - zstd
+        send:
+          - gzip
+          - zstd
+      max_decoding_message_size: '4_194_304'
+      server_tcp_keepalive: 20s
+      server_tcp_nodelay: true
+      server_http2_adaptive_window: null
+      server_http2_keepalive_interval: null
+      server_http2_keepalive_timeout: null
+      server_initial_connection_window_size: null
+      server_initial_stream_window_size: null
   grpc:
     server:
       endpoint: 127.0.0.1:10102
