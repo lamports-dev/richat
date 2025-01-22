@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
         })?;
 
     // Create parser channel
-    let messages = channel::Messages::new(config.channel.config);
+    let messages = channel::Messages::new(config.channel.config, config.apps.grpc.is_some());
     let parser_jh = thread::Builder::new()
         .name("richatParser".to_owned())
         .spawn({

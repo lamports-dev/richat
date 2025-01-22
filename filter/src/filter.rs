@@ -417,6 +417,11 @@ impl FilterAccounts {
 pub struct FilterAccountDataSlices(SmallVec<[Range<usize>; 4]>);
 
 impl FilterAccountDataSlices {
+    fn empty() -> &'static FilterAccountDataSlices {
+        static EMPTY: FilterAccountDataSlices = FilterAccountDataSlices(SmallVec::new_const());
+        &EMPTY
+    }
+
     fn new(data_slices: &[ConfigFilterAccountsDataSlice]) -> Self {
         let mut vec = SmallVec::new();
         for data_slice in data_slices {
@@ -933,4 +938,26 @@ pub enum FilteredUpdateType<'a> {
         entries: bool,
         data_slices: &'a FilterAccountDataSlices,
     },
+}
+
+impl<'a> From<MessageRef<'a>> for FilteredUpdateType<'a> {
+    fn from(value: MessageRef<'a>) -> Self {
+        match value {
+            MessageRef::Slot(message) => Self::Slot { message },
+            MessageRef::Account(message) => Self::Account {
+                message,
+                data_slices: FilterAccountDataSlices::empty(),
+            },
+            MessageRef::Transaction(message) => Self::Transaction { message },
+            MessageRef::Entry(message) => Self::Entry { message },
+            MessageRef::BlockMeta(message) => Self::BlockMeta { message },
+            MessageRef::Block(message) => Self::Block {
+                message,
+                accounts: (0..message.accounts.len()).collect(),
+                transactions: (0..message.transactions.len()).collect(),
+                entries: true,
+                data_slices: FilterAccountDataSlices::empty(),
+            },
+        }
+    }
 }

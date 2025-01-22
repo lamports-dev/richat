@@ -1,6 +1,6 @@
 use {
     crate::{
-        channel::{Messages, ParsedMessage, Receiver, RecvError},
+        channel::{Messages, ParsedMessage, ReceiverSync},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         version::VERSION,
@@ -23,7 +23,7 @@ use {
         PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing,
         SubscribeUpdatePong,
     },
-    richat_shared::shutdown::Shutdown,
+    richat_shared::{shutdown::Shutdown, transports::RecvError},
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
@@ -250,7 +250,7 @@ impl GrpcServer {
 
             let Some(message) = receiver.try_recv(CommitmentLevel::Processed, head)? else {
                 counter = COUNTER_LIMIT;
-                thread::sleep(Duration::from_millis(2));
+                thread::sleep(Duration::from_millis(1));
                 continue;
             };
             head += 1;
@@ -337,6 +337,11 @@ impl GrpcServer {
                     Ok(None) => break,
                     Err(RecvError::Lagged) => {
                         state.push_error(Status::data_loss("lagged"));
+                        errored = true;
+                        break;
+                    }
+                    Err(RecvError::Closed) => {
+                        state.push_error(Status::data_loss("closed"));
                         errored = true;
                         break;
                     }
@@ -722,7 +727,7 @@ impl MessagesCache {
 
     fn try_recv(
         &mut self,
-        receiver: &Receiver,
+        receiver: &ReceiverSync,
         commitment: CommitmentLevel,
         head: u64,
     ) -> Result<Option<Cow<'_, ParsedMessage>>, RecvError> {

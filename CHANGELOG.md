@@ -14,9 +14,17 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
-- richat: add metrics (backport of [#1](https://github.com/lamports-dev/richat-private/pull/1) [#44](https://github.com/lamports-dev/richat/pull/44)) ([#45](https://github.com/lamports-dev/richat/pull/45))
-
 ### Breaking
+
+## 2025-01-22
+
+- filter-v1.2.0
+- richat-v1.1.0
+
+### Features
+
+- richat: add metrics (backport of [private#1](https://github.com/lamports-dev/richat-private/pull/1) [#44](https://github.com/lamports-dev/richat/pull/44)) ([#45](https://github.com/lamports-dev/richat/pull/45))
+- richat: add downstream server (backport of [private#3](https://github.com/lamports-dev/richat-private/pull/3) [#46](https://github.com/lamports-dev/richat/pull/46)) ([#47](https://github.com/lamports-dev/richat/pull/47))
 
 ## 2025-01-19
 

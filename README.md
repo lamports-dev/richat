@@ -29,7 +29,7 @@ flowchart LR
 ```
 
 <details>
-<summary>Metrics example (click to toggle):</summary>
+<summary>gRPC metrics example (click to toggle):</summary>
 
 ```
 $ curl -s 127.0.0.1:10224/metrics

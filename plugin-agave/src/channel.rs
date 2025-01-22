@@ -10,7 +10,7 @@ use {
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
     richat_proto::richat::RichatFilter,
-    richat_shared::transports::{RecvError, RecvStream, Subscribe, SubscribeError},
+    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
@@ -287,8 +287,6 @@ impl Subscribe for Sender {
     }
 }
 
-pub type ReceiverItem = Arc<Vec<u8>>;
-
 #[derive(Debug)]
 pub struct Receiver {
     shared: Arc<Shared>,
@@ -300,11 +298,11 @@ pub struct Receiver {
 }
 
 impl Receiver {
-    pub async fn recv(&mut self) -> Result<ReceiverItem, RecvError> {
+    pub async fn recv(&mut self) -> Result<RecvItem, RecvError> {
         Recv::new(self).await
     }
 
-    pub fn recv_ref(&mut self, waker: &Waker) -> Result<Option<ReceiverItem>, RecvError> {
+    pub fn recv_ref(&mut self, waker: &Waker) -> Result<Option<RecvItem>, RecvError> {
         loop {
             // read item with next value
             let idx = self.shared.get_idx(self.next);
@@ -361,7 +359,7 @@ impl<'a> Recv<'a> {
 }
 
 impl<'a> Future for Recv<'a> {
-    type Output = Result<ReceiverItem, RecvError>;
+    type Output = Result<RecvItem, RecvError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let me = self.get_mut();
@@ -376,7 +374,7 @@ impl<'a> Future for Recv<'a> {
 }
 
 impl Stream for Receiver {
-    type Item = Result<ReceiverItem, RecvError>;
+    type Item = Result<RecvItem, RecvError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let me = self.get_mut();
@@ -477,6 +475,6 @@ struct SlotInfo {
 struct Item {
     pos: u64,
     slot: Slot,
-    data: Option<(PluginNotification, ReceiverItem)>,
+    data: Option<(PluginNotification, RecvItem)>,
     closed: bool,
 }

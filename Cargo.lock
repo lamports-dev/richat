@@ -3312,7 +3312,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "affinity",
  "anyhow",
@@ -3397,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
