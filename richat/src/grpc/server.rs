@@ -220,8 +220,12 @@ impl GrpcServer {
     }
 
     #[inline]
-    fn pop_client(&self) -> Option<SubscribeClient> {
-        self.subscribe_clients_lock().pop_front()
+    fn pop_client(&self, prev_client: Option<SubscribeClient>) -> Option<SubscribeClient> {
+        let mut state = self.subscribe_clients_lock();
+        if let Some(client) = prev_client {
+            state.push_back(client);
+        }
+        state.pop_front()
     }
 
     fn worker_block_meta(
@@ -280,19 +284,20 @@ impl GrpcServer {
         let receiver = self.messages.to_receiver();
         const COUNTER_LIMIT: i32 = 10_000;
         let mut counter = 0;
+        let mut prev_client = None;
         loop {
             counter += 1;
             if counter > COUNTER_LIMIT {
                 counter = 0;
                 if shutdown.is_set() {
-                    while self.pop_client().is_some() {}
+                    while self.pop_client(None).is_some() {}
                     info!("gRPC worker#{index:02} shutdown");
                     return Ok(());
                 }
             }
 
             // get client and state
-            let Some(client) = self.pop_client() else {
+            let Some(client) = self.pop_client(prev_client.take()) else {
                 counter = COUNTER_LIMIT;
                 continue;
             };
@@ -315,7 +320,7 @@ impl GrpcServer {
             // filter messages
             if state.filter.is_none() {
                 drop(state);
-                self.push_client(client);
+                prev_client = Some(client);
                 continue;
             }
 
@@ -362,7 +367,7 @@ impl GrpcServer {
             }
             drop(state);
             if !errored {
-                self.push_client(client);
+                prev_client = Some(client);
             }
         }
     }

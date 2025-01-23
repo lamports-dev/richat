@@ -12,6 +12,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+- richat: remove extra lock on clients queue ([#49](https://github.com/lamports-dev/richat/pull/49))
+
 ### Features
 
 ### Breaking
