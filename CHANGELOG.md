@@ -16,6 +16,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- cli: add bin `richat-track` ([#51](https://github.com/lamports-dev/richat/pull/51))
+
 ### Breaking
 
 ## 2025-01-22

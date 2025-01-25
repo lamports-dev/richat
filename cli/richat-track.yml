@@ -1,0 +1,27 @@
+---
+sources:
+  # richat-plugin-agave-quic:
+  #   source: richat-plugin-agave
+  #   transport: quic
+  #   endpoint: 127.0.0.1:10100
+  #   local_addr: "[::]:0"
+  #   server_name: "localhost"
+  #   insecure: true
+  # richat-plugin-agave-tcp:
+  #   source: richat-plugin-agave
+  #   transport: tcp
+  #   endpoint: 127.0.0.1:10101
+  richat-plugin-agave-grpc:
+    source: richat-plugin-agave
+    transport: grpc
+    endpoint: http://127.0.0.1:10102
+  richat-grpc:
+    source: richat-grpc
+    endpoint: http://127.0.0.1:10202
+  yellowstone-grpc:
+    source: yellowstone-grpc
+    endpoint: http://127.0.0.1:10000
+tracks:
+  - event: BlockMeta
+  - event: Transaction
+    index: 0
