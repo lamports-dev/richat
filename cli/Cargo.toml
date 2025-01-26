@@ -19,12 +19,15 @@ const-hex = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 indicatif = { workspace = true }
+maplit = { workspace = true }
 prost = { workspace = true }
 richat-client = { workspace = true }
 richat-plugin-agave = { workspace = true }
 richat-proto = { workspace = true }
 richat-shared = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
