@@ -19,7 +19,7 @@ use {
             SubscribeRequestFilterTransactions, SubscribeUpdateBlockMeta, SubscribeUpdateSlot,
             SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
-        richat::GrpcSubscribeRequest,
+        richat::{GrpcSubscribeRequest, RichatFilter},
     },
     serde::Deserialize,
     solana_sdk::clock::Slot,
@@ -37,11 +37,17 @@ struct Args {
     /// Path to config
     #[clap(short, long, default_value_t = String::from("config.json"))]
     config: String,
+
+    /// Show only progress, without events
+    #[clap(long, default_value_t = false)]
+    show_events: bool,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    accounts: bool,
+    transactions: bool,
     sources: HashMap<String, ConfigSource>,
     tracks: Vec<ConfigTrack>,
 }
@@ -64,11 +70,25 @@ impl ConfigSource {
         storage: Arc<Mutex<TrackStorage>>,
         tracks: Vec<ConfigTrack>,
         name: String,
+        accounts_enabled: bool,
+        transactions_enabled: bool,
     ) -> anyhow::Result<()> {
         let mut stream = match self {
-            Self::RichatPluginAgave(config) => config.subscribe().await,
-            Self::RichatGrpc(config) => config.subscribe().await,
-            Self::YellowstoneGrpc(config) => config.subscribe().await,
+            Self::RichatPluginAgave(config) => {
+                config
+                    .subscribe(accounts_enabled, transactions_enabled)
+                    .await
+            }
+            Self::RichatGrpc(config) => {
+                config
+                    .subscribe(accounts_enabled, transactions_enabled)
+                    .await
+            }
+            Self::YellowstoneGrpc(config) => {
+                config
+                    .subscribe(accounts_enabled, transactions_enabled)
+                    .await
+            }
         }?;
 
         loop {
@@ -108,20 +128,30 @@ enum ConfigSourceRichatPluginAgave {
 }
 
 impl ConfigSourceRichatPluginAgave {
-    async fn subscribe(self) -> anyhow::Result<BoxStream<'static, anyhow::Result<UpdateOneof>>> {
+    async fn subscribe(
+        self,
+        accounts_enabled: bool,
+        transactions_enabled: bool,
+    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<UpdateOneof>>> {
+        let filter = Some(RichatFilter {
+            disable_accounts: !accounts_enabled,
+            disable_transactions: !transactions_enabled,
+            disable_entries: false,
+        });
+
         let stream = match self {
             Self::Quic(config) => {
-                let stream = config.connect().await?.subscribe(None, None).await?;
+                let stream = config.connect().await?.subscribe(None, filter).await?;
                 stream.into_parsed()
             }
             Self::Tcp(config) => {
-                let stream = config.connect().await?.subscribe(None, None).await?;
+                let stream = config.connect().await?.subscribe(None, filter).await?;
                 stream.into_parsed()
             }
             Self::Grpc(config) => {
                 let request = GrpcSubscribeRequest {
                     replay_from_slot: None,
-                    filter: None,
+                    filter,
                 };
 
                 let stream = config.connect().await?.subscribe_richat(request).await?;
@@ -145,25 +175,45 @@ struct ConfigYellowstoneGrpc {
 }
 
 impl ConfigYellowstoneGrpc {
-    async fn subscribe(self) -> anyhow::Result<BoxStream<'static, anyhow::Result<UpdateOneof>>> {
+    async fn subscribe(
+        self,
+        accounts_enabled: bool,
+        transactions_enabled: bool,
+    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<UpdateOneof>>> {
+        let mut accounts = HashMap::new();
+        if accounts_enabled {
+            accounts.insert(
+                "".to_owned(),
+                SubscribeRequestFilterAccounts {
+                    account: vec![],
+                    owner: vec![],
+                    filters: vec![],
+                    nonempty_txn_signature: None,
+                },
+            );
+        }
+
+        let mut transactions = HashMap::new();
+        if transactions_enabled {
+            transactions.insert(
+                "".to_owned(),
+                SubscribeRequestFilterTransactions {
+                    vote: None,
+                    failed: None,
+                    signature: None,
+                    account_include: vec![],
+                    account_exclude: vec![],
+                    account_required: vec![],
+                },
+            );
+        }
+
         let request = SubscribeRequest {
-            accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts {
-                account: vec![],
-                owner: vec![],
-                filters: vec![],
-                nonempty_txn_signature: None,
-            } },
+            accounts,
             slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
                 filter_by_commitment: None
             } },
-            transactions: hashmap! { "".to_owned() => SubscribeRequestFilterTransactions {
-                vote: None,
-                failed: None,
-                signature: None,
-                account_include: vec![],
-                account_exclude: vec![],
-                account_required: vec![],
-            } },
+            transactions,
             transactions_status: HashMap::new(),
             blocks: HashMap::new(),
             blocks_meta: hashmap! { "".to_owned() => SubscribeRequestFilterBlocksMeta {} },
@@ -237,10 +287,11 @@ struct TrackStorage {
     total: usize,
     stats: BTreeMap<String, TrackStat>,
     pb_multi: MultiProgress,
+    show_events: bool,
 }
 
 impl TrackStorage {
-    fn new(names: impl Iterator<Item = String>) -> anyhow::Result<Self> {
+    fn new(names: impl Iterator<Item = String>, show_events: bool) -> anyhow::Result<Self> {
         let mut total = 0;
         let mut stats = BTreeMap::new();
 
@@ -268,6 +319,7 @@ impl TrackStorage {
             total,
             stats,
             pb_multi,
+            show_events,
         })
     }
 
@@ -284,7 +336,9 @@ impl TrackStorage {
         map.insert(name, ts);
 
         if map.len() == self.total {
-            self.pb_multi.println(track.to_info(slot))?;
+            if self.show_events {
+                self.pb_multi.println(track.to_info(slot))?;
+            }
 
             let (best_name, best_ts) = map
                 .iter()
@@ -293,22 +347,26 @@ impl TrackStorage {
                 .unwrap();
             for (name, ts) in map.iter() {
                 if name == &best_name {
-                    self.pb_multi.println(format!("+000.000000s {name}"))?;
+                    if self.show_events {
+                        self.pb_multi.println(format!("+00.000000s {name}"))?;
+                    }
                     self.stats.get_mut(&best_name).unwrap().win += 1;
                 } else {
                     let elapsed = ts.duration_since(best_ts).unwrap();
-                    self.pb_multi.println(format!(
-                        "+{:03}.{:06}s {name}",
-                        elapsed.as_secs(),
-                        elapsed.subsec_micros()
-                    ))?;
+                    if self.show_events {
+                        self.pb_multi.println(format!(
+                            "+{:02}.{:06}s {name}",
+                            elapsed.as_secs(),
+                            elapsed.subsec_micros()
+                        ))?;
+                    }
                     let entry = self.stats.get_mut(name).unwrap();
                     entry.delay += elapsed;
                     entry.delay_count += 1;
                 }
             }
 
-            self.update_pb();
+            self.pb_update();
         }
 
         Ok(())
@@ -318,11 +376,11 @@ impl TrackStorage {
         self.map.retain(|k, _v| *k >= finalized);
     }
 
-    fn update_pb(&self) {
+    fn pb_update(&self) {
         for stat in self.stats.values() {
             let avg = stat.delay.checked_div(stat.delay_count).unwrap_or_default();
             stat.pb.set_message(format!(
-                "win {:010} | avg delay +{:03}.{:06}s",
+                "win {:010} | avg delay +{:02}.{:06}s",
                 stat.win,
                 avg.as_secs(),
                 avg.subsec_micros()
@@ -337,11 +395,17 @@ async fn main() -> anyhow::Result<()> {
     let config = fs::read(&args.config).await?;
     let config: Config = serde_yaml::from_slice(&config)?;
 
-    let storage = TrackStorage::new(config.sources.keys().cloned())?;
+    let storage = TrackStorage::new(config.sources.keys().cloned(), args.show_events)?;
     let storage = Arc::new(Mutex::new(storage));
     try_join_all(config.sources.into_iter().map(|(name, source)| {
-        tokio::spawn(source.subscribe(Arc::clone(&storage), config.tracks.clone(), name))
-            .map_err(anyhow::Error::new)
+        tokio::spawn(source.subscribe(
+            Arc::clone(&storage),
+            config.tracks.clone(),
+            name,
+            config.accounts,
+            config.transactions,
+        ))
+        .map_err(anyhow::Error::new)
     }))
     .await
     .map(|_| ())
