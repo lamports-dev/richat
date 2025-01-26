@@ -5,7 +5,6 @@ use {
     },
     futures::{
         future::{BoxFuture, FutureExt},
-        ready,
         stream::{Stream, StreamExt},
     },
     pin_project_lite::pin_project,
@@ -35,7 +34,7 @@ use {
         path::PathBuf,
         pin::Pin,
         sync::Arc,
-        task::{Context, Poll},
+        task::{ready, Context, Poll},
         time::Duration,
     },
     thiserror::Error,

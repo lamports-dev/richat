@@ -5,7 +5,6 @@ use {
     },
     futures::{
         future::{BoxFuture, FutureExt},
-        ready,
         stream::{Stream, StreamExt},
     },
     pin_project_lite::pin_project,
@@ -20,7 +19,7 @@ use {
         io,
         net::SocketAddr,
         pin::Pin,
-        task::{Context, Poll},
+        task::{ready, Context, Poll},
     },
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},

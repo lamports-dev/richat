@@ -2,7 +2,7 @@ use {
     crate::{
         config::deserialize_x_token_set,
         shutdown::Shutdown,
-        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
     },
     futures::{
         future::{pending, FutureExt},
@@ -27,7 +27,7 @@ use {
         collections::{BTreeSet, HashSet, VecDeque},
         fs,
         future::Future,
-        io,
+        io::{self, IoSlice},
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
         sync::Arc,
@@ -317,9 +317,15 @@ impl QuicServer {
                     if let Some(mut stream) = streams.pop_front() {
                         msg_ids.insert(msg_id);
                         set.spawn(async move {
-                            stream.write_u64(msg_id).await?;
-                            stream.write_u64(message.len() as u64).await?;
-                            stream.write_all(&message).await?;
+                            WriteVectored::new(
+                                &mut stream,
+                                &mut [
+                                    IoSlice::new(&msg_id.to_be_bytes()),
+                                    IoSlice::new(&(message.len() as u64).to_be_bytes()),
+                                    IoSlice::new(&message),
+                                ],
+                            )
+                            .await?;
                             Ok::<_, ConnectionError>((msg_id, stream))
                         });
                         msg_id += 1;

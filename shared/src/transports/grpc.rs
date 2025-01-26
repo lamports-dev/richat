@@ -5,10 +5,7 @@ use {
         transports::{RecvError, RecvStream, Subscribe, SubscribeError},
         version::Version,
     },
-    futures::{
-        ready,
-        stream::{Stream, StreamExt},
-    },
+    futures::stream::{Stream, StreamExt},
     prost::{bytes::BufMut, Message},
     richat_proto::{
         geyser::{GetVersionRequest, GetVersionResponse},
@@ -30,7 +27,7 @@ use {
             atomic::{AtomicU64, Ordering},
             Arc,
         },
-        task::{Context, Poll},
+        task::{ready, Context, Poll},
         time::Duration,
     },
     thiserror::Error,

@@ -3175,6 +3175,7 @@ dependencies = [
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
+ "socket2",
  "solana-sdk",
  "thiserror 2.0.9",
  "tokio",

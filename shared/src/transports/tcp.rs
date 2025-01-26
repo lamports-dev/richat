@@ -2,7 +2,7 @@ use {
     crate::{
         config::deserialize_x_token_set,
         shutdown::Shutdown,
-        transports::{RecvError, RecvStream, Subscribe, SubscribeError},
+        transports::{RecvError, RecvStream, Subscribe, SubscribeError, WriteVectored},
     },
     futures::stream::StreamExt,
     prost::Message,
@@ -177,12 +177,14 @@ impl TcpServer {
         loop {
             match rx.next().await {
                 Some(Ok(message)) => {
-                    let _ = stream
-                        .write_vectored(&[
+                    WriteVectored::new(
+                        &mut stream,
+                        &mut [
                             IoSlice::new(&(message.len() as u64).to_be_bytes()),
                             IoSlice::new(&message),
-                        ])
-                        .await?;
+                        ],
+                    )
+                    .await?;
                 }
                 Some(Err(error)) => {
                     error!("#{id}: failed to get message: {error}");

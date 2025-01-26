@@ -1,16 +1,13 @@
 use {
     crate::error::ReceiveError,
-    futures::{
-        ready,
-        stream::{BoxStream, Stream},
-    },
+    futures::stream::{BoxStream, Stream},
     pin_project_lite::pin_project,
     prost::Message,
     richat_proto::geyser::SubscribeUpdate,
     std::{
         fmt,
         pin::Pin,
-        task::{Context, Poll},
+        task::{ready, Context, Poll},
     },
 };
 
