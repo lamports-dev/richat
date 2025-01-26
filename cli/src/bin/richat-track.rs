@@ -4,6 +4,7 @@ use {
         future::{try_join_all, TryFutureExt},
         stream::{BoxStream, StreamExt},
     },
+    indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     maplit::hashmap,
     richat_client::{
         grpc::{ConfigGrpcClient, GrpcClient},
@@ -24,12 +25,10 @@ use {
     solana_sdk::clock::Slot,
     std::{
         collections::{BTreeMap, HashMap},
-        env,
         sync::Arc,
         time::{Duration, SystemTime},
     },
-    tokio::{fs, sync::Mutex, time::sleep},
-    tracing::{error, info, warn},
+    tokio::{fs, sync::Mutex},
 };
 
 #[derive(Debug, Parser)]
@@ -84,7 +83,7 @@ impl ConfigSource {
 
             for track in tracks.iter() {
                 if let Some(slot) = track.matches(&update) {
-                    storage.add(slot, track, name.clone(), ts);
+                    storage.add(slot, track, name.clone(), ts)?;
                 }
             }
 
@@ -224,8 +223,9 @@ impl ConfigTrack {
 
 type TrackStorageSlot = HashMap<ConfigTrack, BTreeMap<String, SystemTime>>;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct TrackStat {
+    pb: ProgressBar,
     win: usize,
     delay: Duration,
     delay_count: u32,
@@ -236,25 +236,55 @@ struct TrackStorage {
     map: HashMap<Slot, TrackStorageSlot>,
     total: usize,
     stats: BTreeMap<String, TrackStat>,
+    pb_multi: MultiProgress,
 }
 
 impl TrackStorage {
-    fn new(total: usize) -> Self {
-        Self {
+    fn new(names: impl Iterator<Item = String>) -> anyhow::Result<Self> {
+        let mut total = 0;
+        let mut stats = BTreeMap::new();
+
+        let pb_multi = MultiProgress::new();
+        for name in names {
+            let pb = pb_multi.add(ProgressBar::no_length());
+            pb.set_style(ProgressStyle::with_template(&format!(
+                "{{spinner}} {{msg}} | {name}"
+            ))?);
+
+            total += 1;
+            stats.insert(
+                name,
+                TrackStat {
+                    pb,
+                    win: 0,
+                    delay: Duration::ZERO,
+                    delay_count: 0,
+                },
+            );
+        }
+
+        Ok(Self {
             map: Default::default(),
             total,
-            stats: Default::default(),
-        }
+            stats,
+            pb_multi,
+        })
     }
 
-    fn add(&mut self, slot: Slot, track: &ConfigTrack, name: String, ts: SystemTime) {
+    fn add(
+        &mut self,
+        slot: Slot,
+        track: &ConfigTrack,
+        name: String,
+        ts: SystemTime,
+    ) -> anyhow::Result<()> {
         let storage = self.map.entry(slot).or_default();
 
         let map = storage.entry(track.clone()).or_default();
         map.insert(name, ts);
 
         if map.len() == self.total {
-            warn!("{}", track.to_info(slot));
+            self.pb_multi.println(track.to_info(slot))?;
 
             let (best_name, best_ts) = map
                 .iter()
@@ -263,73 +293,56 @@ impl TrackStorage {
                 .unwrap();
             for (name, ts) in map.iter() {
                 if name == &best_name {
-                    info!("+000.000000s {name}");
+                    self.pb_multi.println(format!("+000.000000s {name}"))?;
+                    self.stats.get_mut(&best_name).unwrap().win += 1;
                 } else {
                     let elapsed = ts.duration_since(best_ts).unwrap();
-                    info!(
+                    self.pb_multi.println(format!(
                         "+{:03}.{:06}s {name}",
                         elapsed.as_secs(),
                         elapsed.subsec_micros()
-                    );
-                    let entry = self.stats.entry(name.clone()).or_default();
+                    ))?;
+                    let entry = self.stats.get_mut(name).unwrap();
                     entry.delay += elapsed;
                     entry.delay_count += 1;
                 }
             }
-            self.stats.entry(best_name).or_default().win += 1;
+
+            self.update_pb();
         }
+
+        Ok(())
     }
 
     fn clear(&mut self, finalized: Slot) {
         self.map.retain(|k, _v| *k >= finalized);
     }
+
+    fn update_pb(&self) {
+        for stat in self.stats.values() {
+            let avg = stat.delay.checked_div(stat.delay_count).unwrap_or_default();
+            stat.pb.set_message(format!(
+                "win {:010} | avg delay +{:03}.{:06}s",
+                stat.win,
+                avg.as_secs(),
+                avg.subsec_micros()
+            ));
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env::set_var(
-        env_logger::DEFAULT_FILTER_ENV,
-        env::var_os(env_logger::DEFAULT_FILTER_ENV).unwrap_or_else(|| "info".into()),
-    );
-    env_logger::init();
-
     let args = Args::parse();
     let config = fs::read(&args.config).await?;
     let config: Config = serde_yaml::from_slice(&config)?;
 
-    let mut storage = TrackStorage::new(config.sources.len());
-    for name in config.sources.keys() {
-        storage.stats.insert(name.clone(), TrackStat::default());
-    }
+    let storage = TrackStorage::new(config.sources.keys().cloned())?;
     let storage = Arc::new(Mutex::new(storage));
-    try_join_all(
-        std::iter::once(
-            tokio::spawn({
-                let storage = Arc::clone(&storage);
-                async move {
-                    loop {
-                        sleep(Duration::from_secs(10)).await;
-                        let storage = storage.lock().await;
-                        error!("Stats");
-                        for (name, stat) in storage.stats.iter() {
-                            let avg = stat.delay.checked_div(stat.delay_count).unwrap_or_default();
-                            error!(
-                                "win {:010} | avg delay +{:03}.{:06}s | {name}",
-                                stat.win,
-                                avg.as_secs(),
-                                avg.subsec_micros()
-                            );
-                        }
-                    }
-                }
-            })
-            .map_err(anyhow::Error::new),
-        )
-        .chain(config.sources.into_iter().map(|(name, source)| {
-            tokio::spawn(source.subscribe(Arc::clone(&storage), config.tracks.clone(), name))
-                .map_err(anyhow::Error::new)
-        })),
-    )
+    try_join_all(config.sources.into_iter().map(|(name, source)| {
+        tokio::spawn(source.subscribe(Arc::clone(&storage), config.tracks.clone(), name))
+            .map_err(anyhow::Error::new)
+    }))
     .await
     .map(|_| ())
 }
