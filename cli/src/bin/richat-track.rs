@@ -411,7 +411,8 @@ async fn main2() -> anyhow::Result<()> {
         let stream = source
             .subscribe(config.accounts, config.transactions)
             .await?;
-        storage.lock().await.pb_multi.println(format!("connected to {name}"))?;
+        let locked = storage.lock().await;
+        locked.pb_multi.println(format!("connected to {name}"))?;
         let jh = tokio::spawn(ConfigSource::run_stream(
             stream,
             Arc::clone(&storage),
