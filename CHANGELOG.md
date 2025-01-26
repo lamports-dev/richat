@@ -13,6 +13,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Fixes
 
 - richat: remove extra lock on clients queue ([#49](https://github.com/lamports-dev/richat/pull/49))
+- plugin-agave: set `nodelay` correctly for Tcp ([#53](https://github.com/lamports-dev/richat/pull/53))
 
 ### Features
 
