@@ -1,7 +1,7 @@
 use {
     clap::Parser,
     futures::{
-        future::{try_join_all, TryFutureExt},
+        future::try_join_all,
         stream::{BoxStream, StreamExt},
     },
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
@@ -99,27 +99,19 @@ impl ConfigSource {
                 .next()
                 .await
                 .ok_or(anyhow::anyhow!("stream finished"))??;
-
             let ts = SystemTime::now();
+            let mut storage = storage.lock().await;
+            storage.stats.get(&name).unwrap().pb.inc(1);
 
-            let filtered = tracks
-                .iter()
-                .filter_map(|track| {
-                    track
-                        .matches(&update)
-                        .map(|slot| (slot, track.clone(), name.clone()))
-                })
-                .collect::<Vec<_>>();
-            if !filtered.is_empty() {
-                let mut storage = storage.lock().await;
-                for (slot, track, name) in filtered {
-                    storage.add(slot, &track, name.clone(), ts)?;
+            for track in tracks.iter() {
+                if let Some(slot) = track.matches(&update) {
+                    storage.add(slot, track, name.clone(), ts)?;
                 }
             }
 
             if let UpdateOneof::Slot(SubscribeUpdateSlot { slot, status, .. }) = update {
                 if status == CommitmentLevel::Finalized as i32 {
-                    storage.lock().await.clear(slot);
+                    storage.clear(slot);
                 }
             }
         }
@@ -234,8 +226,11 @@ impl ConfigYellowstoneGrpc {
             from_slot: None,
         };
 
-        let builder = GrpcClient::build_from_shared(self.endpoint)?;
-        let mut client = builder.connect().await?;
+        let mut client = GrpcClient::build_from_shared(self.endpoint)?
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(3))
+            .connect()
+            .await?;
         let stream = client.subscribe_dragons_mouth_once(request).await?;
         let parsed = stream.into_parsed().map(|message| {
             message?
@@ -309,7 +304,7 @@ impl TrackStorage {
         for name in names {
             let pb = pb_multi.add(ProgressBar::no_length());
             pb.set_style(ProgressStyle::with_template(&format!(
-                "{{spinner}} {{msg}} | {name}"
+                "{{spinner}} {{msg}} | {name} (total messages: {{pos}})"
             ))?);
 
             total += 1;
@@ -376,7 +371,16 @@ impl TrackStorage {
                 }
             }
 
-            self.pb_update();
+            // update messages
+            for stat in self.stats.values() {
+                let avg = stat.delay.checked_div(stat.delay_count).unwrap_or_default();
+                stat.pb.set_message(format!(
+                    "win {:010} | avg delay +{:02}.{:06}s",
+                    stat.win,
+                    avg.as_secs(),
+                    avg.subsec_micros()
+                ));
+            }
         }
 
         Ok(())
@@ -384,18 +388,6 @@ impl TrackStorage {
 
     fn clear(&mut self, finalized: Slot) {
         self.map.retain(|k, _v| *k >= finalized);
-    }
-
-    fn pb_update(&self) {
-        for stat in self.stats.values() {
-            let avg = stat.delay.checked_div(stat.delay_count).unwrap_or_default();
-            stat.pb.set_message(format!(
-                "win {:010} | avg delay +{:02}.{:06}s",
-                stat.win,
-                avg.as_secs(),
-                avg.subsec_micros()
-            ));
-        }
     }
 }
 
@@ -407,17 +399,17 @@ async fn main2() -> anyhow::Result<()> {
     let storage = TrackStorage::new(config.sources.keys().cloned(), args.show_events)?;
     let storage = Arc::new(Mutex::new(storage));
     try_join_all(config.sources.into_iter().map(|(name, source)| {
-        tokio::spawn(source.subscribe(
+        let jh = tokio::spawn(source.subscribe(
             Arc::clone(&storage),
             config.tracks.clone(),
             name,
             config.accounts,
             config.transactions,
-        ))
-        .map_err(anyhow::Error::new)
+        ));
+        async move { jh.await? }
     }))
     .await
-    .map(|_| ())
+    .map(|_: Vec<()>| ())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -425,7 +417,7 @@ fn main() -> anyhow::Result<()> {
         .thread_name_fn(move || {
             static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
             let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-            format!("richatCli{id:02}")
+            format!("richatTrack{id:02}")
         })
         .enable_all()
         .build()?
