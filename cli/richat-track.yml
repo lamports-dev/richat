@@ -13,6 +13,7 @@ sources:
     source: richat-plugin-agave
     transport: tcp
     endpoint: 127.0.0.1:10101
+    nodelay: true
   richat-plugin-agave-grpc:
     source: richat-plugin-agave
     transport: grpc

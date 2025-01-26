@@ -25,7 +25,10 @@ use {
     solana_sdk::clock::Slot,
     std::{
         collections::{BTreeMap, HashMap},
-        sync::Arc,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
         time::{Duration, SystemTime},
     },
     tokio::{fs, sync::Mutex},
@@ -389,8 +392,7 @@ impl TrackStorage {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main2() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = fs::read(&args.config).await?;
     let config: Config = serde_yaml::from_slice(&config)?;
@@ -409,4 +411,16 @@ async fn main() -> anyhow::Result<()> {
     }))
     .await
     .map(|_| ())
+}
+
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .thread_name_fn(move || {
+            static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
+            let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
+            format!("richatCli{id:02}")
+        })
+        .enable_all()
+        .build()?
+        .block_on(main2())
 }

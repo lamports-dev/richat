@@ -44,7 +44,10 @@ use {
         env,
         net::SocketAddr,
         path::PathBuf,
-        sync::Arc,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
         time::{Duration, SystemTime, UNIX_EPOCH},
     },
     tonic::service::Interceptor,
@@ -602,8 +605,7 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
     }))
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main2() -> anyhow::Result<()> {
     env::set_var(
         env_logger::DEFAULT_FILTER_ENV,
         env::var_os(env_logger::DEFAULT_FILTER_ENV).unwrap_or_else(|| "info".into()),
@@ -813,4 +815,16 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("stream closed");
     Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .thread_name_fn(move || {
+            static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
+            let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
+            format!("richatCli{id:02}")
+        })
+        .enable_all()
+        .build()?
+        .block_on(main2())
 }
