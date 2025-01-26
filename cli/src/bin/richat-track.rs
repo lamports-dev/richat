@@ -227,7 +227,8 @@ impl ConfigYellowstoneGrpc {
         };
 
         let mut client = GrpcClient::build_from_shared(self.endpoint)?
-            .tls_config_native_roots(None).await?
+            .tls_config_native_roots(None)
+            .await?
             .max_decoding_message_size(1024 * 1024 * 1024) // 1GB
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(3))

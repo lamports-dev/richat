@@ -15,7 +15,8 @@ use {
         borrow::Cow,
         collections::HashSet,
         future::Future,
-        io,
+        io::{self, IoSlice},
+        mem,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::Arc,
     },
@@ -24,7 +25,7 @@ use {
         net::{TcpListener, TcpSocket, TcpStream},
         task::JoinError,
     },
-    tracing::{error, info},
+    tracing::{error, info, warn},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,7 +35,7 @@ pub struct ConfigTcpServer {
     pub backlog: u32,
     pub keepalive: Option<bool>,
     pub nodelay: Option<bool>,
-    pub send_buffer_size: Option<u32>,
+    pub send_buffer_size: Option<usize>,
     /// Max request size in bytes
     pub max_request_size: usize,
     #[serde(deserialize_with = "deserialize_x_token_set")]
@@ -62,18 +63,22 @@ impl ConfigTcpServer {
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }?;
         socket.bind(self.endpoint)?;
+        socket.listen(self.backlog)
+    }
 
+    pub fn set_accepted_socket_options(&self, stream: &TcpStream) -> io::Result<()> {
         if let Some(keepalive) = self.keepalive {
-            socket.set_keepalive(keepalive)?;
+            let sock_ref = socket2::SockRef::from(&stream);
+            sock_ref.set_keepalive(keepalive)?;
         }
         if let Some(nodelay) = self.nodelay {
-            socket.set_nodelay(nodelay)?;
+            stream.set_nodelay(nodelay)?;
         }
         if let Some(send_buffer_size) = self.send_buffer_size {
-            socket.set_send_buffer_size(send_buffer_size)?;
+            let sock_ref = socket2::SockRef::from(&stream);
+            sock_ref.set_send_buffer_size(send_buffer_size)?;
         }
-
-        socket.listen(self.backlog)
+        Ok(())
     }
 }
 
@@ -90,7 +95,7 @@ pub struct TcpServer;
 
 impl TcpServer {
     pub async fn spawn(
-        config: ConfigTcpServer,
+        mut config: ConfigTcpServer,
         messages: impl Subscribe + Clone + Send + 'static,
         on_conn_new_cb: impl Fn() + Copy + Send + 'static,
         on_conn_drop_cb: impl Fn() + Copy + Send + 'static,
@@ -100,18 +105,19 @@ impl TcpServer {
         info!("start server at {}", config.endpoint);
 
         Ok(tokio::spawn(async move {
-            let max_request_size = config.max_request_size as u64;
-            let x_tokens = Arc::new(config.x_tokens);
-
             let mut id = 0;
+            let x_tokens = Arc::new(mem::take(&mut config.x_tokens));
             tokio::pin!(shutdown);
             loop {
                 tokio::select! {
                     incoming = listener.accept() => {
-                        let socket = match incoming {
-                            Ok((socket, addr)) => {
+                        let stream = match incoming {
+                            Ok((stream, addr)) => {
+                                if let Err(error) = config.set_accepted_socket_options(&stream) {
+                                    warn!("#{id}: failed to set socket options {error:?}");
+                                }
                                 info!("#{id}: new connection from {addr:?}");
-                                socket
+                                stream
                             }
                             Err(error) => {
                                 error!("failed to accept new connection: {error}");
@@ -123,7 +129,13 @@ impl TcpServer {
                         let x_tokens = Arc::clone(&x_tokens);
                         tokio::spawn(async move {
                             on_conn_new_cb();
-                            if let Err(error) = Self::handle_incoming(id, socket, messages, max_request_size, x_tokens).await {
+                            if let Err(error) = Self::handle_incoming(
+                                id,
+                                stream,
+                                messages,
+                                config.max_request_size as u64,
+                                x_tokens
+                            ).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
                                 info!("#{id}: connection closed");
@@ -165,8 +177,12 @@ impl TcpServer {
         loop {
             match rx.next().await {
                 Some(Ok(message)) => {
-                    stream.write_u64(message.len() as u64).await?;
-                    stream.write_all(&message).await?;
+                    let _ = stream
+                        .write_vectored(&[
+                            IoSlice::new(&(message.len() as u64).to_be_bytes()),
+                            IoSlice::new(&message),
+                        ])
+                        .await?;
                 }
                 Some(Err(error)) => {
                     error!("#{id}: failed to get message: {error}");
