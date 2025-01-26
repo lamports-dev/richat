@@ -51,7 +51,7 @@ struct Args {
 struct Config {
     accounts: bool,
     transactions: bool,
-    sources: HashMap<String, ConfigSource>,
+    sources: BTreeMap<String, ConfigSource>,
     tracks: Vec<ConfigTrack>,
 }
 
@@ -70,13 +70,10 @@ enum ConfigSource {
 impl ConfigSource {
     async fn subscribe(
         self,
-        storage: Arc<Mutex<TrackStorage>>,
-        tracks: Vec<ConfigTrack>,
-        name: String,
         accounts_enabled: bool,
         transactions_enabled: bool,
-    ) -> anyhow::Result<()> {
-        let mut stream = match self {
+    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<UpdateOneof>>> {
+        match self {
             Self::RichatPluginAgave(config) => {
                 config
                     .subscribe(accounts_enabled, transactions_enabled)
@@ -92,8 +89,15 @@ impl ConfigSource {
                     .subscribe(accounts_enabled, transactions_enabled)
                     .await
             }
-        }?;
+        }
+    }
 
+    async fn run_stream(
+        mut stream: BoxStream<'static, anyhow::Result<UpdateOneof>>,
+        storage: Arc<Mutex<TrackStorage>>,
+        tracks: Vec<ConfigTrack>,
+        name: String,
+    ) -> anyhow::Result<()> {
         loop {
             let update = stream
                 .next()
@@ -401,18 +405,23 @@ async fn main2() -> anyhow::Result<()> {
 
     let storage = TrackStorage::new(config.sources.keys().cloned(), args.show_events)?;
     let storage = Arc::new(Mutex::new(storage));
-    try_join_all(config.sources.into_iter().map(|(name, source)| {
-        let jh = tokio::spawn(source.subscribe(
+
+    let mut futures = vec![];
+    for (name, source) in config.sources {
+        let stream = source
+            .subscribe(config.accounts, config.transactions)
+            .await?;
+        storage.lock().await.pb_multi.println(format!("connected to {name}"))?;
+        let jh = tokio::spawn(ConfigSource::run_stream(
+            stream,
             Arc::clone(&storage),
             config.tracks.clone(),
             name,
-            config.accounts,
-            config.transactions,
         ));
-        async move { jh.await? }
-    }))
-    .await
-    .map(|_: Vec<()>| ())
+        futures.push(async move { jh.await? });
+    }
+
+    try_join_all(futures).await.map(|_: Vec<()>| ())
 }
 
 fn main() -> anyhow::Result<()> {
