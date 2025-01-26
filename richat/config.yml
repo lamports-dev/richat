@@ -50,11 +50,11 @@ channel:
     max_slots: 100
     max_bytes: 10_737_418_240
     parser: prost
-    parser_affinity: 2
+    parser_affinity: 0-1
 apps:
   tokio:
     worker_threads: 2
-    affinity: 3-4
+    affinity: 2-3
   richat:
     quic:
       endpoint: '127.0.0.1:10100'
@@ -117,7 +117,7 @@ apps:
       server_initial_stream_window_size:
     workers:
       threads: 2
-      affinity: 5-6
+      affinity: 4-5
       messages_cached_max: 1_024
     stream:
       messages_len_max: 16_777_216
@@ -125,7 +125,7 @@ apps:
       ping_iterval: 15s
     unary:
       enabled: true
-      affinity: 7
+      affinity: 4-5
       requests_queue_size: 100
     filters:
       name_max: 128

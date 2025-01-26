@@ -103,6 +103,9 @@ fn main() -> anyhow::Result<()> {
 
                     if let Some(message) = msg_rx.recv() {
                         messages.push(message)?;
+                    } else {
+                        counter += 9;
+                        sleep(Duration::from_micros(10));
                     }
                 }
                 Ok::<(), anyhow::Error>(())
