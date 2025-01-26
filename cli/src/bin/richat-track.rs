@@ -102,17 +102,24 @@ impl ConfigSource {
 
             let ts = SystemTime::now();
 
-            let mut storage = storage.lock().await;
-
-            for track in tracks.iter() {
-                if let Some(slot) = track.matches(&update) {
-                    storage.add(slot, track, name.clone(), ts)?;
+            let filtered = tracks
+                .iter()
+                .filter_map(|track| {
+                    track
+                        .matches(&update)
+                        .map(|slot| (slot, track.clone(), name.clone()))
+                })
+                .collect::<Vec<_>>();
+            if !filtered.is_empty() {
+                let mut storage = storage.lock().await;
+                for (slot, track, name) in filtered {
+                    storage.add(slot, &track, name.clone(), ts)?;
                 }
             }
 
             if let UpdateOneof::Slot(SubscribeUpdateSlot { slot, status, .. }) = update {
                 if status == CommitmentLevel::Finalized as i32 {
-                    storage.clear(slot);
+                    storage.lock().await.clear(slot);
                 }
             }
         }
