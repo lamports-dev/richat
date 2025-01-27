@@ -2,7 +2,7 @@ use {
     crate::config::ConfigAppsWorkers,
     richat_filter::config::ConfigLimits as ConfigFilterLimits,
     richat_shared::{
-        config::{deserialize_num_str, deserialize_x_token_set},
+        config::{deserialize_affinity, deserialize_num_str, deserialize_x_token_set},
         transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
     serde::Deserialize,
@@ -60,11 +60,12 @@ impl Default for ConfigAppsGrpcStream {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpcUnary {
     pub enabled: bool,
-    pub affinity: usize,
+    #[serde(deserialize_with = "deserialize_affinity")]
+    pub affinity: Option<Vec<usize>>,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub requests_queue_size: usize,
 }
@@ -73,7 +74,7 @@ impl Default for ConfigAppsGrpcUnary {
     fn default() -> Self {
         Self {
             enabled: true,
-            affinity: 0,
+            affinity: None,
             requests_queue_size: 100,
         }
     }

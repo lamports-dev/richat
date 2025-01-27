@@ -4,13 +4,10 @@ use {
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_filter::message::MessageParserEncoding,
     richat_shared::{
-        config::{deserialize_num_str, parse_taskset, ConfigPrometheus, ConfigTokio},
+        config::{deserialize_affinity, deserialize_num_str, ConfigPrometheus, ConfigTokio},
         shutdown::Shutdown,
     },
-    serde::{
-        de::{self, Deserializer},
-        Deserialize,
-    },
+    serde::Deserialize,
     std::{fs, path::Path, thread::Builder},
     tokio::time::{sleep, Duration},
 };
@@ -81,7 +78,7 @@ pub struct ConfigChannelInner {
     pub parser: MessageParserEncoding,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub parser_channel_size: usize,
-    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
+    #[serde(deserialize_with = "deserialize_affinity")]
     pub parser_affinity: Option<Vec<usize>>,
 }
 
@@ -114,28 +111,20 @@ pub struct ConfigAppsWorkers {
     /// Number of worker threads
     pub threads: usize,
     /// Threads affinity
-    #[serde(deserialize_with = "ConfigAppsWorkers::deserialize_affinity")]
-    pub affinity: Vec<usize>,
+    #[serde(deserialize_with = "deserialize_affinity")]
+    pub affinity: Option<Vec<usize>>,
 }
 
 impl Default for ConfigAppsWorkers {
     fn default() -> Self {
         Self {
             threads: 1,
-            affinity: (0..affinity::get_core_num()).collect(),
+            affinity: None,
         }
     }
 }
 
 impl ConfigAppsWorkers {
-    pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let taskset: &str = Deserialize::deserialize(deserializer)?;
-        parse_taskset(taskset).map_err(de::Error::custom)
-    }
-
     pub async fn run(
         self,
         get_name: impl Fn(usize) -> String,
@@ -146,11 +135,13 @@ impl ConfigAppsWorkers {
 
         let mut jhs = Vec::with_capacity(self.threads);
         for index in 0..self.threads {
-            let cpus = if self.threads == self.affinity.len() {
-                vec![self.affinity[index]]
-            } else {
-                self.affinity.clone()
-            };
+            let cpus = self.affinity.as_ref().map(|affinity| {
+                if self.threads == affinity.len() {
+                    vec![affinity[index]]
+                } else {
+                    affinity.clone()
+                }
+            });
 
             jhs.push(Self::run_once(
                 index,
@@ -167,12 +158,14 @@ impl ConfigAppsWorkers {
     pub fn run_once(
         index: usize,
         name: String,
-        cpus: Vec<usize>,
+        cpus: Option<Vec<usize>>,
         spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
         let th = Builder::new().name(name).spawn(move || {
-            affinity::set_thread_affinity(cpus).expect("failed to set affinity");
+            if let Some(cpus) = cpus {
+                affinity::set_thread_affinity(cpus).expect("failed to set affinity");
+            }
             spawn_fn(index)
         })?;
 

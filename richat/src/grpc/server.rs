@@ -82,7 +82,7 @@ impl GrpcServer {
             let jh = ConfigAppsWorkers::run_once(
                 0,
                 "richatGrpcWrkBM".to_owned(),
-                vec![config.unary.affinity],
+                config.unary.affinity,
                 {
                     let messages = messages.clone();
                     let meta = meta.clone();

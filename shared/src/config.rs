@@ -22,21 +22,11 @@ pub struct ConfigTokio {
     /// Number of worker threads in Tokio runtime
     pub worker_threads: Option<usize>,
     /// Threads affinity
-    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
+    #[serde(deserialize_with = "deserialize_affinity")]
     pub affinity: Option<Vec<usize>>,
 }
 
 impl ConfigTokio {
-    pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        match Option::<&str>::deserialize(deserializer)? {
-            Some(taskset) => parse_taskset(taskset).map(Some).map_err(de::Error::custom),
-            None => Ok(None),
-        }
-    }
-
     pub fn build_runtime<T>(self, thread_name_prefix: T) -> io::Result<tokio::runtime::Runtime>
     where
         T: AsRef<str> + Send + Sync + 'static,
@@ -105,6 +95,16 @@ pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
     }
 
     Ok(vec)
+}
+
+pub fn deserialize_affinity<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<&str>::deserialize(deserializer)? {
+        Some(taskset) => parse_taskset(taskset).map(Some).map_err(de::Error::custom),
+        None => Ok(None),
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
