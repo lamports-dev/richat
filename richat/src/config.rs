@@ -81,7 +81,8 @@ pub struct ConfigChannelInner {
     pub parser: MessageParserEncoding,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub parser_channel_size: usize,
-    pub parser_affinity: usize,
+    #[serde(deserialize_with = "ConfigTokio::deserialize_affinity")]
+    pub parser_affinity: Option<Vec<usize>>,
 }
 
 impl Default for ConfigChannelInner {
@@ -92,7 +93,7 @@ impl Default for ConfigChannelInner {
             max_bytes: 10 * 1024 * 1024 * 1024, // 10GiB, assume 100MiB per slot
             parser: MessageParserEncoding::Prost,
             parser_channel_size: 65_536,
-            parser_affinity: 0,
+            parser_affinity: None,
         }
     }
 }

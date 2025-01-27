@@ -83,6 +83,7 @@ fn main() -> anyhow::Result<()> {
         })?;
 
     // Create parser channel
+    let parser_cpus = config.channel.config.parser_affinity.clone();
     let messages = channel::Messages::new(config.channel.config, config.apps.grpc.is_some());
     let parser_jh = thread::Builder::new()
         .name("richatParser".to_owned())
@@ -90,6 +91,10 @@ fn main() -> anyhow::Result<()> {
             let shutdown = shutdown.clone();
             let mut messages = messages.to_sender();
             move || {
+                if let Some(cpus) = parser_cpus {
+                    affinity::set_thread_affinity(&cpus).expect("failed to set affinity")
+                }
+
                 const COUNTER_LIMIT: i32 = 10_000;
                 let mut counter = 0;
                 loop {
