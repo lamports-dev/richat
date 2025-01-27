@@ -1,5 +1,5 @@
 use {
-    crate::grpc::config::ConfigAppsGrpc,
+    crate::{grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub},
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_filter::message::MessageParserEncoding,
@@ -102,6 +102,8 @@ pub struct ConfigApps {
     pub tokio: ConfigTokio,
     /// gRPC app (fully compatible with Yellowstone Dragon's Mouth)
     pub grpc: Option<ConfigAppsGrpc>,
+    /// WebSocket app (fully compatible with Solana PubSub)
+    pub pubsub: Option<ConfigAppsPubsub>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

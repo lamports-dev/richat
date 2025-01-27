@@ -3,4 +3,5 @@ pub mod config;
 pub mod grpc;
 pub mod log;
 pub mod metrics;
+pub mod pubsub;
 pub mod version;
