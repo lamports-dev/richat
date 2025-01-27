@@ -29,7 +29,7 @@ use {
 };
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigTcpServer {
     pub endpoint: SocketAddr,
     pub backlog: u32,

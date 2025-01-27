@@ -158,7 +158,7 @@ impl ConfigLimits {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLimitsSlots {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max: usize,
@@ -282,7 +282,7 @@ impl ConfigLimitsAccounts {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLimitsTransactions {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max: usize,
@@ -345,7 +345,7 @@ impl ConfigLimitsTransactions {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLimitsEntries {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max: usize,
@@ -369,7 +369,7 @@ impl ConfigLimitsEntries {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLimitsBlocksMeta {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max: usize,
@@ -393,7 +393,7 @@ impl ConfigLimitsBlocksMeta {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLimitsBlocks {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max: usize,

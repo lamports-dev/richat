@@ -52,7 +52,7 @@ pub mod gen {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigGrpcCompression {
     #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
     pub accept: Vec<CompressionEncoding>,
@@ -70,7 +70,7 @@ impl Default for ConfigGrpcCompression {
 }
 
 impl ConfigGrpcCompression {
-    fn deserialize_compression<'de, D>(
+    pub fn deserialize_compression<'de, D>(
         deserializer: D,
     ) -> Result<Vec<CompressionEncoding>, D::Error>
     where
@@ -94,7 +94,7 @@ impl ConfigGrpcCompression {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigGrpcServer {
     pub endpoint: SocketAddr,
     #[serde(deserialize_with = "ConfigGrpcServer::deserialize_tls_config")]
@@ -137,7 +137,9 @@ impl Default for ConfigGrpcServer {
 }
 
 impl ConfigGrpcServer {
-    fn deserialize_tls_config<'de, D>(deserializer: D) -> Result<Option<ServerTlsConfig>, D::Error>
+    pub fn deserialize_tls_config<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<ServerTlsConfig>, D::Error>
     where
         D: Deserializer<'de>,
     {

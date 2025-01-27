@@ -171,5 +171,14 @@ apps:
         include_accounts: false
         include_entries: false
     x_token: []
+  pubsub:
+    endpoint: 0.0.0.0:8000
+    tcp_nodelay: true
+    tls_config:
+      # cert: /path/to/cert.cert
+      # key: /path/to/key.key
+      self_signed_alt_names:
+        - localhost
+    recv_max_message_size: 8_192
 prometheus:
   endpoint: 127.0.0.1:10124

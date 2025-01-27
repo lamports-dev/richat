@@ -28,7 +28,7 @@ use {
 };
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigTcpClient {
     pub endpoint: String,
     pub keepalive: Option<bool>,

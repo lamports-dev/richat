@@ -2,10 +2,10 @@ use {
     anyhow::Context,
     clap::Parser,
     futures::{
-        future::{pending, try_join_all, FutureExt, TryFutureExt},
+        future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::StreamExt,
     },
-    richat::{channel, config::Config, grpc::server::GrpcServer},
+    richat::{channel, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer},
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
@@ -124,9 +124,15 @@ fn main() -> anyhow::Result<()> {
             let runtime = config.apps.tokio.build_runtime("richatApp")?;
             runtime.block_on(async move {
                 let grpc_fut = if let Some(config) = config.apps.grpc {
-                    GrpcServer::spawn(config, messages, shutdown.clone())?.boxed()
+                    GrpcServer::spawn(config, messages.clone(), shutdown.clone())?.boxed()
                 } else {
-                    pending().boxed()
+                    ready(Ok(())).boxed()
+                };
+
+                let pubsub_fut = if let Some(config) = config.apps.pubsub {
+                    PubSubServer::spawn(config, messages, shutdown.clone())?.boxed()
+                } else {
+                    ready(Ok(())).boxed()
                 };
 
                 let prometheus_fut = if let Some(config) = config.prometheus {
@@ -135,10 +141,10 @@ fn main() -> anyhow::Result<()> {
                         .map_err(anyhow::Error::from)
                         .boxed()
                 } else {
-                    pending().boxed()
+                    ready(Ok(())).boxed()
                 };
 
-                try_join_all(vec![grpc_fut, prometheus_fut])
+                try_join_all(vec![grpc_fut, pubsub_fut, prometheus_fut])
                     .await
                     .map(|_| ())
             })

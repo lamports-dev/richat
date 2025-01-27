@@ -15,7 +15,7 @@ use {
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub libpath: String,
     pub log: ConfigLog,
@@ -41,7 +41,7 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigLog {
     /// Log level
     pub level: String,
@@ -56,7 +56,7 @@ impl Default for ConfigLog {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct ConfigChannel {
     #[serde(deserialize_with = "ConfigChannel::deserialize_encoder")]
     pub encoder: ProtobufEncoder,
