@@ -110,7 +110,7 @@ fn main() -> anyhow::Result<()> {
                         messages.push(message)?;
                     } else {
                         counter += 9;
-                        sleep(Duration::from_micros(10));
+                        sleep(Duration::from_micros(1));
                     }
                 }
                 Ok::<(), anyhow::Error>(())
