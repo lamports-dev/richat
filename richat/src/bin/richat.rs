@@ -5,7 +5,7 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::StreamExt,
     },
-    richat::{channel, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer},
+    richat::{channel, config::Config, grpc::server::GrpcServer},
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
@@ -129,12 +129,6 @@ fn main() -> anyhow::Result<()> {
                     ready(Ok(())).boxed()
                 };
 
-                let pubsub_fut = if let Some(config) = config.apps.pubsub {
-                    PubSubServer::spawn(config, messages, shutdown.clone())?.boxed()
-                } else {
-                    ready(Ok(())).boxed()
-                };
-
                 let prometheus_fut = if let Some(config) = config.prometheus {
                     richat::metrics::spawn_server(config, shutdown)
                         .await?
@@ -144,7 +138,7 @@ fn main() -> anyhow::Result<()> {
                     ready(Ok(())).boxed()
                 };
 
-                try_join_all(vec![grpc_fut, pubsub_fut, prometheus_fut])
+                try_join_all(vec![grpc_fut, prometheus_fut])
                     .await
                     .map(|_| ())
             })

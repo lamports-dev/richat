@@ -15,11 +15,7 @@ affinity = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-fastwebsockets = { workspace = true, features = ["upgrade"] }
-http-body-util = { workspace = true }
 humantime-serde = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
 json5 = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
@@ -28,7 +24,6 @@ richat-client = { workspace = true }
 richat-filter = { workspace = true }
 richat-proto = { workspace = true }
 richat-shared = { workspace = true }
-rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
@@ -37,7 +32,6 @@ solana-nohash-hasher = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-rustls = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
