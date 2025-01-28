@@ -99,11 +99,16 @@ struct State {
 
 impl State {
     fn get_next_id(&self) -> u64 {
-        for (index, key) in (0..u64::MAX).zip(self.map.keys()) {
-            if index != *key {
-                return index;
+        let next_id = self.map.len() as u64;
+        if self.map.is_empty() || self.map.last_key_value().map(|(k, _v)| *k + 1) == Some(next_id) {
+            next_id
+        } else {
+            for (index, key) in (0..u64::MAX).zip(self.map.keys()) {
+                if index != *key {
+                    return index;
+                }
             }
+            unreachable!()
         }
-        self.map.len() as u64
     }
 }

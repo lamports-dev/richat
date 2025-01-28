@@ -42,6 +42,10 @@ impl GrpcVersionInfo {
     }
 
     pub fn json(&self) -> String {
-        serde_json::to_string(&self).unwrap()
+        serde_json::to_string(self).expect("json serialization never fail")
+    }
+
+    pub fn value(&self) -> serde_json::Value {
+        serde_json::to_value(self).expect("json serialization never fail")
     }
 }
