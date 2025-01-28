@@ -180,5 +180,8 @@ apps:
       self_signed_alt_names:
         - localhost
     recv_max_message_size: 8_192
+    enable_block_subscription: false
+    enable_vote_subscription: false
+    enable_transaction_subscription: false
 prometheus:
   endpoint: 127.0.0.1:10124

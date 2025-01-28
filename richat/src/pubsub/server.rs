@@ -1,8 +1,11 @@
 use {
-    crate::{channel::Messages, pubsub::config::ConfigAppsPubsub},
+    crate::{
+        channel::Messages,
+        pubsub::{config::ConfigAppsPubsub, solana::SubscribeMessage},
+    },
     fastwebsockets::{
         upgrade::{is_upgrade_request, upgrade, UpgradeFut},
-        FragmentCollector,
+        CloseCode, FragmentCollectorRead, Frame, OpCode, Payload, WebSocketError,
     },
     futures::future::{try_join_all, FutureExt, TryFutureExt},
     http_body_util::{BodyExt, Empty as BodyEmpty},
@@ -66,13 +69,23 @@ impl PubSubServer {
 
                 // Create service
                 let recv_max_message_size = config.recv_max_message_size;
+                let enable_block_subscription = config.enable_block_subscription;
+                let enable_vote_subscription = config.enable_vote_subscription;
+                let enable_transaction_subscription = config.enable_transaction_subscription;
                 let service = service_fn(move |req: Request<BodyIncoming>| async move {
                     match (req.uri().path(), is_upgrade_request(&req)) {
                         ("/", true) => match upgrade(req) {
                             Ok((response, ws_fut)) => {
                                 tokio::spawn(async move {
-                                    if let Err(error) =
-                                        Self::handle_client(id, ws_fut, recv_max_message_size).await
+                                    if let Err(error) = Self::handle_client(
+                                        id,
+                                        ws_fut,
+                                        recv_max_message_size,
+                                        enable_block_subscription,
+                                        enable_vote_subscription,
+                                        enable_transaction_subscription,
+                                    )
+                                    .await
                                     {
                                         error!("Error serving WebSocket connection: {error:?}")
                                     }
@@ -129,13 +142,76 @@ impl PubSubServer {
         id: u64,
         ws_fut: UpgradeFut,
         recv_max_message_size: usize,
+        enable_block_subscription: bool,
+        enable_vote_subscription: bool,
+        enable_transaction_subscription: bool,
     ) -> anyhow::Result<()> {
         let mut ws = ws_fut.await?;
         ws.set_max_message_size(recv_max_message_size);
-        let mut ws = FragmentCollector::new(ws);
+        ws.set_auto_pong(false);
+        ws.set_auto_close(false);
+        let (rx, mut tx) = ws.split(tokio::io::split);
+        let mut ws = FragmentCollectorRead::new(rx);
 
-        //
+        loop {
+            // read msg
+            let frame = ws
+                .read_frame(&mut |_| async { Ok::<(), String>(()) })
+                .await?;
+            let payload = match frame.opcode {
+                OpCode::Close => {
+                    let frame = create_frame_close(frame)?;
+                    tx.write_frame(frame).await?;
+                    break;
+                }
+                OpCode::Ping => {
+                    let frame = Frame::pong(frame.payload);
+                    tx.write_frame(frame).await?;
+                    continue;
+                }
+                OpCode::Text | OpCode::Binary => frame.payload,
+                OpCode::Continuation | OpCode::Pong => continue,
+            };
+
+            // parse msg
+            let msg = match SubscribeMessage::parse(
+                payload.as_ref(),
+                enable_block_subscription,
+                enable_vote_subscription,
+                enable_transaction_subscription,
+            ) {
+                Ok(Some(msg)) => msg,
+                Ok(None) => continue,
+                Err(error) => {
+                    let vec = serde_json::to_vec(&error).expect("json serialization never fail");
+                    tx.write_frame(Frame::text(Payload::Owned(vec))).await?;
+                    continue;
+                }
+            };
+
+            //
+        }
 
         Ok(())
     }
+}
+
+fn create_frame_close(frame: Frame) -> Result<Frame, WebSocketError> {
+    match frame.payload.len() {
+        0 => {}
+        1 => return Err(WebSocketError::InvalidCloseFrame),
+        _ => {
+            let code = CloseCode::from(u16::from_be_bytes(frame.payload[0..2].try_into().unwrap()));
+
+            if std::str::from_utf8(&frame.payload[2..]).is_err() {
+                return Err(WebSocketError::InvalidUTF8);
+            };
+
+            if !code.is_allowed() {
+                return Ok(Frame::close(1002, &frame.payload[2..]));
+            }
+        }
+    };
+
+    Ok(Frame::close_raw(frame.payload.to_owned().into()))
 }

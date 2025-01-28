@@ -17,6 +17,9 @@ pub struct ConfigAppsPubsub {
     pub tls_config: Option<rustls::ServerConfig>,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub recv_max_message_size: usize,
+    pub enable_block_subscription: bool,
+    pub enable_vote_subscription: bool,
+    pub enable_transaction_subscription: bool,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -26,6 +29,9 @@ impl Default for ConfigAppsPubsub {
             tcp_nodelay: None,
             tls_config: None,
             recv_max_message_size: 8_192, // 8KiB
+            enable_block_subscription: false,
+            enable_vote_subscription: false,
+            enable_transaction_subscription: false,
         }
     }
 }

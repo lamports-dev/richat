@@ -15,12 +15,13 @@ affinity = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-fastwebsockets = { workspace = true, features = ["upgrade"] }
+fastwebsockets = { workspace = true, features = ["upgrade", "unstable-split"] }
 http-body-util = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 json5 = { workspace = true }
+jsonrpc-core = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
@@ -30,11 +31,16 @@ richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 smallvec = { workspace = true }
+solana-account-decoder = { workspace = true }
 solana-nohash-hasher = { workspace = true }
+solana-rpc = { workspace = true }
+solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
+solana-transaction-status = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
