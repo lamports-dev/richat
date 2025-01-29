@@ -1,5 +1,7 @@
 use {
-    richat_shared::config::{deserialize_maybe_rustls_server_config, deserialize_num_str},
+    richat_shared::config::{
+        deserialize_affinity, deserialize_maybe_rustls_server_config, deserialize_num_str,
+    },
     serde::Deserialize,
     std::{
         io,
@@ -20,6 +22,10 @@ pub struct ConfigAppsPubsub {
     pub enable_block_subscription: bool,
     pub enable_vote_subscription: bool,
     pub enable_transaction_subscription: bool,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub clients_requests_channel_size: usize,
+    #[serde(deserialize_with = "deserialize_affinity")]
+    pub subscriptions_affinity: Option<Vec<usize>>,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -32,6 +38,8 @@ impl Default for ConfigAppsPubsub {
             enable_block_subscription: false,
             enable_vote_subscription: false,
             enable_transaction_subscription: false,
+            clients_requests_channel_size: 8_192,
+            subscriptions_affinity: None,
         }
     }
 }

@@ -183,5 +183,7 @@ apps:
     enable_block_subscription: false
     enable_vote_subscription: false
     enable_transaction_subscription: false
+    clients_requests_channel_size: 8_192
+    subscriptions_affinity: 0
 prometheus:
   endpoint: 127.0.0.1:10124

@@ -160,7 +160,7 @@ impl ConfigAppsWorkers {
         index: usize,
         name: String,
         cpus: Option<Vec<usize>>,
-        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
+        spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Send + 'static,
         shutdown: Shutdown,
     ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
         let th = Builder::new().name(name).spawn(move || {
