@@ -3,6 +3,7 @@ use {
     tokio::sync::{mpsc, oneshot},
 };
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ClientRequest {
     Subscribe {

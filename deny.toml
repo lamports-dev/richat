@@ -3,7 +3,15 @@ all-features = true
 
 [advisories]
 ignore = [
-    # atty 0.2.14 registry+https://github.com/rust-lang/crates.io-index
+    # net2 0.2.39
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2020-0016
+    "RUSTSEC-2020-0016",
+
+    # ansi_term 0.12.1
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2021-0139
+    "RUSTSEC-2021-0139",
+
+    # atty 0.2.14
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2021-0145
     "RUSTSEC-2021-0145",
 
@@ -15,11 +23,23 @@ ignore = [
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0344
     "RUSTSEC-2024-0344",
 
+    # proc-macro-error 1.0.4
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0370
+    "RUSTSEC-2024-0370",
+
     # atty 0.2.14
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0375
     "RUSTSEC-2024-0375",
 
-    # derivative 2.2.0 registry+https://github.com/rust-lang/crates.io-index
+    # instant 0.1.13
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0384
+    "RUSTSEC-2024-0384",
+
+    # derivative 2.2.0
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0388
     "RUSTSEC-2024-0388",
+
+    # idna 0.1.5
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0421
+    "RUSTSEC-2024-0421",
 ]

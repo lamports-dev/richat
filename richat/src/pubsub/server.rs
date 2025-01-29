@@ -171,6 +171,7 @@ impl PubSubServer {
         Ok(try_join_all([subscriptions_jh, server_jh]).map_ok(|_| ()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_client(
         client_id: u64,
         ws_fut: UpgradeFut,
@@ -332,6 +333,7 @@ impl PubSubServer {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum WriteRequest<'a> {
     Frame {
         frame: Frame<'a>,

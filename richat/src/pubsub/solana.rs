@@ -1,9 +1,11 @@
 use {
     crate::pubsub::filter::TransactionFilter,
+    arrayvec::ArrayVec,
     jsonrpc_core::types::{
         Call as RpcCall, Error as RpcError, ErrorCode as RpcErrorCode, Failure as RpcFailure,
         Id as RpcId, Params as RpcParams, Version as RpcVersion,
     },
+    richat_filter::config::MAX_FILTERS,
     serde::Deserialize,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_rpc::rpc_subscription_tracker::{BlockSubscriptionKind, LogsSubscriptionKind},
@@ -85,7 +87,7 @@ pub enum SubscribeConfig {
     },
     Program {
         pubkey: Pubkey,
-        filters: Vec<RpcFilterType>,
+        filters: ArrayVec<RpcFilterType, MAX_FILTERS>,
         encoding: UiAccountEncoding,
         data_slice: Option<UiDataSliceConfig>,
         commitment: CommitmentConfig,
@@ -170,25 +172,7 @@ impl SubscribeConfig {
                 let config = config.unwrap_or_default();
                 Ok(SubscribeConfig::Program {
                     pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
-                    filters: config
-                        .filters
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|mut filter| {
-                            if let RpcFilterType::Memcmp(memcmp) = &mut filter {
-                                if let Err(error) = memcmp.convert_to_raw_bytes() {
-                                    return Err(RpcError {
-                                        code: RpcErrorCode::InvalidParams,
-                                        message: format!(
-                                            "Invalid Request: failed to decode memcmp filter: {error}"
-                                        ),
-                                        data: None,
-                                    });
-                                }
-                            }
-                            Ok(filter)
-                        })
-                        .collect::<Result<_, _>>()?,
+                    filters: param_filters(config.filters.unwrap_or_default())?,
                     encoding: config
                         .account_config
                         .encoding
@@ -413,4 +397,38 @@ fn param_set_pubkey(params: &[String]) -> Result<HashSet<Pubkey>, RpcError> {
         .iter()
         .map(|value| param(value, "pubkey"))
         .collect::<Result<HashSet<_>, _>>()
+}
+
+fn param_filters(
+    filters: Vec<RpcFilterType>,
+) -> Result<ArrayVec<RpcFilterType, MAX_FILTERS>, RpcError> {
+    if filters.len() > MAX_FILTERS {
+        return Err(RpcError {
+            code: RpcErrorCode::InvalidParams,
+            message: format!("Too much filters provided; max: {MAX_FILTERS}"),
+            data: None,
+        });
+    }
+
+    let mut verified_filters = ArrayVec::new();
+    for mut filter in filters {
+        if let Err(error) = filter.verify() {
+            return Err(RpcError {
+                code: RpcErrorCode::InvalidParams,
+                message: error.to_string(),
+                data: None,
+            });
+        }
+        if let RpcFilterType::Memcmp(memcmp) = &mut filter {
+            if let Err(error) = memcmp.convert_to_raw_bytes() {
+                return Err(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: format!("Invalid Request: failed to decode memcmp filter: {error}"),
+                    data: None,
+                });
+            }
+        }
+        verified_filters.push(filter);
+    }
+    Ok(verified_filters)
 }
