@@ -178,6 +178,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `OrbitFlare` — https://orbitflare.com/
 - `QuickNode` — https://www.quicknode.com/
 - `Shyft` — https://shyft.to/
+- `Solana Tracker` — https://www.solanatracker.io/solana-rpc
 - `Triton One` — https://triton.one/
 
 If your RPC provider not in the list, please open Issue / PR!
