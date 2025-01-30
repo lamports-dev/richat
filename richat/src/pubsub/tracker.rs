@@ -16,6 +16,9 @@ pub enum ClientRequest {
         subscription_id: u64,
         tx: oneshot::Sender<bool>,
     },
+    Remove {
+        client_id: u64,
+    },
 }
 
 pub fn subscriptions_worker(

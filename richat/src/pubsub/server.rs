@@ -70,7 +70,7 @@ impl PubSubServer {
 
         // Spawn server
         let server_jh = tokio::spawn(async move {
-            let mut id = 0;
+            let mut client_id = 0;
             tokio::pin!(shutdown);
             loop {
                 // accept connection
@@ -78,9 +78,9 @@ impl PubSubServer {
                     incoming = listener.accept() => match incoming {
                         Ok((stream, addr)) => {
                             if let Err(error) = config.set_accepted_socket_options(&stream) {
-                                warn!("#{id}: failed to set socket options {error:?}");
+                                warn!("#{client_id}: failed to set socket options {error:?}");
                             }
-                            info!("#{id}: new connection from {addr:?}");
+                            info!("#{client_id}: new connection from {addr:?}");
                             stream
                         }
                         Err(error) => {
@@ -96,47 +96,50 @@ impl PubSubServer {
                 let enable_block_subscription = config.enable_block_subscription;
                 let enable_vote_subscription = config.enable_vote_subscription;
                 let enable_transaction_subscription = config.enable_transaction_subscription;
-                let clients_tx = clients_tx.clone();
-                let shutdown = shutdown.clone();
-                let service = service_fn(move |req: Request<BodyIncoming>| {
+                let service = service_fn({
                     let clients_tx = clients_tx.clone();
                     let shutdown = shutdown.clone();
-                    async move {
-                        match (req.uri().path(), is_upgrade_request(&req)) {
-                            ("/", true) => match upgrade(req) {
-                                Ok((response, ws_fut)) => {
-                                    tokio::spawn(async move {
-                                        if let Err(error) = Self::handle_client(
-                                            id,
-                                            ws_fut,
-                                            recv_max_message_size,
-                                            enable_block_subscription,
-                                            enable_vote_subscription,
-                                            enable_transaction_subscription,
-                                            clients_tx,
-                                            shutdown,
-                                        )
-                                        .await
-                                        {
-                                            error!("Error serving WebSocket connection: {error:?}")
-                                        }
-                                    });
+                    move |req: Request<BodyIncoming>| {
+                        let clients_tx = clients_tx.clone();
+                        let shutdown = shutdown.clone();
+                        async move {
+                            match (req.uri().path(), is_upgrade_request(&req)) {
+                                ("/", true) => match upgrade(req) {
+                                    Ok((response, ws_fut)) => {
+                                        tokio::spawn(async move {
+                                            if let Err(error) = Self::handle_client(
+                                                client_id,
+                                                ws_fut,
+                                                recv_max_message_size,
+                                                enable_block_subscription,
+                                                enable_vote_subscription,
+                                                enable_transaction_subscription,
+                                                clients_tx,
+                                                shutdown,
+                                            )
+                                            .await
+                                            {
+                                                error!("Error serving WebSocket connection: {error:?}")
+                                            }
+                                        });
 
-                                    let (parts, body) = response.into_parts();
-                                    Ok(Response::from_parts(parts, body.boxed()))
-                                }
-                                Err(error) => Response::builder()
-                                    .status(StatusCode::BAD_REQUEST)
-                                    .body(format!("upgrade error: {error:?}").boxed()),
-                            },
-                            _ => Response::builder()
-                                .status(StatusCode::NOT_FOUND)
-                                .body(BodyEmpty::new().boxed()),
+                                        let (parts, body) = response.into_parts();
+                                        Ok(Response::from_parts(parts, body.boxed()))
+                                    }
+                                    Err(error) => Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(format!("upgrade error: {error:?}").boxed()),
+                                },
+                                _ => Response::builder()
+                                    .status(StatusCode::NOT_FOUND)
+                                    .body(BodyEmpty::new().boxed()),
+                            }
                         }
                     }
                 });
 
                 let acceptor = acceptor.clone();
+                let clients_tx = clients_tx.clone();
                 tokio::spawn(async move {
                     let builder = ServerBuilder::new(TokioExecutor::new());
                     let served_result = if let Some(acceptor) = acceptor {
@@ -157,9 +160,10 @@ impl PubSubServer {
                     if let Err(error) = served_result {
                         error!("Error serving HTTP connection: {error:?}");
                     }
+                    let _ = clients_tx.send(ClientRequest::Remove { client_id }).await;
                 });
 
-                id += 1;
+                client_id += 1;
             }
             Ok::<(), anyhow::Error>(())
         })
