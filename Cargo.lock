@@ -3204,6 +3204,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonrpsee-types"
+version = "0.24.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddb81adb1a5ae9182df379e374a79e24e992334e7346af4d065ae5b2acb8d4c6"
+dependencies = [
+ "http 1.2.0",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4827,7 +4839,7 @@ dependencies = [
  "hyper 1.5.2",
  "hyper-util",
  "json5",
- "jsonrpc-core",
+ "jsonrpsee-types",
  "lazy_static",
  "prometheus",
  "prost 0.13.4",

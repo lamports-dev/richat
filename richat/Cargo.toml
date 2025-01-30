@@ -22,7 +22,7 @@ humantime-serde = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 json5 = { workspace = true }
-jsonrpc-core = { workspace = true }
+jsonrpsee-types = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
@@ -32,7 +32,7 @@ richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 smallvec = { workspace = true }

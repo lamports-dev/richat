@@ -20,7 +20,7 @@ use {
         rt::tokio::{TokioExecutor, TokioIo},
         server::conn::auto::Builder as ServerBuilder,
     },
-    jsonrpc_core::types::Success as RpcSuccess,
+    jsonrpsee_types::{ResponsePayload, TwoPointZero},
     richat_shared::shutdown::Shutdown,
     solana_rpc_client_api::response::RpcVersionInfo,
     std::{collections::HashSet, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
@@ -313,9 +313,9 @@ impl PubSubServer {
                                 },
                             };
 
-                            let vec = serde_json::to_vec(&RpcSuccess {
-                                jsonrpc: message.jsonrpc,
-                                result,
+                            let vec = serde_json::to_vec(&jsonrpsee_types::Response {
+                                jsonrpc: Some(TwoPointZero),
+                                payload: ResponsePayload::success(result),
                                 id: message.id
                             }).expect("json serialization never fail");
                             let frame = Frame::text(Payload::Owned(vec));

@@ -25,5 +25,7 @@ pub fn subscriptions_worker(
     messages: Messages,
     clients_rx: mpsc::Receiver<ClientRequest>,
 ) -> anyhow::Result<()> {
+    // Subscriptions storage
+
     Ok(())
 }

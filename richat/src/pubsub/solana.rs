@@ -1,12 +1,13 @@
 use {
     crate::pubsub::filter::TransactionFilter,
     arrayvec::ArrayVec,
-    jsonrpc_core::types::{
-        Call as RpcCall, Error as RpcError, ErrorCode as RpcErrorCode, Failure as RpcFailure,
-        Id as RpcId, Params as RpcParams, Version as RpcVersion,
+    jsonrpsee_types::{
+        ErrorCode, ErrorObject, ErrorObjectOwned, Id, Params, Request, Response, ResponsePayload,
+        TwoPointZero,
     },
     richat_filter::config::MAX_FILTERS,
-    serde::Deserialize,
+    serde::{de, Deserialize},
+    serde_json::value::RawValue,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_rpc::rpc_subscription_tracker::{BlockSubscriptionKind, LogsSubscriptionKind},
     solana_rpc_client_api::{
@@ -19,15 +20,14 @@ use {
     },
     solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature},
     solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
-    std::{collections::HashSet, str::FromStr},
+    std::{borrow::Cow, collections::HashSet, str::FromStr},
 };
 
 pub type SubscriptionId = u64;
 
 #[derive(Debug)]
 pub struct SubscribeMessage {
-    pub jsonrpc: Option<RpcVersion>,
-    pub id: RpcId,
+    pub id: Id<'static>,
     pub config: SubscribeConfig,
 }
 
@@ -37,24 +37,12 @@ impl SubscribeMessage {
         enable_block_subscription: bool,
         enable_vote_subscription: bool,
         enable_transaction_subscription: bool,
-    ) -> Result<Option<Self>, RpcFailure> {
-        let call: RpcCall = serde_json::from_slice(message).map_err(|_error| RpcFailure {
-            jsonrpc: Some(RpcVersion::V2),
-            error: RpcError::parse_error(),
-            id: RpcId::Null,
+    ) -> Result<Option<Self>, Response<'static, ()>> {
+        let call: Request = serde_json::from_slice(message).map_err(|_error| Response {
+            jsonrpc: Some(TwoPointZero),
+            payload: ResponsePayload::error(ErrorObjectOwned::from(ErrorCode::ParseError)),
+            id: Id::Null,
         })?;
-
-        let call = match call {
-            RpcCall::MethodCall(call) => call,
-            RpcCall::Notification(_notification) => return Ok(None),
-            RpcCall::Invalid { id } => {
-                return Err(RpcFailure {
-                    jsonrpc: Some(RpcVersion::V2),
-                    error: RpcError::invalid_request(),
-                    id,
-                })
-            }
-        };
 
         let config = SubscribeConfig::parse(
             &call.method,
@@ -63,15 +51,14 @@ impl SubscribeMessage {
             enable_vote_subscription,
             enable_transaction_subscription,
         )
-        .map_err(|error| RpcFailure {
-            jsonrpc: call.jsonrpc,
-            error,
-            id: call.id.clone(),
+        .map_err(|error| Response {
+            jsonrpc: Some(TwoPointZero),
+            payload: ResponsePayload::error(error),
+            id: call.id.clone().into_owned(),
         })?;
 
         Ok(Some(Self {
-            jsonrpc: call.jsonrpc,
-            id: call.id,
+            id: call.id.into_owned(),
             config,
         }))
     }
@@ -132,11 +119,11 @@ pub enum SubscribeConfig {
 impl SubscribeConfig {
     pub fn parse(
         method: &str,
-        params: RpcParams,
+        params: Option<Cow<'_, RawValue>>,
         enable_block_subscription: bool,
         enable_vote_subscription: bool,
         enable_transaction_subscription: bool,
-    ) -> Result<Self, RpcError> {
+    ) -> Result<Self, ErrorObjectOwned> {
         match method {
             "accountSubscribe" => {
                 #[derive(Debug, Deserialize)]
@@ -146,7 +133,7 @@ impl SubscribeConfig {
                     config: Option<RpcAccountInfoConfig>,
                 }
 
-                let ReqParams { pubkey, config } = params.parse()?;
+                let ReqParams { pubkey, config } = parse_params(params)?;
                 let RpcAccountInfoConfig {
                     encoding,
                     data_slice,
@@ -168,7 +155,7 @@ impl SubscribeConfig {
                     config: Option<RpcProgramAccountsConfig>,
                 }
 
-                let ReqParams { pubkey, config } = params.parse()?;
+                let ReqParams { pubkey, config } = parse_params(params)?;
                 let config = config.unwrap_or_default();
                 Ok(SubscribeConfig::Program {
                     pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
@@ -190,7 +177,7 @@ impl SubscribeConfig {
                     config: Option<RpcTransactionLogsConfig>,
                 }
 
-                let ReqParams { filter, config } = params.parse()?;
+                let ReqParams { filter, config } = parse_params(params)?;
                 Ok(SubscribeConfig::Logs {
                     kind: match filter {
                         RpcTransactionLogsFilter::All => LogsSubscriptionKind::All,
@@ -199,11 +186,9 @@ impl SubscribeConfig {
                         }
                         RpcTransactionLogsFilter::Mentions(keys) => {
                             if keys.len() != 1 {
-                                return Err(RpcError {
-                                    code: RpcErrorCode::InvalidParams,
-                                    message: "Invalid Request: Only 1 address supported".into(),
-                                    data: None,
-                                });
+                                return Err(invalid_params(
+                                    "Invalid Request: Only 1 address supported",
+                                ));
                             }
                             LogsSubscriptionKind::Single(param::<Pubkey>(&keys[0], "mentions")?)
                         }
@@ -219,7 +204,7 @@ impl SubscribeConfig {
                     config: Option<RpcSignatureSubscribeConfig>,
                 }
 
-                let ReqParams { signature, config } = params.parse()?;
+                let ReqParams { signature, config } = parse_params(params)?;
                 let config = config.unwrap_or_default();
                 Ok(SubscribeConfig::Signature {
                     signature: param::<Signature>(&signature, "signature")?,
@@ -230,16 +215,16 @@ impl SubscribeConfig {
                 })
             }
             "slotSubscribe" => {
-                params.expect_no_params()?;
+                expect_no_params(params)?;
                 Ok(SubscribeConfig::Slot)
             }
             "slotsUpdatesSubscribe" => {
-                params.expect_no_params()?;
+                expect_no_params(params)?;
                 Ok(SubscribeConfig::SlotsUpdates)
             }
             "blockSubscribe" => {
                 if !enable_block_subscription {
-                    return Err(RpcError::method_not_found());
+                    return Err(ErrorCode::MethodNotFound.into());
                 }
 
                 #[derive(Debug, Deserialize)]
@@ -249,7 +234,7 @@ impl SubscribeConfig {
                     config: Option<RpcBlockSubscribeConfig>,
                 }
 
-                let ReqParams { filter, config } = params.parse()?;
+                let ReqParams { filter, config } = parse_params(params)?;
                 let config = config.unwrap_or_default();
                 let commitment = config.commitment.unwrap_or_default();
                 check_is_at_least_confirmed(commitment)?;
@@ -272,19 +257,19 @@ impl SubscribeConfig {
             }
             "voteSubscribe" => {
                 if !enable_vote_subscription {
-                    return Err(RpcError::method_not_found());
+                    return Err(ErrorCode::MethodNotFound.into());
                 }
 
-                params.expect_no_params()?;
+                expect_no_params(params)?;
                 Ok(SubscribeConfig::Vote)
             }
             "rootSubscribe" => {
-                params.expect_no_params()?;
+                expect_no_params(params)?;
                 Ok(SubscribeConfig::Root)
             }
             "transactionSubscribe" => {
                 if !enable_transaction_subscription {
-                    return Err(RpcError::method_not_found());
+                    return Err(ErrorCode::MethodNotFound.into());
                 }
 
                 #[derive(Debug, Default, Deserialize)]
@@ -322,7 +307,7 @@ impl SubscribeConfig {
                     config: Option<ReqTransactionSubscribeConfig>,
                 }
 
-                let ReqParams { filter, config } = params.parse()?;
+                let ReqParams { filter, config } = parse_params(params)?;
                 let config = config.unwrap_or_default();
                 Ok(SubscribeConfig::Transaction {
                     filter: TransactionFilter {
@@ -357,7 +342,7 @@ impl SubscribeConfig {
                     || (method == "voteUnsubscribe" && !enable_vote_subscription)
                     || (method == "transactionUnsubscribe" && !enable_transaction_subscription)
                 {
-                    return Err(RpcError::method_not_found());
+                    return Err(ErrorCode::MethodNotFound.into());
                 }
 
                 #[derive(Debug, Deserialize)]
@@ -365,34 +350,33 @@ impl SubscribeConfig {
                     id: SubscriptionId,
                 }
 
-                let ReqParams { id } = params.parse()?;
+                let ReqParams { id } = parse_params(params)?;
                 Ok(SubscribeConfig::Unsubscribe { id })
             }
             "getVersion" => Ok(SubscribeConfig::GetVersion),
             "getVersionRichat" => Ok(SubscribeConfig::GetVersionRichat),
-            _ => Err(RpcError::method_not_found()),
+            _ => Err(ErrorCode::MethodNotFound.into()),
         }
     }
 }
 
-fn check_is_at_least_confirmed(commitment: CommitmentConfig) -> Result<(), RpcError> {
+fn check_is_at_least_confirmed(commitment: CommitmentConfig) -> Result<(), ErrorObjectOwned> {
     if !commitment.is_at_least_confirmed() {
-        return Err(RpcError::invalid_params(
+        Err(invalid_params(
             "Method does not support commitment below `confirmed`",
-        ));
+        ))
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
-fn param<T: FromStr>(param_str: &str, thing: &str) -> Result<T, RpcError> {
-    param_str.parse::<T>().map_err(|_e| RpcError {
-        code: RpcErrorCode::InvalidParams,
-        message: format!("Invalid Request: Invalid {thing} provided"),
-        data: None,
-    })
+fn param<T: FromStr>(param_str: &str, thing: &str) -> Result<T, ErrorObjectOwned> {
+    param_str
+        .parse::<T>()
+        .map_err(|_e| invalid_params(format!("Invalid Request: Invalid {thing} provided")))
 }
 
-fn param_set_pubkey(params: &[String]) -> Result<HashSet<Pubkey>, RpcError> {
+fn param_set_pubkey(params: &[String]) -> Result<HashSet<Pubkey>, ErrorObjectOwned> {
     params
         .iter()
         .map(|value| param(value, "pubkey"))
@@ -401,34 +385,89 @@ fn param_set_pubkey(params: &[String]) -> Result<HashSet<Pubkey>, RpcError> {
 
 fn param_filters(
     filters: Vec<RpcFilterType>,
-) -> Result<ArrayVec<RpcFilterType, MAX_FILTERS>, RpcError> {
+) -> Result<ArrayVec<RpcFilterType, MAX_FILTERS>, ErrorObjectOwned> {
     if filters.len() > MAX_FILTERS {
-        return Err(RpcError {
-            code: RpcErrorCode::InvalidParams,
-            message: format!("Too much filters provided; max: {MAX_FILTERS}"),
-            data: None,
-        });
+        return Err(invalid_params(format!(
+            "Too much filters provided; max: {MAX_FILTERS}"
+        )));
     }
 
     let mut verified_filters = ArrayVec::new();
     for mut filter in filters {
         if let Err(error) = filter.verify() {
-            return Err(RpcError {
-                code: RpcErrorCode::InvalidParams,
-                message: error.to_string(),
-                data: None,
-            });
+            return Err(invalid_params(error.to_string()));
         }
         if let RpcFilterType::Memcmp(memcmp) = &mut filter {
             if let Err(error) = memcmp.convert_to_raw_bytes() {
-                return Err(RpcError {
-                    code: RpcErrorCode::InvalidParams,
-                    message: format!("Invalid Request: failed to decode memcmp filter: {error}"),
-                    data: None,
-                });
+                return Err(invalid_params(format!(
+                    "Invalid Request: failed to decode memcmp filter: {error}"
+                )));
             }
         }
         verified_filters.push(filter);
     }
     Ok(verified_filters)
+}
+
+fn invalid_params(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned::<()>(ErrorCode::InvalidParams.code(), message, None)
+}
+
+fn parse_params<'a, T>(raw_params: Option<Cow<'a, RawValue>>) -> Result<T, ErrorObjectOwned>
+where
+    T: for<'de> de::Deserialize<'de>,
+{
+    let params = Params::new(raw_params.as_ref().map(|p| p.get()));
+    params.parse()
+}
+
+fn expect_no_params(params: Option<Cow<'_, RawValue>>) -> Result<(), ErrorObjectOwned> {
+    if let Some(params) = params {
+        if params.get().trim() != "[]" {
+            return Err(ErrorObject::owned(
+                ErrorCode::InvalidParams.code(),
+                "Invalid parameters: No parameters were expected",
+                Some(format!("{params:?}")),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use {
+        super::parse_params, serde::Deserialize, serde_json::value::RawValue,
+        solana_rpc_client_api::config::RpcAccountInfoConfig, std::borrow::Cow,
+    };
+
+    #[test]
+    fn parse() {
+        #[derive(Debug, Deserialize)]
+        struct ReqParams {
+            pubkey: String,
+            #[serde(default)]
+            config: Option<RpcAccountInfoConfig>,
+        }
+
+        let value = RawValue::from_string(r#"["pubkey"]"#.to_owned()).unwrap();
+        let parsed: ReqParams = parse_params(Some(Cow::Borrowed(&value))).unwrap();
+        assert_eq!(parsed.pubkey, "pubkey");
+        assert_eq!(parsed.config, None);
+
+        let value =
+            RawValue::from_string(r#"["pubkey", {"minContextSlot":0}]"#.to_owned()).unwrap();
+        let parsed: ReqParams = parse_params(Some(Cow::Borrowed(&value))).unwrap();
+        assert_eq!(parsed.pubkey, "pubkey");
+        assert_eq!(
+            parsed.config,
+            Some(RpcAccountInfoConfig {
+                encoding: None,
+                data_slice: None,
+                commitment: None,
+                min_context_slot: Some(0)
+            })
+        );
+    }
 }
