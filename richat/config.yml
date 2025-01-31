@@ -179,11 +179,12 @@ apps:
       # key: /path/to/key.key
       self_signed_alt_names:
         - localhost
-    recv_max_message_size: 8_192
+    recv_max_message_size: 4_096
     enable_block_subscription: false
     enable_vote_subscription: false
     enable_transaction_subscription: false
     clients_requests_channel_size: 8_192
     subscriptions_affinity: 0
+    subscriptions_clients_request_per_tick_max: 128
 prometheus:
   endpoint: 127.0.0.1:10124

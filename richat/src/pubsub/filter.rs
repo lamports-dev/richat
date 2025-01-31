@@ -1,7 +1,10 @@
 use {
     richat_filter::message::MessageTransaction,
     solana_sdk::{pubkey::Pubkey, signature::Signature},
-    std::collections::HashSet,
+    std::{
+        collections::HashSet,
+        hash::{Hash, Hasher},
+    },
 };
 
 #[derive(Debug)]
@@ -12,6 +15,23 @@ pub struct TransactionFilter {
     pub account_include: HashSet<Pubkey>,
     pub account_exclude: HashSet<Pubkey>,
     pub account_required: HashSet<Pubkey>,
+}
+
+impl Hash for TransactionFilter {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vote.hash(state);
+        self.failed.hash(state);
+        self.signature.hash(state);
+        for pubkeys in &[
+            &self.account_include,
+            &self.account_exclude,
+            &self.account_required,
+        ] {
+            let mut pubkeys = pubkeys.iter().copied().collect::<Vec<_>>();
+            pubkeys.sort_unstable();
+            pubkeys.hash(state)
+        }
+    }
 }
 
 impl TransactionFilter {

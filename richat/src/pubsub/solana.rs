@@ -1,5 +1,5 @@
 use {
-    crate::pubsub::filter::TransactionFilter,
+    crate::pubsub::{filter::TransactionFilter, SubscriptionId},
     arrayvec::ArrayVec,
     jsonrpsee_types::{
         ErrorCode, ErrorObject, ErrorObjectOwned, Id, Params, Request, Response, ResponsePayload,
@@ -18,12 +18,19 @@ use {
         },
         filter::RpcFilterType,
     },
-    solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{
+        commitment_config::{CommitmentConfig, CommitmentLevel},
+        pubkey::Pubkey,
+        signature::Signature,
+    },
     solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
-    std::{borrow::Cow, collections::HashSet, str::FromStr},
+    std::{
+        borrow::Cow,
+        collections::{hash_map::DefaultHasher, HashSet},
+        hash::{Hash, Hasher},
+        str::FromStr,
+    },
 };
-
-pub type SubscriptionId = u64;
 
 #[derive(Debug)]
 pub struct SubscribeMessage {
@@ -64,7 +71,23 @@ impl SubscribeMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SubscribeMethod {
+    Account,
+    Program,
+    Logs,
+    Signature,
+    Slot,
+    SlotsUpdates,
+    Block,
+    Vote,
+    Root,
+    Transaction,
+}
+
+pub type SubscribeConfigHashId = u64;
+
+#[derive(Debug, Hash)]
 pub enum SubscribeConfig {
     Account {
         pubkey: Pubkey,
@@ -356,6 +379,48 @@ impl SubscribeConfig {
             "getVersion" => Ok(SubscribeConfig::GetVersion),
             "getVersionRichat" => Ok(SubscribeConfig::GetVersionRichat),
             _ => Err(ErrorCode::MethodNotFound.into()),
+        }
+    }
+
+    pub fn get_hash_id(&self) -> SubscribeConfigHashId {
+        let mut state = DefaultHasher::new();
+        <Self as Hash>::hash(self, &mut state);
+        state.finish()
+    }
+
+    pub fn commitment(&self) -> CommitmentLevel {
+        match self {
+            Self::Account { commitment, .. } => commitment.commitment,
+            Self::Program { commitment, .. } => commitment.commitment,
+            Self::Logs { commitment, .. } => commitment.commitment,
+            Self::Signature { commitment, .. } => commitment.commitment,
+            Self::Slot => CommitmentLevel::Processed,
+            Self::SlotsUpdates => CommitmentLevel::Processed,
+            Self::Block { commitment, .. } => commitment.commitment,
+            Self::Vote => CommitmentLevel::Processed,
+            Self::Root => CommitmentLevel::Processed,
+            Self::Transaction { commitment, .. } => commitment.commitment,
+            Self::Unsubscribe { .. } => unreachable!(),
+            Self::GetVersion => unreachable!(),
+            Self::GetVersionRichat => unreachable!(),
+        }
+    }
+
+    pub fn method(&self) -> SubscribeMethod {
+        match self {
+            Self::Account { .. } => SubscribeMethod::Account,
+            Self::Program { .. } => SubscribeMethod::Program,
+            Self::Logs { .. } => SubscribeMethod::Logs,
+            Self::Signature { .. } => SubscribeMethod::Signature,
+            Self::Slot => SubscribeMethod::Slot,
+            Self::SlotsUpdates => SubscribeMethod::SlotsUpdates,
+            Self::Block { .. } => SubscribeMethod::Block,
+            Self::Vote => SubscribeMethod::Vote,
+            Self::Root => SubscribeMethod::Root,
+            Self::Transaction { .. } => SubscribeMethod::Transaction,
+            Self::Unsubscribe { .. } => unreachable!(),
+            Self::GetVersion => unreachable!(),
+            Self::GetVersionRichat => unreachable!(),
         }
     }
 }

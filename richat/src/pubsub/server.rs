@@ -6,6 +6,7 @@ use {
             config::ConfigAppsPubsub,
             solana::{SubscribeConfig, SubscribeMessage},
             tracker::{subscriptions_worker, ClientRequest},
+            ClientId,
         },
         version::VERSION,
     },
@@ -63,7 +64,13 @@ impl PubSubServer {
             0,
             "richatPSWrk".to_owned(),
             config.subscriptions_affinity.take(),
-            move |_index| subscriptions_worker(messages, clients_rx),
+            move |_index| {
+                subscriptions_worker(
+                    messages,
+                    clients_rx,
+                    config.subscriptions_clients_request_per_tick_max,
+                )
+            },
             shutdown.clone(),
         )?
         .boxed();
@@ -177,7 +184,7 @@ impl PubSubServer {
 
     #[allow(clippy::too_many_arguments)]
     async fn handle_client(
-        client_id: u64,
+        client_id: ClientId,
         ws_fut: UpgradeFut,
         recv_max_message_size: usize,
         enable_block_subscription: bool,

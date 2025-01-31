@@ -26,6 +26,8 @@ pub struct ConfigAppsPubsub {
     pub clients_requests_channel_size: usize,
     #[serde(deserialize_with = "deserialize_affinity")]
     pub subscriptions_affinity: Option<Vec<usize>>,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub subscriptions_clients_request_per_tick_max: usize,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -34,12 +36,13 @@ impl Default for ConfigAppsPubsub {
             endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000),
             tcp_nodelay: None,
             tls_config: None,
-            recv_max_message_size: 8_192, // 8KiB
+            recv_max_message_size: 4 * 1024, // 4KiB
             enable_block_subscription: false,
             enable_vote_subscription: false,
             enable_transaction_subscription: false,
             clients_requests_channel_size: 8_192,
             subscriptions_affinity: None,
+            subscriptions_clients_request_per_tick_max: 128,
         }
     }
 }
