@@ -431,6 +431,21 @@ impl SubscribeConfig {
             Self::GetVersionRichat => unreachable!(),
         }
     }
+
+    pub fn filter_account(
+        &self,
+        message_pubkey: &Pubkey,
+    ) -> Option<(UiAccountEncoding, Option<UiDataSliceConfig>)> {
+        match self {
+            Self::Account {
+                pubkey,
+                encoding,
+                data_slice,
+                ..
+            } if pubkey == message_pubkey => Some((*encoding, *data_slice)),
+            _ => None,
+        }
+    }
 }
 
 fn check_is_at_least_confirmed(commitment: CommitmentConfig) -> Result<(), ErrorObjectOwned> {

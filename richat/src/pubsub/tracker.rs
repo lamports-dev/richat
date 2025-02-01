@@ -1,8 +1,8 @@
 use {
     crate::{
-        channel::Messages,
+        channel::{Messages, ParsedMessage},
         pubsub::{
-            notification::RpcNotifications,
+            notification::{RpcNotification, RpcNotifications},
             solana::{SubscribeConfig, SubscribeConfigHashId, SubscribeMethod},
             ClientId, SubscriptionId,
         },
@@ -11,6 +11,7 @@ use {
         iter::{IntoParallelIterator, ParallelIterator},
         ThreadPoolBuilder,
     },
+    solana_account_decoder::encode_ui_account,
     solana_sdk::commitment_config::CommitmentLevel,
     std::{
         collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
@@ -39,7 +40,7 @@ pub enum ClientRequest {
 
 #[derive(Debug)]
 struct SubscriptionInfo {
-    subscription_id: SubscriptionId,
+    id: SubscriptionId,
     config_hash: SubscribeConfigHashId,
     config: SubscribeConfig,
     clients: HashSet<ClientId>,
@@ -131,7 +132,7 @@ impl Subscriptions {
                     .insert(
                         subscription_id,
                         SubscriptionInfo {
-                            subscription_id,
+                            id: subscription_id,
                             config_hash,
                             config,
                             clients: HashSet::new(),
@@ -149,7 +150,7 @@ impl Subscriptions {
             .get_mut(&client_id)
             .and_then(|map| map.remove(&subscription_id))
         {
-            self.remove_subscription(commitment, method, subscription_id, client_id);
+            self.remove_client_subscription(commitment, method, subscription_id, client_id);
             true
         } else {
             false
@@ -159,12 +160,12 @@ impl Subscriptions {
     fn remove_client(&mut self, client_id: ClientId) {
         if let Some(map) = self.subscriptions_per_client.remove(&client_id) {
             for (subscription_id, (commitment, method)) in map.into_iter() {
-                self.remove_subscription(commitment, method, subscription_id, client_id);
+                self.remove_client_subscription(commitment, method, subscription_id, client_id);
             }
         }
     }
 
-    fn remove_subscription(
+    fn remove_client_subscription(
         &mut self,
         commitment: CommitmentLevel,
         method: SubscribeMethod,
@@ -175,13 +176,13 @@ impl Subscriptions {
         let subscriotions = self
             .subscriptions_per_method
             .get_mut(&(commitment, method))
-            .expect("subscriptions storage inconsistent, remove subscription #1");
+            .expect("subscriptions storage inconsistent, remove client subscription #1");
         let subscriotion_info = subscriotions
             .get_mut(&subscription_id)
-            .expect("subscriptions storage inconsistent, remove subscription #2");
+            .expect("subscriptions storage inconsistent, remove client subscription #2");
         assert!(
             subscriotion_info.clients.remove(&client_id),
-            "subscriptions storage inconsistent, remove subscription #3"
+            "subscriptions storage inconsistent, remove client subscription #3"
         );
 
         // drop subscription if no clients left
@@ -190,9 +191,29 @@ impl Subscriptions {
                 self.subscriptions
                     .remove(&subscriotion_info.config_hash)
                     .is_some(),
-                "subscriptions storage inconsistent, remove subscription #4"
+                "subscriptions storage inconsistent, remove client subscription #4"
             );
             subscriotions.remove(&subscription_id);
+        }
+    }
+
+    fn remove_subscription(&mut self, config_hash: SubscribeConfigHashId) {
+        let (commitment, method, subscription_id) = self
+            .subscriptions
+            .remove(&config_hash)
+            .expect("subscriptions storage inconsistent, remove subscription #1");
+        let subscriotion = self
+            .subscriptions_per_method
+            .get_mut(&(commitment, method))
+            .expect("subscriptions storage inconsistent, remove subscription #2")
+            .remove(&subscription_id)
+            .expect("subscriptions storage inconsistent, remove subscription #3");
+        for client_id in subscriotion.clients {
+            self.subscriptions_per_client
+                .get_mut(&client_id)
+                .expect("subscriptions storage inconsistent, remove subscription #4")
+                .remove(&subscription_id)
+                .expect("subscriptions storage inconsistent, remove subscription #5");
         }
     }
 }
@@ -204,7 +225,7 @@ pub fn subscriptions_worker(
     workers_affinity: Option<Vec<usize>>,
     max_clients_request_per_tick: usize,
     max_messages_per_commitment_per_tick: usize,
-    notifications: RpcNotifications,
+    mut notifications: RpcNotifications,
 ) -> anyhow::Result<()> {
     // Subscriptions storage
     let mut subscriptions = Subscriptions::default();
@@ -292,13 +313,44 @@ pub fn subscriptions_worker(
         }
 
         // Filter messages
-        let _ = workers.install(|| {
+        let new_notifications = workers.install(|| {
             jobs.into_par_iter()
                 .filter_map(|(method, message, subscription)| {
-                    // notref.push(0, Arc::new("123".to_owned()));
-                    //
-                    None::<()>
+                    match (message, method) {
+                        (ParsedMessage::Account(message), SubscribeMethod::Account) => {
+                            if let Some((encoding, data_slice)) =
+                                subscription.config.filter_account(message.pubkey())
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    message.slot(),
+                                    &encode_ui_account(
+                                        message.pubkey(),
+                                        message.as_ref(),
+                                        encoding,
+                                        None,
+                                        data_slice,
+                                    ),
+                                );
+                                return Some((
+                                    subscription.config_hash,
+                                    subscription.id,
+                                    false,
+                                    json,
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                    None
                 })
+                .collect::<Vec<_>>()
         });
+
+        for (subscription_config_hash, subscription_id, is_final, json) in new_notifications {
+            notifications.push(subscription_id, is_final, json);
+            if is_final {
+                subscriptions.remove_subscription(subscription_config_hash);
+            }
+        }
     }
 }

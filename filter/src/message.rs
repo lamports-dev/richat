@@ -10,8 +10,9 @@ use {
         solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
     serde::{Deserialize, Serialize},
+    solana_account::ReadableAccount,
     solana_sdk::{
-        clock::Slot,
+        clock::{Epoch, Slot},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
     },
@@ -474,27 +475,6 @@ impl MessageAccount {
         }
     }
 
-    pub fn owner(&self) -> &Pubkey {
-        match self {
-            Self::Limited => todo!(),
-            Self::Prost { owner, .. } => owner,
-        }
-    }
-
-    pub fn lamports(&self) -> u64 {
-        match self {
-            Self::Limited => todo!(),
-            Self::Prost { account, .. } => account.lamports,
-        }
-    }
-
-    pub fn data(&self) -> &[u8] {
-        match self {
-            Self::Limited => todo!(),
-            Self::Prost { account, .. } => &account.data,
-        }
-    }
-
     pub fn write_version(&self) -> u64 {
         match self {
             Self::Limited => todo!(),
@@ -509,6 +489,43 @@ impl MessageAccount {
                 nonempty_txn_signature,
                 ..
             } => *nonempty_txn_signature,
+        }
+    }
+}
+
+impl ReadableAccount for MessageAccount {
+    fn lamports(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { account, .. } => account.lamports,
+        }
+    }
+
+    fn data(&self) -> &[u8] {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { account, .. } => &account.data,
+        }
+    }
+
+    fn owner(&self) -> &Pubkey {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { owner, .. } => owner,
+        }
+    }
+
+    fn executable(&self) -> bool {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { account, .. } => account.executable,
+        }
+    }
+
+    fn rent_epoch(&self) -> Epoch {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { account, .. } => account.rent_epoch,
         }
     }
 }

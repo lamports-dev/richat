@@ -1,5 +1,8 @@
 use {
     crate::pubsub::SubscriptionId,
+    serde::Serialize,
+    solana_rpc_client_api::response::{Response as RpcResponse, RpcResponseContext},
+    solana_sdk::clock::Slot,
     std::{
         collections::VecDeque,
         sync::{Arc, Weak},
@@ -12,6 +15,20 @@ pub struct RpcNotification {
     pub subscription_id: SubscriptionId,
     pub is_final: bool,
     pub json: Weak<String>,
+}
+
+impl RpcNotification {
+    pub fn serialize_with_context<T: Serialize>(slot: Slot, value: &T) -> Arc<String> {
+        let json = serde_json::to_string(&RpcResponse {
+            context: RpcResponseContext {
+                slot,
+                api_version: None,
+            },
+            value,
+        })
+        .expect("json serialization never fail");
+        Arc::new(json)
+    }
 }
 
 #[derive(Debug)]

@@ -20,6 +20,7 @@ richat-proto = { workspace = true }
 richat-shared = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true }
+solana-account = { workspace = true }
 solana-sdk = { workspace = true }
 spl-token-2022 = { workspace = true }
 thiserror = { workspace = true }
