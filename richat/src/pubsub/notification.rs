@@ -18,16 +18,19 @@ pub struct RpcNotification {
 }
 
 impl RpcNotification {
+    pub fn serialize<T: Serialize>(value: &T) -> Arc<String> {
+        let json = serde_json::to_string(value).expect("json serialization never fail");
+        Arc::new(json)
+    }
+
     pub fn serialize_with_context<T: Serialize>(slot: Slot, value: &T) -> Arc<String> {
-        let json = serde_json::to_string(&RpcResponse {
+        Self::serialize(&RpcResponse {
             context: RpcResponseContext {
                 slot,
                 api_version: None,
             },
             value,
         })
-        .expect("json serialization never fail");
-        Arc::new(json)
     }
 }
 

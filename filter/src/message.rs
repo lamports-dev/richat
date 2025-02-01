@@ -423,6 +423,20 @@ impl MessageSlot {
             Self::Prost { commitment, .. } => *commitment,
         }
     }
+
+    pub const fn parent(&self) -> Option<Slot> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { parent, .. } => *parent,
+        }
+    }
+
+    pub const fn dead_error(&self) -> &Option<String> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { dead_error, .. } => dead_error,
+        }
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -616,6 +630,13 @@ impl MessageTransaction {
         Ok(account_keys)
     }
 
+    pub fn signature(&self) -> &Signature {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { signature, .. } => signature,
+        }
+    }
+
     pub fn vote(&self) -> bool {
         match self {
             Self::Limited => todo!(),
@@ -641,13 +662,6 @@ impl MessageTransaction {
         match self {
             Self::Limited => todo!(),
             Self::Prost { log_messages, .. } => log_messages,
-        }
-    }
-
-    pub fn signature(&self) -> &Signature {
-        match self {
-            Self::Limited => todo!(),
-            Self::Prost { signature, .. } => signature,
         }
     }
 
@@ -817,6 +831,13 @@ impl MessageBlockCreatedAt {
         match self {
             Self::Limited => MessageParserEncoding::Limited,
             Self::Prost(_) => MessageParserEncoding::Prost,
+        }
+    }
+
+    pub fn as_millis(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost(ts) => ts.seconds as u64 * 1_000 + (ts.nanos / 1_000_000) as u64,
         }
     }
 }

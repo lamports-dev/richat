@@ -131,7 +131,6 @@ pub enum SubscribeConfig {
     Signature {
         signature: Signature,
         commitment: CommitmentConfig,
-        enable_received_notification: bool,
     },
     Slot,
     SlotsUpdates,
@@ -250,9 +249,6 @@ impl SubscribeConfig {
                 Ok(SubscribeConfig::Signature {
                     signature: param::<Signature>(&signature, "signature")?,
                     commitment: config.commitment.unwrap_or_default(),
-                    enable_received_notification: config
-                        .enable_received_notification
-                        .unwrap_or_default(),
                 })
             }
             "slotSubscribe" => {
@@ -499,6 +495,18 @@ impl SubscribeConfig {
             }
         }
         None
+    }
+
+    pub fn filter_signature(
+        &self,
+        message: &MessageTransaction,
+    ) -> Option<Option<TransactionError>> {
+        match self {
+            Self::Signature { signature, .. } if signature == message.signature() => {
+                convert_from::create_tx_error(message.error().as_ref()).ok()
+            }
+            _ => None,
+        }
     }
 }
 
