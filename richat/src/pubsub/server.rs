@@ -60,15 +60,19 @@ impl PubSubServer {
         let (clients_tx, clients_rx) = mpsc::channel(config.clients_requests_channel_size);
 
         // Spawn subscription channel
+        let subscriptions_workers_affinity = config.subscriptions_workers_affinity.take();
         let subscriptions_jh = ConfigAppsWorkers::run_once(
             0,
-            "richatPSWrk".to_owned(),
-            config.subscriptions_affinity.take(),
+            "richatPSubWrk".to_owned(),
+            config.subscriptions_worker_affinity.take(),
             move |_index| {
                 subscriptions_worker(
                     messages,
                     clients_rx,
-                    config.subscriptions_clients_request_per_tick_max,
+                    config.subscriptions_workers_count,
+                    subscriptions_workers_affinity,
+                    config.subscriptions_max_clients_request_per_tick,
+                    config.subscriptions_max_messages_per_commitment_per_tick,
                 )
             },
             shutdown.clone(),
@@ -101,7 +105,6 @@ impl PubSubServer {
                 // Create service
                 let recv_max_message_size = config.recv_max_message_size;
                 let enable_block_subscription = config.enable_block_subscription;
-                let enable_vote_subscription = config.enable_vote_subscription;
                 let enable_transaction_subscription = config.enable_transaction_subscription;
                 let service = service_fn({
                     let clients_tx = clients_tx.clone();
@@ -119,7 +122,6 @@ impl PubSubServer {
                                                 ws_fut,
                                                 recv_max_message_size,
                                                 enable_block_subscription,
-                                                enable_vote_subscription,
                                                 enable_transaction_subscription,
                                                 clients_tx,
                                                 shutdown,
@@ -188,7 +190,6 @@ impl PubSubServer {
         ws_fut: UpgradeFut,
         recv_max_message_size: usize,
         enable_block_subscription: bool,
-        enable_vote_subscription: bool,
         enable_transaction_subscription: bool,
         clients_tx: mpsc::Sender<ClientRequest>,
         shutdown: Shutdown,
@@ -241,7 +242,6 @@ impl PubSubServer {
                 let message = match SubscribeMessage::parse(
                     payload.as_ref(),
                     enable_block_subscription,
-                    enable_vote_subscription,
                     enable_transaction_subscription,
                 ) {
                     Ok(Some(msg)) => msg,

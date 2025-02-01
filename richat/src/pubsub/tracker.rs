@@ -6,8 +6,12 @@ use {
             ClientId, SubscriptionId,
         },
     },
+    rayon::ThreadPoolBuilder,
     solana_sdk::commitment_config::CommitmentLevel,
-    std::collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
+    std::{
+        collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
+        thread,
+    },
     tokio::sync::{mpsc, oneshot},
 };
 
@@ -49,6 +53,38 @@ struct Subscriptions {
 }
 
 impl Subscriptions {
+    fn get_subscriptions(
+        &self,
+        commitment: CommitmentLevel,
+        method: SubscribeMethod,
+    ) -> Option<impl Iterator<Item = &SubscriotionInfo>> {
+        self.subscriptions_per_method
+            .get(&(commitment, method))
+            .map(|map| map.values())
+    }
+
+    fn update(&mut self, request: ClientRequest) {
+        match request {
+            ClientRequest::Subscribe {
+                client_id,
+                config,
+                tx,
+            } => {
+                let subscription_id = self.subscribe(client_id, config);
+                let _ = tx.send(subscription_id);
+            }
+            ClientRequest::Unsubscribe {
+                client_id,
+                subscription_id,
+                tx,
+            } => {
+                let removed = self.unsubscribe(client_id, subscription_id);
+                let _ = tx.send(removed);
+            }
+            ClientRequest::Remove { client_id } => self.remove_client(client_id),
+        }
+    }
+
     fn subscribe(&mut self, client_id: ClientId, config: SubscribeConfig) -> SubscriptionId {
         let config_hash = config.get_hash_id();
         match self.subscriptions.entry(config_hash) {
@@ -160,51 +196,80 @@ impl Subscriptions {
 pub fn subscriptions_worker(
     messages: Messages,
     mut clients_rx: mpsc::Receiver<ClientRequest>,
-    clients_request_per_tick_max: usize,
+    workers_count: usize,
+    workers_affinity: Option<Vec<usize>>,
+    max_clients_request_per_tick: usize,
+    max_messages_per_commitment_per_tick: usize,
 ) -> anyhow::Result<()> {
     // Subscriptions storage
     let mut subscriptions = Subscriptions::default();
 
     // Messages head
+    let receiver = messages.to_receiver();
     let mut head_processed = messages
         .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for processed"));
+        .ok_or(anyhow::anyhow!("failed to get head position for processed"))?;
     let mut head_confirmed = messages
         .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for confirmed"));
+        .ok_or(anyhow::anyhow!("failed to get head position for confirmed"))?;
     let mut head_finalized = messages
         .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for finalized"));
+        .ok_or(anyhow::anyhow!("failed to get head position for finalized"))?;
+
+    // Subscriptions filters pool
+    let workers = ThreadPoolBuilder::new()
+        .num_threads(workers_count)
+        .spawn_handler(move |thread| {
+            let workers_affinity = workers_affinity.clone();
+            thread::Builder::new()
+                .name(format!("richatPSubWrk{:02}", thread.index()))
+                .spawn(move || {
+                    if let Some(cpus) = workers_affinity {
+                        affinity::set_thread_affinity(cpus).expect("failed to set affinity");
+                    }
+                    thread.run()
+                })?;
+            Ok(())
+        })
+        .build()?;
 
     loop {
-        let mut ticks_slots = clients_request_per_tick_max;
-        while ticks_slots > 0 {
-            ticks_slots -= 1;
+        // Update subscriptions from clients
+        for _ in 0..max_clients_request_per_tick {
             match clients_rx.try_recv() {
-                Ok(request) => match request {
-                    ClientRequest::Subscribe {
-                        client_id,
-                        config,
-                        tx,
-                    } => {
-                        let subscription_id = subscriptions.subscribe(client_id, config);
-                        let _ = tx.send(subscription_id);
-                    }
-                    ClientRequest::Unsubscribe {
-                        client_id,
-                        subscription_id,
-                        tx,
-                    } => {
-                        let removed = subscriptions.unsubscribe(client_id, subscription_id);
-                        let _ = tx.send(removed);
-                    }
-                    ClientRequest::Remove { client_id } => subscriptions.remove_client(client_id),
-                },
+                Ok(request) => subscriptions.update(request),
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => return Ok(()),
             };
         }
 
-        //
+        // Collect messages from channels
+        let mut messages = Vec::with_capacity(max_messages_per_commitment_per_tick * 3);
+        let mut jobs = Vec::with_capacity(0);
+        for (commitment, head) in [
+            (CommitmentLevel::Processed, &mut head_processed),
+            (CommitmentLevel::Confirmed, &mut head_confirmed),
+            (CommitmentLevel::Finalized, &mut head_finalized),
+        ] {
+            for _ in 0..max_messages_per_commitment_per_tick {
+                if let Some(message) = receiver.try_recv(commitment, *head)? {
+                    *head += 1;
+                    for method in SubscribeMethod::get_message_methods(&message) {
+                        if let Some(subscriptions) =
+                            subscriptions.get_subscriptions(commitment, *method)
+                        {
+                            for subscription in subscriptions {
+                                jobs.push((commitment, *method, subscription));
+                            }
+                        }
+                    }
+                    messages.push(message);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Filter messages
     }
 }

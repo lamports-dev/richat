@@ -26,6 +26,7 @@ jsonrpsee-types = { workspace = true }
 lazy_static = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
+rayon = { workspace = true }
 richat-client = { workspace = true }
 richat-filter = { workspace = true }
 richat-proto = { workspace = true }

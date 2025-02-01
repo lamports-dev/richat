@@ -1,5 +1,8 @@
 use {
-    crate::pubsub::{filter::TransactionFilter, SubscriptionId},
+    crate::{
+        channel::ParsedMessage,
+        pubsub::{filter::TransactionFilter, SubscriptionId},
+    },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
         ErrorCode, ErrorObject, ErrorObjectOwned, Id, Params, Request, Response, ResponsePayload,
@@ -42,7 +45,6 @@ impl SubscribeMessage {
     pub fn parse(
         message: &[u8],
         enable_block_subscription: bool,
-        enable_vote_subscription: bool,
         enable_transaction_subscription: bool,
     ) -> Result<Option<Self>, Response<'static, ()>> {
         let call: Request = serde_json::from_slice(message).map_err(|_error| Response {
@@ -55,7 +57,6 @@ impl SubscribeMessage {
             &call.method,
             call.params,
             enable_block_subscription,
-            enable_vote_subscription,
             enable_transaction_subscription,
         )
         .map_err(|error| Response {
@@ -80,9 +81,21 @@ pub enum SubscribeMethod {
     Slot,
     SlotsUpdates,
     Block,
-    Vote,
     Root,
     Transaction,
+}
+
+impl SubscribeMethod {
+    pub const fn get_message_methods(message: &ParsedMessage) -> &[Self] {
+        match message {
+            ParsedMessage::Slot(_) => &[Self::Slot, Self::SlotsUpdates, Self::Root],
+            ParsedMessage::Account(_) => &[Self::Account, Self::Program],
+            ParsedMessage::Transaction(_) => &[Self::Logs, Self::Signature, Self::Transaction],
+            ParsedMessage::Entry(_) => &[],
+            ParsedMessage::BlockMeta(_) => &[],
+            ParsedMessage::Block(_) => &[Self::Block],
+        }
+    }
 }
 
 pub type SubscribeConfigHashId = u64;
@@ -122,7 +135,6 @@ pub enum SubscribeConfig {
         show_rewards: bool,
         max_supported_transaction_version: Option<u8>,
     },
-    Vote,
     Root,
     Transaction {
         filter: TransactionFilter,
@@ -144,7 +156,6 @@ impl SubscribeConfig {
         method: &str,
         params: Option<Cow<'_, RawValue>>,
         enable_block_subscription: bool,
-        enable_vote_subscription: bool,
         enable_transaction_subscription: bool,
     ) -> Result<Self, ErrorObjectOwned> {
         match method {
@@ -278,14 +289,14 @@ impl SubscribeConfig {
                     max_supported_transaction_version: config.max_supported_transaction_version,
                 })
             }
-            "voteSubscribe" => {
-                if !enable_vote_subscription {
-                    return Err(ErrorCode::MethodNotFound.into());
-                }
+            // "voteSubscribe" => {
+            //     if !enable_vote_subscription {
+            //         return Err(ErrorCode::MethodNotFound.into());
+            //     }
 
-                expect_no_params(params)?;
-                Ok(SubscribeConfig::Vote)
-            }
+            //     expect_no_params(params)?;
+            //     Ok(SubscribeConfig::Vote)
+            // }
             "rootSubscribe" => {
                 expect_no_params(params)?;
                 Ok(SubscribeConfig::Root)
@@ -362,7 +373,6 @@ impl SubscribeConfig {
             | "rootUnsubscribe"
             | "transactionUnsubscribe" => {
                 if (method == "blockUnsubscribe" && !enable_block_subscription)
-                    || (method == "voteUnsubscribe" && !enable_vote_subscription)
                     || (method == "transactionUnsubscribe" && !enable_transaction_subscription)
                 {
                     return Err(ErrorCode::MethodNotFound.into());
@@ -397,7 +407,6 @@ impl SubscribeConfig {
             Self::Slot => CommitmentLevel::Processed,
             Self::SlotsUpdates => CommitmentLevel::Processed,
             Self::Block { commitment, .. } => commitment.commitment,
-            Self::Vote => CommitmentLevel::Processed,
             Self::Root => CommitmentLevel::Processed,
             Self::Transaction { commitment, .. } => commitment.commitment,
             Self::Unsubscribe { .. } => unreachable!(),
@@ -415,7 +424,6 @@ impl SubscribeConfig {
             Self::Slot => SubscribeMethod::Slot,
             Self::SlotsUpdates => SubscribeMethod::SlotsUpdates,
             Self::Block { .. } => SubscribeMethod::Block,
-            Self::Vote => SubscribeMethod::Vote,
             Self::Root => SubscribeMethod::Root,
             Self::Transaction { .. } => SubscribeMethod::Transaction,
             Self::Unsubscribe { .. } => unreachable!(),

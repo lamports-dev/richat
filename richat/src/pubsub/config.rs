@@ -20,14 +20,19 @@ pub struct ConfigAppsPubsub {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub recv_max_message_size: usize,
     pub enable_block_subscription: bool,
-    pub enable_vote_subscription: bool,
     pub enable_transaction_subscription: bool,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub clients_requests_channel_size: usize,
     #[serde(deserialize_with = "deserialize_affinity")]
-    pub subscriptions_affinity: Option<Vec<usize>>,
+    pub subscriptions_worker_affinity: Option<Vec<usize>>,
     #[serde(deserialize_with = "deserialize_num_str")]
-    pub subscriptions_clients_request_per_tick_max: usize,
+    pub subscriptions_workers_count: usize,
+    #[serde(deserialize_with = "deserialize_affinity")]
+    pub subscriptions_workers_affinity: Option<Vec<usize>>,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub subscriptions_max_clients_request_per_tick: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub subscriptions_max_messages_per_commitment_per_tick: usize,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -38,11 +43,13 @@ impl Default for ConfigAppsPubsub {
             tls_config: None,
             recv_max_message_size: 4 * 1024, // 4KiB
             enable_block_subscription: false,
-            enable_vote_subscription: false,
             enable_transaction_subscription: false,
             clients_requests_channel_size: 8_192,
-            subscriptions_affinity: None,
-            subscriptions_clients_request_per_tick_max: 128,
+            subscriptions_worker_affinity: None,
+            subscriptions_workers_count: 2,
+            subscriptions_workers_affinity: None,
+            subscriptions_max_clients_request_per_tick: 32,
+            subscriptions_max_messages_per_commitment_per_tick: 256,
         }
     }
 }

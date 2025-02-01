@@ -181,10 +181,12 @@ apps:
         - localhost
     recv_max_message_size: 4_096
     enable_block_subscription: false
-    enable_vote_subscription: false
     enable_transaction_subscription: false
     clients_requests_channel_size: 8_192
-    subscriptions_affinity: 0
-    subscriptions_clients_request_per_tick_max: 128
+    subscriptions_worker_affinity: 0
+    subscriptions_workers_count: 2
+    subscriptions_workers_affinity: 0-1
+    subscriptions_max_clients_request_per_tick: 32
+    subscriptions_max_messages_per_commitment_per_tick: 256
 prometheus:
   endpoint: 127.0.0.1:10124
