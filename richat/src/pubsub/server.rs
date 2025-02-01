@@ -4,6 +4,7 @@ use {
         config::ConfigAppsWorkers,
         pubsub::{
             config::ConfigAppsPubsub,
+            notification::{RpcNotification, RpcNotifications},
             solana::{SubscribeConfig, SubscribeMessage},
             tracker::{subscriptions_worker, ClientRequest},
             ClientId,
@@ -27,7 +28,7 @@ use {
     std::{collections::HashSet, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
     tokio::{
         net::TcpListener,
-        sync::{mpsc, oneshot},
+        sync::{broadcast, mpsc, oneshot},
     },
     tokio_rustls::TlsAcceptor,
     tracing::{error, info, warn},
@@ -60,20 +61,29 @@ impl PubSubServer {
         let (clients_tx, clients_rx) = mpsc::channel(config.clients_requests_channel_size);
 
         // Spawn subscription channel
-        let subscriptions_workers_affinity = config.subscriptions_workers_affinity.take();
+        let (notifications, _) = broadcast::channel(config.notifications_message_max_len);
         let subscriptions_jh = ConfigAppsWorkers::run_once(
             0,
             "richatPSubWrk".to_owned(),
             config.subscriptions_worker_affinity.take(),
-            move |_index| {
-                subscriptions_worker(
-                    messages,
-                    clients_rx,
-                    config.subscriptions_workers_count,
-                    subscriptions_workers_affinity,
-                    config.subscriptions_max_clients_request_per_tick,
-                    config.subscriptions_max_messages_per_commitment_per_tick,
-                )
+            {
+                let subscriptions_workers_affinity = config.subscriptions_workers_affinity.take();
+                let notifications = notifications.clone();
+                move |_index| {
+                    subscriptions_worker(
+                        messages,
+                        clients_rx,
+                        config.subscriptions_workers_count,
+                        subscriptions_workers_affinity,
+                        config.subscriptions_max_clients_request_per_tick,
+                        config.subscriptions_max_messages_per_commitment_per_tick,
+                        RpcNotifications::new(
+                            config.notifications_message_max_len,
+                            config.notifications_message_max_bytes,
+                            notifications,
+                        ),
+                    )
+                }
             },
             shutdown.clone(),
         )?
@@ -108,9 +118,11 @@ impl PubSubServer {
                 let enable_transaction_subscription = config.enable_transaction_subscription;
                 let service = service_fn({
                     let clients_tx = clients_tx.clone();
+                    let notifications = notifications.clone();
                     let shutdown = shutdown.clone();
                     move |req: Request<BodyIncoming>| {
                         let clients_tx = clients_tx.clone();
+                        let notifications = notifications.subscribe();
                         let shutdown = shutdown.clone();
                         async move {
                             match (req.uri().path(), is_upgrade_request(&req)) {
@@ -124,6 +136,7 @@ impl PubSubServer {
                                                 enable_block_subscription,
                                                 enable_transaction_subscription,
                                                 clients_tx,
+                                                notifications,
                                                 shutdown,
                                             )
                                             .await
@@ -192,6 +205,7 @@ impl PubSubServer {
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
         clients_tx: mpsc::Sender<ClientRequest>,
+        mut notifications: broadcast::Receiver<RpcNotification>,
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let mut ws = ws_fut.await?;
@@ -268,9 +282,9 @@ impl PubSubServer {
 
         let write_fut = tokio::spawn(async move {
             let mut subscriptions = HashSet::new();
-            loop {
+            let maybe_close_reason = loop {
                 tokio::select! {
-                    msg = read_rx.recv() => match msg {
+                    message = read_rx.recv() => match message {
                         Some(WriteRequest::Frame { frame, tx }) => {
                             ws_tx.write_frame(frame).await?;
                             let _ = tx.send(());
@@ -293,9 +307,7 @@ impl PubSubServer {
                                         subscription_id: id,
                                         tx,
                                     }).await.is_err() {
-                                        let frame = Frame::close(CloseCode::Away.into(), b"shutdown");
-                                        ws_tx.write_frame(frame).await?;
-                                        break;
+                                        break Some("shutdown".as_bytes());
                                     }
                                     let removed = rx.await?;
                                     if removed {
@@ -310,9 +322,7 @@ impl PubSubServer {
                                         config,
                                         tx,
                                     }).await.is_err() {
-                                        let frame = Frame::close(CloseCode::Away.into(), b"shutdown");
-                                        ws_tx.write_frame(frame).await?;
-                                        break;
+                                        break Some("shutdown".as_bytes());
                                     }
                                     let id = rx.await?;
                                     subscriptions.insert(id);
@@ -329,12 +339,34 @@ impl PubSubServer {
                             ws_tx.write_frame(frame).await?;
                             let _ = tx.send(());
                         },
-                        None => break, // means shutdown
+                        None => break None, // means shutdown
                     },
-                }
-                // recv msg
-            }
+                    message = notifications.recv() => match message {
+                        Ok(notification) if subscriptions.contains(&notification.subscription_id) => {
+                            if notification.is_final {
+                                subscriptions.remove(&notification.subscription_id);
+                            }
 
+                            match notification.json.upgrade() {
+                                Some(json) => {
+                                    let frame = Frame::text(Payload::Borrowed(json.as_bytes()));
+                                    ws_tx.write_frame(frame).await?;
+                                },
+                                None => {
+                                    break Some("lagged: memory".as_bytes())
+                                }
+                            }
+                        },
+                        Ok(_) => {},
+                        Err(broadcast::error::RecvError::Closed) => break Some("shutdown".as_bytes()),
+                        Err(broadcast::error::RecvError::Lagged(_)) => break Some("lagged: len".as_bytes()),
+                    }
+                }
+            };
+            if let Some(close_reason) = maybe_close_reason {
+                let frame = Frame::close(CloseCode::Away.into(), close_reason);
+                ws_tx.write_frame(frame).await?;
+            }
             Ok::<(), anyhow::Error>(())
         })
         .map_err(anyhow::Error::new)

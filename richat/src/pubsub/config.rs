@@ -33,6 +33,10 @@ pub struct ConfigAppsPubsub {
     pub subscriptions_max_clients_request_per_tick: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub subscriptions_max_messages_per_commitment_per_tick: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub notifications_message_max_len: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub notifications_message_max_bytes: usize,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -50,6 +54,8 @@ impl Default for ConfigAppsPubsub {
             subscriptions_workers_affinity: None,
             subscriptions_max_clients_request_per_tick: 32,
             subscriptions_max_messages_per_commitment_per_tick: 256,
+            notifications_message_max_len: 10_000_000,
+            notifications_message_max_bytes: 32 * 1024 * 1024 * 1024,
         }
     }
 }

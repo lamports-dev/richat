@@ -2,11 +2,15 @@ use {
     crate::{
         channel::Messages,
         pubsub::{
+            notification::RpcNotifications,
             solana::{SubscribeConfig, SubscribeConfigHashId, SubscribeMethod},
             ClientId, SubscriptionId,
         },
     },
-    rayon::ThreadPoolBuilder,
+    rayon::{
+        iter::{IntoParallelIterator, ParallelIterator},
+        ThreadPoolBuilder,
+    },
     solana_sdk::commitment_config::CommitmentLevel,
     std::{
         collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
@@ -34,8 +38,8 @@ pub enum ClientRequest {
 }
 
 #[derive(Debug)]
-struct SubscriotionInfo {
-    id: SubscriptionId,
+struct SubscriptionInfo {
+    subscription_id: SubscriptionId,
     config_hash: SubscribeConfigHashId,
     config: SubscribeConfig,
     clients: HashSet<ClientId>,
@@ -49,7 +53,7 @@ struct Subscriptions {
     subscriptions_per_client:
         HashMap<ClientId, HashMap<SubscriptionId, (CommitmentLevel, SubscribeMethod)>>,
     subscriptions_per_method:
-        HashMap<(CommitmentLevel, SubscribeMethod), HashMap<SubscriptionId, SubscriotionInfo>>,
+        HashMap<(CommitmentLevel, SubscribeMethod), HashMap<SubscriptionId, SubscriptionInfo>>,
 }
 
 impl Subscriptions {
@@ -57,7 +61,7 @@ impl Subscriptions {
         &self,
         commitment: CommitmentLevel,
         method: SubscribeMethod,
-    ) -> Option<impl Iterator<Item = &SubscriotionInfo>> {
+    ) -> Option<impl Iterator<Item = &SubscriptionInfo>> {
         self.subscriptions_per_method
             .get(&(commitment, method))
             .map(|map| map.values())
@@ -126,8 +130,8 @@ impl Subscriptions {
                     .or_default()
                     .insert(
                         subscription_id,
-                        SubscriotionInfo {
-                            id: subscription_id,
+                        SubscriptionInfo {
+                            subscription_id,
                             config_hash,
                             config,
                             clients: HashSet::new(),
@@ -200,6 +204,7 @@ pub fn subscriptions_worker(
     workers_affinity: Option<Vec<usize>>,
     max_clients_request_per_tick: usize,
     max_messages_per_commitment_per_tick: usize,
+    notifications: RpcNotifications,
 ) -> anyhow::Result<()> {
     // Subscriptions storage
     let mut subscriptions = Subscriptions::default();
@@ -239,37 +244,61 @@ pub fn subscriptions_worker(
             match clients_rx.try_recv() {
                 Ok(request) => subscriptions.update(request),
                 Err(mpsc::error::TryRecvError::Empty) => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => return Ok(()),
+                Err(mpsc::error::TryRecvError::Disconnected) => return Ok(()), // means shutdown
             };
         }
 
         // Collect messages from channels
-        let mut messages = Vec::with_capacity(max_messages_per_commitment_per_tick * 3);
         let mut jobs = Vec::with_capacity(0);
-        for (commitment, head) in [
-            (CommitmentLevel::Processed, &mut head_processed),
-            (CommitmentLevel::Confirmed, &mut head_confirmed),
-            (CommitmentLevel::Finalized, &mut head_finalized),
+        let mut messages_processed = Vec::with_capacity(max_messages_per_commitment_per_tick);
+        let mut messages_confirmed = Vec::with_capacity(max_messages_per_commitment_per_tick);
+        let mut messages_finalized = Vec::with_capacity(max_messages_per_commitment_per_tick);
+        for (commitment, head, messages) in [
+            (
+                CommitmentLevel::Processed,
+                &mut head_processed,
+                &mut messages_processed,
+            ),
+            (
+                CommitmentLevel::Confirmed,
+                &mut head_confirmed,
+                &mut messages_confirmed,
+            ),
+            (
+                CommitmentLevel::Finalized,
+                &mut head_finalized,
+                &mut messages_finalized,
+            ),
         ] {
             for _ in 0..max_messages_per_commitment_per_tick {
                 if let Some(message) = receiver.try_recv(commitment, *head)? {
                     *head += 1;
-                    for method in SubscribeMethod::get_message_methods(&message) {
-                        if let Some(subscriptions) =
-                            subscriptions.get_subscriptions(commitment, *method)
-                        {
-                            for subscription in subscriptions {
-                                jobs.push((commitment, *method, subscription));
-                            }
-                        }
-                    }
                     messages.push(message);
                 } else {
                     break;
                 }
             }
+            for message in messages.iter() {
+                for method in SubscribeMethod::get_message_methods(message) {
+                    if let Some(subscriptions) =
+                        subscriptions.get_subscriptions(commitment, *method)
+                    {
+                        for subscription in subscriptions {
+                            jobs.push((*method, message, subscription));
+                        }
+                    }
+                }
+            }
         }
 
         // Filter messages
+        let _ = workers.install(|| {
+            jobs.into_par_iter()
+                .filter_map(|(method, message, subscription)| {
+                    // notref.push(0, Arc::new("123".to_owned()));
+                    //
+                    None::<()>
+                })
+        });
     }
 }
