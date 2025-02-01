@@ -37,6 +37,7 @@ serde_json = { workspace = true, features = ["raw_value"] }
 serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 smallvec = { workspace = true }
+solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-nohash-hasher = { workspace = true }
 solana-rpc = { workspace = true }
@@ -44,6 +45,7 @@ solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
+spl-token-2022 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }

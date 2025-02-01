@@ -242,6 +242,7 @@ impl MessageParserProst {
                             .try_into()
                             .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
+                        log_messages: meta.log_messages.clone(),
                         account_keys,
                         transaction,
                         slot: message.slot,
@@ -313,6 +314,7 @@ impl MessageParserProst {
                                     .try_into()
                                     .map_err(|_| MessageParseError::InvalidSignature)?,
                                 error: meta.err.clone(),
+                                log_messages: meta.log_messages.clone(),
                                 account_keys,
                                 transaction,
                                 slot: message.slot,
@@ -537,6 +539,7 @@ pub enum MessageTransaction {
     Prost {
         signature: Signature,
         error: Option<TransactionError>,
+        log_messages: Vec<String>,
         account_keys: HashSet<Pubkey>,
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
@@ -624,6 +627,20 @@ impl MessageTransaction {
         match self {
             Self::Limited => todo!(),
             Self::Prost { error, .. } => error.is_some(),
+        }
+    }
+
+    pub fn error(&self) -> &Option<TransactionError> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { error, .. } => error,
+        }
+    }
+
+    pub fn log_messages(&self) -> &Vec<String> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { log_messages, .. } => log_messages,
         }
     }
 

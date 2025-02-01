@@ -12,6 +12,7 @@ use {
         ThreadPoolBuilder,
     },
     solana_account_decoder::encode_ui_account,
+    solana_rpc_client_api::response::{RpcKeyedAccount, RpcLogsResponse},
     solana_sdk::commitment_config::CommitmentLevel,
     std::{
         collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
@@ -316,10 +317,10 @@ pub fn subscriptions_worker(
         let new_notifications = workers.install(|| {
             jobs.into_par_iter()
                 .filter_map(|(method, message, subscription)| {
-                    match (message, method) {
-                        (ParsedMessage::Account(message), SubscribeMethod::Account) => {
+                    match (method, message) {
+                        (SubscribeMethod::Account, ParsedMessage::Account(message)) => {
                             if let Some((encoding, data_slice)) =
-                                subscription.config.filter_account(message.pubkey())
+                                subscription.config.filter_account(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
                                     message.slot(),
@@ -331,17 +332,54 @@ pub fn subscriptions_worker(
                                         data_slice,
                                     ),
                                 );
-                                return Some((
-                                    subscription.config_hash,
-                                    subscription.id,
-                                    false,
-                                    json,
-                                ));
+                                return Some((subscription, false, json));
                             }
                         }
+                        (SubscribeMethod::Program, ParsedMessage::Account(message)) => {
+                            if let Some((encoding, data_slice)) =
+                                subscription.config.filter_program(message)
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    message.slot(),
+                                    &RpcKeyedAccount {
+                                        pubkey: message.pubkey().to_string(),
+                                        account: encode_ui_account(
+                                            message.pubkey(),
+                                            message.as_ref(),
+                                            encoding,
+                                            None,
+                                            data_slice,
+                                        ),
+                                    },
+                                );
+                                return Some((subscription, false, json));
+                            }
+                        }
+                        (SubscribeMethod::Logs, ParsedMessage::Transaction(message)) => {
+                            if let Some((err, logs)) = subscription.config.filter_logs(message) {
+                                let json = RpcNotification::serialize_with_context(
+                                    message.slot(),
+                                    &RpcLogsResponse {
+                                        signature: message.signature().to_string(),
+                                        err,
+                                        logs,
+                                    },
+                                );
+                                return Some((subscription, false, json));
+                            }
+                        }
+                        // Signature,
+                        // Slot,
+                        // SlotsUpdates,
+                        // Block,
+                        // Root,
+                        // Transaction,
                         _ => {}
-                    }
+                    };
                     None
+                })
+                .map(|(subscription, is_final, json)| {
+                    (subscription.config_hash, subscription.id, is_final, json)
                 })
                 .collect::<Vec<_>>()
         });

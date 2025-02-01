@@ -8,9 +8,14 @@ use {
         ErrorCode, ErrorObject, ErrorObjectOwned, Id, Params, Request, Response, ResponsePayload,
         TwoPointZero,
     },
-    richat_filter::config::MAX_FILTERS,
+    richat_filter::{
+        config::MAX_FILTERS,
+        message::{MessageAccount, MessageTransaction},
+    },
+    richat_proto::convert_from,
     serde::{de, Deserialize},
     serde_json::value::RawValue,
+    solana_account::ReadableAccount,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_rpc::rpc_subscription_tracker::{BlockSubscriptionKind, LogsSubscriptionKind},
     solana_rpc_client_api::{
@@ -25,8 +30,12 @@ use {
         commitment_config::{CommitmentConfig, CommitmentLevel},
         pubkey::Pubkey,
         signature::Signature,
+        transaction::TransactionError,
     },
     solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
+    spl_token_2022::{
+        generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
+    },
     std::{
         borrow::Cow,
         collections::{hash_map::DefaultHasher, HashSet},
@@ -114,7 +123,6 @@ pub enum SubscribeConfig {
         encoding: UiAccountEncoding,
         data_slice: Option<UiDataSliceConfig>,
         commitment: CommitmentConfig,
-        with_context: bool,
     },
     Logs {
         kind: LogsSubscriptionKind,
@@ -200,7 +208,6 @@ impl SubscribeConfig {
                         .unwrap_or(UiAccountEncoding::Binary),
                     data_slice: config.account_config.data_slice,
                     commitment: config.account_config.commitment.unwrap_or_default(),
-                    with_context: config.with_context.unwrap_or_default(),
                 })
             }
             "logsSubscribe" => {
@@ -434,7 +441,7 @@ impl SubscribeConfig {
 
     pub fn filter_account(
         &self,
-        message_pubkey: &Pubkey,
+        message: &MessageAccount,
     ) -> Option<(UiAccountEncoding, Option<UiDataSliceConfig>)> {
         match self {
             Self::Account {
@@ -442,9 +449,56 @@ impl SubscribeConfig {
                 encoding,
                 data_slice,
                 ..
-            } if pubkey == message_pubkey => Some((*encoding, *data_slice)),
+            } if pubkey == message.pubkey() => Some((*encoding, *data_slice)),
             _ => None,
         }
+    }
+
+    pub fn filter_program(
+        &self,
+        message: &MessageAccount,
+    ) -> Option<(UiAccountEncoding, Option<UiDataSliceConfig>)> {
+        match self {
+            Self::Program {
+                pubkey,
+                filters,
+                encoding,
+                data_slice,
+                ..
+            } if pubkey == message.owner()
+                && filters.iter().all(|filter| match filter {
+                    RpcFilterType::DataSize(size) => message.data().len() as u64 == *size,
+                    RpcFilterType::Memcmp(memcmp) => memcmp.bytes_match(message.data()),
+                    RpcFilterType::TokenAccountState => {
+                        SplToken2022Account::valid_account_data(message.data())
+                    }
+                }) =>
+            {
+                Some((*encoding, *data_slice))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn filter_logs(
+        &self,
+        message: &MessageTransaction,
+    ) -> Option<(Option<TransactionError>, Vec<String>)> {
+        if let Self::Logs { kind, .. } = self {
+            let filtered = match kind {
+                LogsSubscriptionKind::All => !message.vote(),
+                LogsSubscriptionKind::AllWithVotes => true,
+                LogsSubscriptionKind::Single(pubkey) => {
+                    message.account_keys().iter().any(|key| key == pubkey)
+                }
+            };
+            if filtered {
+                if let Ok(error) = convert_from::create_tx_error(message.error().as_ref()) {
+                    return Some((error, message.log_messages().clone()));
+                }
+            }
+        }
+        None
     }
 }
 
