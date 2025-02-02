@@ -299,19 +299,25 @@ pub fn subscriptions_worker(
                 &mut messages_finalized,
             ),
         ] {
-            for _ in 0..max_messages_per_commitment_per_tick {
+            while messages.len() < max_messages_per_commitment_per_tick {
                 if let Some(message) = receiver.try_recv(commitment, *head)? {
                     *head += 1;
+                    // ignore Slot messages for any commitment except processed
+                    if commitment != CommitmentLevel::Processed {
+                        if let ParsedMessage::Slot(_) = &message {
+                            continue;
+                        }
+                    }
                     messages.push(message);
                 } else {
                     break;
                 }
             }
             for message in messages.iter() {
-                if commitment == CommitmentLevel::Finalized {
+                if commitment == CommitmentLevel::Processed {
                     if let ParsedMessage::Slot(message) = &message {
                         if message.commitment() == CommitmentLevelProto::Finalized {
-                            slot_finalized = message.slot();
+                            slot_finalized = message.slot()
                         }
                     }
                 }

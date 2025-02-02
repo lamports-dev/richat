@@ -84,7 +84,11 @@ fn main() -> anyhow::Result<()> {
 
     // Create parser channel
     let parser_cpus = config.channel.config.parser_affinity.clone();
-    let messages = channel::Messages::new(config.channel.config, config.apps.grpc.is_some());
+    let messages = channel::Messages::new(
+        config.channel.config,
+        config.apps.grpc.is_some(),
+        config.apps.pubsub.is_some(),
+    );
     let parser_jh = thread::Builder::new()
         .name("richatParser".to_owned())
         .spawn({

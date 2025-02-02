@@ -111,6 +111,7 @@ impl ParsedMessage {
 #[derive(Debug, Clone)]
 pub struct Messages {
     grpc: bool,
+    pubsub: bool,
     shared_processed: Arc<Shared>,
     shared_confirmed: Arc<Shared>,
     shared_finalized: Arc<Shared>,
@@ -121,10 +122,11 @@ pub struct Messages {
 }
 
 impl Messages {
-    pub fn new(config: ConfigChannelInner, grpc: bool) -> Self {
+    pub fn new(config: ConfigChannelInner, grpc: bool, pubsub: bool) -> Self {
         let max_messages = config.max_messages.next_power_of_two();
         Self {
             grpc,
+            pubsub,
             shared_processed: Arc::new(Shared::new(max_messages)),
             shared_confirmed: Arc::new(Shared::new(
                 grpc.then_some(max_messages).unwrap_or_default(),
@@ -146,6 +148,7 @@ impl Messages {
             bytes_max: self.max_bytes,
             slots: BTreeMap::new(),
             grpc: self.grpc,
+            pubsub: self.pubsub,
             processed: SenderShared::new(&self.shared_processed, self.max_messages),
             confirmed: SenderShared::new(&self.shared_confirmed, self.max_messages),
             finalized: SenderShared::new(&self.shared_finalized, self.max_messages),
@@ -211,6 +214,7 @@ pub struct Sender {
     bytes_max: usize,
     slots: BTreeMap<Slot, SlotInfo>,
     grpc: bool,
+    pubsub: bool,
     processed: SenderShared,
     confirmed: SenderShared,
     finalized: SenderShared,
@@ -231,21 +235,24 @@ impl Sender {
         // push messages
         for message in [Some(message), message_block].into_iter().flatten() {
             // push messages to confirmed / finalized
-            if self.grpc {
+            if self.grpc || self.pubsub {
                 if let ParsedMessage::Slot(msg) = &message {
                     self.confirmed.push(slot, message.clone());
                     self.finalized.push(slot, message.clone());
 
-                    if let Some(sender_shared) = match msg.commitment() {
-                        CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
-                        CommitmentLevelProto::Finalized => Some(&mut self.finalized),
-                        _ => None,
-                    } {
+                    if msg.commitment() == CommitmentLevelProto::Confirmed {
                         if let Some(slot_info) = self.slots.get(&slot) {
-                            for message in slot_info.get_messages() {
-                                sender_shared.push(slot, message);
+                            for message in slot_info.get_messages_cloned() {
+                                self.confirmed.push(slot, message);
                             }
-                            sender_shared.try_clear(self.bytes_max, self.slots_max);
+                            self.confirmed.try_clear(self.bytes_max, self.slots_max);
+                        }
+                    } else if msg.commitment() == CommitmentLevelProto::Finalized {
+                        if let Some(mut slot_info) = self.slots.remove(&slot) {
+                            for message in slot_info.get_messages_owned() {
+                                self.confirmed.push(slot, message);
+                            }
+                            self.confirmed.try_clear(self.bytes_max, self.slots_max);
                         }
                     }
 
@@ -669,10 +676,14 @@ impl SlotInfo {
         None
     }
 
-    fn get_messages(&self) -> impl Iterator<Item = ParsedMessage> + '_ {
+    fn get_messages_cloned(&self) -> impl Iterator<Item = ParsedMessage> + '_ {
         self.messages
             .iter()
             .filter_map(|item| item.as_ref().cloned())
+    }
+
+    fn get_messages_owned(&mut self) -> impl Iterator<Item = ParsedMessage> + '_ {
+        self.messages.drain(..).flatten()
     }
 }
 

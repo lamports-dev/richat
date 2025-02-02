@@ -848,40 +848,38 @@ impl MessageBlock {
     pub fn as_confirmed_block(&self) -> Result<ConfirmedBlock, &'static str> {
         Ok(match self.block_meta.as_ref() {
             MessageBlockMeta::Limited => todo!(),
-            MessageBlockMeta::Prost { block_meta, .. } => {
-                ConfirmedBlock {
-                    previous_blockhash: block_meta.parent_blockhash.clone(),
-                    blockhash: block_meta.blockhash.clone(),
-                    parent_slot: block_meta.parent_slot,
-                    transactions: self
-                        .transactions
-                        .iter()
-                        .map(|tx| {
-                            tx.as_versioned_transaction_with_status_meta()
-                                .map(TransactionWithStatusMeta::Complete)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    rewards: block_meta
-                        .rewards
-                        .as_ref()
-                        .map(|r| {
-                            r.rewards
-                                .iter()
-                                .cloned()
-                                .map(convert_from::create_reward)
-                                .collect::<Result<Vec<_>, _>>()
-                        })
-                        .transpose()?
-                        .unwrap_or_default(),
-                    num_partitions: block_meta
-                        .rewards
-                        .as_ref()
-                        .and_then(|r| r.num_partitions)
-                        .map(|np| np.num_partitions),
-                    block_time: block_meta.block_time.map(|bt| bt.timestamp),
-                    block_height: block_meta.block_height.map(|bh| bh.block_height),
-                }
-            }
+            MessageBlockMeta::Prost { block_meta, .. } => ConfirmedBlock {
+                previous_blockhash: block_meta.parent_blockhash.clone(),
+                blockhash: block_meta.blockhash.clone(),
+                parent_slot: block_meta.parent_slot,
+                transactions: self
+                    .transactions
+                    .iter()
+                    .map(|tx| {
+                        tx.as_versioned_transaction_with_status_meta()
+                            .map(TransactionWithStatusMeta::Complete)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                rewards: block_meta
+                    .rewards
+                    .as_ref()
+                    .map(|r| {
+                        r.rewards
+                            .iter()
+                            .cloned()
+                            .map(convert_from::create_reward)
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
+                num_partitions: block_meta
+                    .rewards
+                    .as_ref()
+                    .and_then(|r| r.num_partitions)
+                    .map(|np| np.num_partitions),
+                block_time: block_meta.block_time.map(|bt| bt.timestamp),
+                block_height: block_meta.block_height.map(|bh| bh.block_height),
+            },
         })
     }
 }
