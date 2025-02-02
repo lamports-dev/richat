@@ -2,7 +2,9 @@ use {
     crate::{
         channel::{Messages, ParsedMessage},
         pubsub::{
-            notification::{RpcNotification, RpcNotifications},
+            notification::{
+                RpcBlockUpdate, RpcNotification, RpcNotifications, RpcTransactionUpdate,
+            },
             solana::{SubscribeConfig, SubscribeConfigHashId, SubscribeMethod},
             ClientId, SubscriptionId,
         },
@@ -449,8 +451,15 @@ pub fn subscriptions_worker(
                             return Some((subscription, false, json));
                         }
                         (SubscribeMethod::Block, ParsedMessage::Block(message)) => {
-                            //
-                            todo!()
+                            if let Some((encoding, options)) =
+                                subscription.config.filter_block(message)
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    message.slot(),
+                                    &RpcBlockUpdate::new(message, encoding, options),
+                                );
+                                return Some((subscription, false, json));
+                            }
                         }
                         (SubscribeMethod::Root, ParsedMessage::Slot(message)) => {
                             if message.commitment() == CommitmentLevelProto::Finalized {
@@ -459,8 +468,25 @@ pub fn subscriptions_worker(
                             }
                         }
                         (SubscribeMethod::Transaction, ParsedMessage::Transaction(message)) => {
-                            //
-                            todo!()
+                            if let Some((
+                                encoding,
+                                transaction_details,
+                                show_rewards,
+                                max_supported_transaction_version,
+                            )) = subscription.config.filter_transaction(message)
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    message.slot(),
+                                    &RpcTransactionUpdate::new(
+                                        message,
+                                        encoding,
+                                        transaction_details,
+                                        show_rewards,
+                                        max_supported_transaction_version,
+                                    ),
+                                );
+                                return Some((subscription, false, json));
+                            }
                         }
                         _ => {}
                     };

@@ -10,7 +10,7 @@ use {
     },
     richat_filter::{
         config::MAX_FILTERS,
-        message::{MessageAccount, MessageTransaction},
+        message::{MessageAccount, MessageBlock, MessageTransaction},
     },
     richat_proto::convert_from,
     serde::{de, Deserialize},
@@ -32,7 +32,7 @@ use {
         signature::Signature,
         transaction::TransactionError,
     },
-    solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
+    solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
     spl_token_2022::{
         generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
     },
@@ -489,8 +489,11 @@ impl SubscribeConfig {
                 }
             };
             if filtered {
-                if let Ok(error) = convert_from::create_tx_error(message.error().as_ref()) {
-                    return Some((error, message.log_messages().clone()));
+                if let (Ok(error), Ok(tx_meta)) = (
+                    convert_from::create_tx_error(message.error().as_ref()),
+                    message.transaction_meta(),
+                ) {
+                    return Some((error, tx_meta.log_messages.clone()));
                 }
             }
         }
@@ -505,6 +508,62 @@ impl SubscribeConfig {
             Self::Signature { signature, .. } if signature == message.signature() => {
                 convert_from::create_tx_error(message.error().as_ref()).ok()
             }
+            _ => None,
+        }
+    }
+
+    pub fn filter_block(
+        &self,
+        message: &MessageBlock,
+    ) -> Option<(UiTransactionEncoding, BlockEncodingOptions)> {
+        if let Self::Block {
+            encoding,
+            kind,
+            transaction_details,
+            show_rewards,
+            max_supported_transaction_version,
+            ..
+        } = self
+        {
+            let filtered = match kind {
+                BlockSubscriptionKind::All => true,
+                BlockSubscriptionKind::MentionsAccountOrProgram(pubkey) => message
+                    .transactions
+                    .iter()
+                    .any(|tx| tx.account_keys().contains(pubkey)),
+            };
+            if filtered {
+                return Some((
+                    *encoding,
+                    BlockEncodingOptions {
+                        transaction_details: *transaction_details,
+                        show_rewards: *show_rewards,
+                        max_supported_transaction_version: *max_supported_transaction_version,
+                    },
+                ));
+            }
+        }
+        None
+    }
+
+    pub fn filter_transaction(
+        &self,
+        message: &MessageTransaction,
+    ) -> Option<(UiTransactionEncoding, TransactionDetails, bool, Option<u8>)> {
+        match self {
+            Self::Transaction {
+                filter,
+                encoding,
+                transaction_details,
+                show_rewards,
+                max_supported_transaction_version,
+                ..
+            } if filter.matches(message) => Some((
+                *encoding,
+                *transaction_details,
+                *show_rewards,
+                *max_supported_transaction_version,
+            )),
             _ => None,
         }
     }

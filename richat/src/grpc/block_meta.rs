@@ -86,7 +86,7 @@ impl BlockMetaStorage {
                         let entry = blocks.entry(slot).or_default();
                         entry.slot = slot;
                         entry.blockhash = Arc::new(msg.blockhash().to_owned());
-                        entry.block_height = msg.block_height().unwrap_or_default();
+                        entry.block_height = msg.block_height();
                         entry.processed = true;
                         let bentry = blockhashes.entry(Arc::clone(&entry.blockhash)).or_default();
                         bentry.last_valid_block_height = entry.block_height + MAX_PROCESSING_AGE as u64;

@@ -2,12 +2,13 @@ use {
     prost::Message as _,
     prost_types::Timestamp,
     richat_proto::{
+        convert_from,
         geyser::{
             subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
             SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
             SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
         },
-        solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
+        solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
     },
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -15,6 +16,9 @@ use {
         clock::{Epoch, Slot},
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
+    },
+    solana_transaction_status::{
+        ConfirmedBlock, TransactionWithStatusMeta, VersionedTransactionWithStatusMeta,
     },
     std::{collections::HashSet, sync::Arc},
     thiserror::Error,
@@ -242,7 +246,6 @@ impl MessageParserProst {
                             .try_into()
                             .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
-                        log_messages: meta.log_messages.clone(),
                         account_keys,
                         transaction,
                         slot: message.slot,
@@ -258,11 +261,18 @@ impl MessageParserProst {
                     created_at,
                     size: encoded_len,
                 }),
-                UpdateOneof::BlockMeta(block_meta) => Message::BlockMeta(MessageBlockMeta::Prost {
-                    block_meta,
-                    created_at,
-                    size: encoded_len,
-                }),
+                UpdateOneof::BlockMeta(block_meta) => {
+                    let block_height = block_meta
+                        .block_height
+                        .map(|v| v.block_height)
+                        .ok_or(MessageParseError::FieldNotDefined("block_height"))?;
+                    Message::BlockMeta(MessageBlockMeta::Prost {
+                        block_meta,
+                        block_height,
+                        created_at,
+                        size: encoded_len,
+                    })
+                }
                 UpdateOneof::Block(message) => {
                     let accounts = message
                         .accounts
@@ -314,7 +324,6 @@ impl MessageParserProst {
                                     .try_into()
                                     .map_err(|_| MessageParseError::InvalidSignature)?,
                                 error: meta.err.clone(),
-                                log_messages: meta.log_messages.clone(),
                                 account_keys,
                                 transaction,
                                 slot: message.slot,
@@ -351,6 +360,10 @@ impl MessageParserProst {
                         entries_count: message.entries_count,
                     };
                     let encoded_len = block_meta.encoded_len();
+                    let block_height = block_meta
+                        .block_height
+                        .map(|v| v.block_height)
+                        .ok_or(MessageParseError::FieldNotDefined("block_height"))?;
 
                     Message::Block(MessageBlock {
                         accounts,
@@ -358,6 +371,7 @@ impl MessageParserProst {
                         entries,
                         block_meta: Arc::new(MessageBlockMeta::Prost {
                             block_meta,
+                            block_height,
                             created_at,
                             size: encoded_len,
                         }),
@@ -553,7 +567,6 @@ pub enum MessageTransaction {
     Prost {
         signature: Signature,
         error: Option<TransactionError>,
-        log_messages: Vec<String>,
         account_keys: HashSet<Pubkey>,
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
@@ -658,11 +671,29 @@ impl MessageTransaction {
         }
     }
 
-    pub fn log_messages(&self) -> &Vec<String> {
+    pub fn transaction(&self) -> Result<&Transaction, &'static str> {
         match self {
             Self::Limited => todo!(),
-            Self::Prost { log_messages, .. } => log_messages,
+            Self::Prost { transaction, .. } => {
+                transaction.transaction.as_ref().ok_or("FieldNotDefined")
+            }
         }
+    }
+
+    pub fn transaction_meta(&self) -> Result<&TransactionStatusMeta, &'static str> {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost { transaction, .. } => transaction.meta.as_ref().ok_or("FieldNotDefined"),
+        }
+    }
+
+    pub fn as_versioned_transaction_with_status_meta(
+        &self,
+    ) -> Result<VersionedTransactionWithStatusMeta, &'static str> {
+        Ok(VersionedTransactionWithStatusMeta {
+            transaction: convert_from::create_tx_versioned(self.transaction()?.clone())?,
+            meta: convert_from::create_tx_meta(self.transaction_meta()?.clone())?,
+        })
     }
 
     pub fn account_keys(&self) -> &HashSet<Pubkey> {
@@ -718,6 +749,7 @@ pub enum MessageBlockMeta {
     Limited,
     Prost {
         block_meta: SubscribeUpdateBlockMeta,
+        block_height: Slot,
         created_at: Timestamp,
         size: usize,
     },
@@ -759,10 +791,10 @@ impl MessageBlockMeta {
         }
     }
 
-    pub fn block_height(&self) -> Option<Slot> {
+    pub fn block_height(&self) -> Slot {
         match self {
             Self::Limited => todo!(),
-            Self::Prost { block_meta, .. } => block_meta.block_height.map(|v| v.block_height),
+            Self::Prost { block_height, .. } => *block_height,
         }
     }
 
@@ -811,6 +843,46 @@ impl MessageBlock {
             .chain(self.entries.iter().map(|m| m.size()))
             .sum::<usize>()
             + self.block_meta.size()
+    }
+
+    pub fn as_confirmed_block(&self) -> Result<ConfirmedBlock, &'static str> {
+        Ok(match self.block_meta.as_ref() {
+            MessageBlockMeta::Limited => todo!(),
+            MessageBlockMeta::Prost { block_meta, .. } => {
+                ConfirmedBlock {
+                    previous_blockhash: block_meta.parent_blockhash.clone(),
+                    blockhash: block_meta.blockhash.clone(),
+                    parent_slot: block_meta.parent_slot,
+                    transactions: self
+                        .transactions
+                        .iter()
+                        .map(|tx| {
+                            tx.as_versioned_transaction_with_status_meta()
+                                .map(TransactionWithStatusMeta::Complete)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    rewards: block_meta
+                        .rewards
+                        .as_ref()
+                        .map(|r| {
+                            r.rewards
+                                .iter()
+                                .cloned()
+                                .map(convert_from::create_reward)
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default(),
+                    num_partitions: block_meta
+                        .rewards
+                        .as_ref()
+                        .and_then(|r| r.num_partitions)
+                        .map(|np| np.num_partitions),
+                    block_time: block_meta.block_time.map(|bt| bt.timestamp),
+                    block_height: block_meta.block_height.map(|bh| bh.block_height),
+                }
+            }
+        })
     }
 }
 

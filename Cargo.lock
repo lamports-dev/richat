@@ -4942,6 +4942,7 @@ dependencies = [
  "smallvec",
  "solana-account",
  "solana-sdk",
+ "solana-transaction-status",
  "spl-token-2022 7.0.0",
  "thiserror 2.0.11",
 ]
