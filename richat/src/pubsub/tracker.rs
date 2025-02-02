@@ -480,16 +480,11 @@ pub fn subscriptions_worker(
                                     parent: message.parent().unwrap_or_default(),
                                     timestamp: message.created_at().as_millis(),
                                 },
-                                CommitmentLevelProto::Processed => {
-                                    let Some(stats) = extra_info else {
-                                        return None;
-                                    };
-                                    SlotUpdate::Frozen {
-                                        slot: message.slot(),
-                                        timestamp: message.created_at().as_millis(),
-                                        stats,
-                                    }
-                                }
+                                CommitmentLevelProto::Processed => SlotUpdate::Frozen {
+                                    slot: message.slot(),
+                                    timestamp: message.created_at().as_millis(),
+                                    stats: extra_info?,
+                                },
                                 CommitmentLevelProto::Dead => SlotUpdate::Dead {
                                     slot: message.slot(),
                                     timestamp: message.created_at().as_millis(),
