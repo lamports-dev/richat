@@ -4843,6 +4843,7 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "prost 0.13.4",
+ "prost-types 0.13.4",
  "rayon",
  "richat-client",
  "richat-filter",

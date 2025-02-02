@@ -9,19 +9,22 @@ use {
             ClientId, SubscriptionId,
         },
     },
+    prost_types::Timestamp,
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
         ThreadPoolBuilder,
     },
+    richat_filter::message::MessageSlot,
     richat_proto::geyser::CommitmentLevel as CommitmentLevelProto,
     solana_account_decoder::encode_ui_account,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
     },
-    solana_sdk::commitment_config::CommitmentLevel,
+    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
     std::{
-        collections::{hash_map::Entry as HashMapEntry, HashMap, HashSet},
+        collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
+        sync::Arc,
         thread,
     },
     tokio::sync::{mpsc, oneshot},
@@ -267,7 +270,11 @@ pub fn subscriptions_worker(
         .build()?;
 
     let mut slot_finalized = 0;
+    let mut slots_stats = BTreeMap::<Slot, SlotTransactionStatsItem>::new();
+    let mut messages_extra = vec![];
     loop {
+        messages_extra.clear();
+
         // Update subscriptions from clients
         for _ in 0..max_clients_request_per_tick {
             match clients_rx.try_recv() {
@@ -315,10 +322,46 @@ pub fn subscriptions_worker(
             }
             for message in messages.iter() {
                 if commitment == CommitmentLevel::Processed {
-                    if let ParsedMessage::Slot(message) = &message {
-                        if message.commitment() == CommitmentLevelProto::Finalized {
-                            slot_finalized = message.slot()
+                    if let Some((message, stats)) = match &message {
+                        ParsedMessage::Slot(message)
+                            if message.commitment() == CommitmentLevelProto::Processed =>
+                        {
+                            slots_stats
+                                .entry(message.slot())
+                                .or_default()
+                                .add_created_at(message.slot(), message.created_at().into())
                         }
+                        ParsedMessage::Slot(message)
+                            if message.commitment() == CommitmentLevelProto::Finalized =>
+                        {
+                            slot_finalized = message.slot();
+                            loop {
+                                match slots_stats.keys().next().copied() {
+                                    Some(slot_min) if slot_min <= slot_finalized => {
+                                        slots_stats.remove(&slot_min);
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            None
+                        }
+                        ParsedMessage::Transaction(message) => slots_stats
+                            .entry(message.slot())
+                            .or_default()
+                            .add_tx(message.failed()),
+                        ParsedMessage::Entry(message) => slots_stats
+                            .entry(message.slot())
+                            .or_default()
+                            .add_entry(message.executed_transaction_count()),
+                        ParsedMessage::BlockMeta(message) => {
+                            slots_stats.entry(message.slot()).or_default().add_meta(
+                                message.executed_transaction_count(),
+                                message.entries_count(),
+                            )
+                        }
+                        _ => None,
+                    } {
+                        messages_extra.push((message, stats));
                     }
                 }
 
@@ -327,9 +370,19 @@ pub fn subscriptions_worker(
                         subscriptions.get_subscriptions(commitment, *method)
                     {
                         for subscription in subscriptions {
-                            jobs.push((*method, message, subscription));
+                            jobs.push((*method, message, subscription, None));
                         }
                     }
+                }
+            }
+        }
+        for (message, stats) in messages_extra.iter() {
+            let method = SubscribeMethod::SlotsUpdates;
+            if let Some(subscriptions) =
+                subscriptions.get_subscriptions(CommitmentLevel::Processed, method)
+            {
+                for subscription in subscriptions {
+                    jobs.push((method, message, subscription, Some(*stats)));
                 }
             }
         }
@@ -337,7 +390,7 @@ pub fn subscriptions_worker(
         // Filter messages
         let new_notifications = workers.install(|| {
             jobs.into_par_iter()
-                .filter_map(|(method, message, subscription)| {
+                .filter_map(|(method, message, subscription, extra_info)| {
                     match (method, message) {
                         (SubscribeMethod::Account, ParsedMessage::Account(message)) => {
                             if let Some((encoding, data_slice)) =
@@ -427,17 +480,16 @@ pub fn subscriptions_worker(
                                     parent: message.parent().unwrap_or_default(),
                                     timestamp: message.created_at().as_millis(),
                                 },
-                                CommitmentLevelProto::Processed => SlotUpdate::Frozen {
-                                    slot: message.slot(),
-                                    timestamp: message.parent().unwrap_or_default(),
-                                    // TODO
-                                    stats: SlotTransactionStats {
-                                        num_transaction_entries: 0,
-                                        num_successful_transactions: 0,
-                                        num_failed_transactions: 0,
-                                        max_transactions_per_entry: 0,
-                                    },
-                                },
+                                CommitmentLevelProto::Processed => {
+                                    let Some(stats) = extra_info else {
+                                        return None;
+                                    };
+                                    SlotUpdate::Frozen {
+                                        slot: message.slot(),
+                                        timestamp: message.created_at().as_millis(),
+                                        stats,
+                                    }
+                                }
                                 CommitmentLevelProto::Dead => SlotUpdate::Dead {
                                     slot: message.slot(),
                                     timestamp: message.created_at().as_millis(),
@@ -510,5 +562,86 @@ pub fn subscriptions_worker(
                 subscriptions.remove_subscription(subscription_config_hash);
             }
         }
+    }
+}
+
+type SlotTransactionStatsItemResult = Option<(ParsedMessage, SlotTransactionStats)>;
+
+#[derive(Debug, Default)]
+struct SlotTransactionStatsItem {
+    slot: Slot,
+    created_at: Timestamp,
+
+    meta: bool,
+    num_transactions: u64,
+    num_entries: u64,
+
+    num_tx_success: u64,
+    num_tx_failed: u64,
+
+    num_entries_received: u64,
+    max_tx_per_entry: u64,
+}
+
+impl SlotTransactionStatsItem {
+    fn add_created_at(
+        &mut self,
+        slot: Slot,
+        created_at: Timestamp,
+    ) -> SlotTransactionStatsItemResult {
+        self.slot = slot;
+        self.created_at = created_at;
+        self.try_create()
+    }
+
+    fn add_tx(&mut self, failed: bool) -> SlotTransactionStatsItemResult {
+        if failed {
+            self.num_tx_failed += 1;
+        } else {
+            self.num_tx_success += 1;
+        }
+        self.try_create()
+    }
+
+    fn add_entry(&mut self, executed_transaction_count: u64) -> SlotTransactionStatsItemResult {
+        self.num_entries_received += 1;
+        self.max_tx_per_entry = self.max_tx_per_entry.max(executed_transaction_count);
+        self.try_create()
+    }
+
+    fn add_meta(
+        &mut self,
+        num_transactions: u64,
+        num_entries: u64,
+    ) -> SlotTransactionStatsItemResult {
+        self.meta = true;
+        self.num_transactions = num_transactions;
+        self.num_entries = num_entries;
+        self.try_create()
+    }
+
+    fn try_create(&self) -> SlotTransactionStatsItemResult {
+        if self.slot != 0
+            && self.meta
+            && self.num_transactions == self.num_tx_success + self.num_tx_failed
+            && self.num_entries == self.num_entries_received
+        {
+            let message = MessageSlot::Prost {
+                slot: self.slot,
+                parent: None,
+                commitment: CommitmentLevelProto::Processed,
+                dead_error: None,
+                created_at: self.created_at,
+                size: 0,
+            };
+            let stats = SlotTransactionStats {
+                num_transaction_entries: self.num_entries,
+                num_successful_transactions: self.num_tx_success,
+                num_failed_transactions: self.num_tx_failed,
+                max_transactions_per_entry: self.max_tx_per_entry,
+            };
+            return Some((ParsedMessage::Slot(Arc::new(message)), stats));
+        }
+        None
     }
 }

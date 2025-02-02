@@ -35,9 +35,7 @@ use {
 };
 
 #[derive(Debug)]
-pub struct PubSubServer {
-    //
-}
+pub struct PubSubServer;
 
 impl PubSubServer {
     pub fn spawn(

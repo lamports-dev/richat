@@ -256,11 +256,15 @@ impl MessageParserProst {
                 UpdateOneof::TransactionStatus(_) => {
                     return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
                 }
-                UpdateOneof::Entry(entry) => Message::Entry(MessageEntry::Prost {
-                    entry,
-                    created_at,
-                    size: encoded_len,
-                }),
+                UpdateOneof::Entry(entry) => {
+                    let executed_transaction_count = entry.executed_transaction_count;
+                    Message::Entry(MessageEntry::Prost {
+                        entry,
+                        executed_transaction_count,
+                        created_at,
+                        size: encoded_len,
+                    })
+                }
                 UpdateOneof::BlockMeta(block_meta) => {
                     let block_height = block_meta
                         .block_height
@@ -339,9 +343,11 @@ impl MessageParserProst {
                         .entries
                         .into_iter()
                         .map(|entry| {
+                            let executed_transaction_count = entry.executed_transaction_count;
                             let encoded_len = entry.encoded_len();
                             Arc::new(MessageEntry::Prost {
                                 entry,
+                                executed_transaction_count,
                                 created_at,
                                 size: encoded_len,
                             })
@@ -709,6 +715,7 @@ pub enum MessageEntry {
     Limited,
     Prost {
         entry: SubscribeUpdateEntry,
+        executed_transaction_count: u64,
         created_at: Timestamp,
         size: usize,
     },
@@ -740,6 +747,16 @@ impl MessageEntry {
         match self {
             Self::Limited => todo!(),
             Self::Prost { size, .. } => *size,
+        }
+    }
+
+    pub fn executed_transaction_count(&self) -> u64 {
+        match self {
+            Self::Limited => todo!(),
+            Self::Prost {
+                executed_transaction_count,
+                ..
+            } => *executed_transaction_count,
         }
     }
 }
@@ -893,6 +910,15 @@ pub enum MessageBlockCreatedAt {
 impl From<Timestamp> for MessageBlockCreatedAt {
     fn from(value: Timestamp) -> Self {
         Self::Prost(value)
+    }
+}
+
+impl From<MessageBlockCreatedAt> for Timestamp {
+    fn from(value: MessageBlockCreatedAt) -> Self {
+        match value {
+            MessageBlockCreatedAt::Limited => todo!(),
+            MessageBlockCreatedAt::Prost(timestamp) => timestamp,
+        }
     }
 }
 
