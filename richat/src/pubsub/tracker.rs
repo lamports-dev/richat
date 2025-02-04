@@ -14,14 +14,17 @@ use {
         iter::{IntoParallelIterator, ParallelIterator},
         ThreadPoolBuilder,
     },
-    richat_filter::message::MessageSlot,
-    richat_proto::geyser::CommitmentLevel as CommitmentLevelProto,
+    richat_filter::message::{MessageSlot, MessageTransaction},
+    richat_proto::{convert_from, geyser::CommitmentLevel as CommitmentLevelProto},
     solana_account_decoder::encode_ui_account,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
     },
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
+    solana_sdk::{
+        clock::Slot, commitment_config::CommitmentLevel, signature::Signature,
+        transaction::TransactionError,
+    },
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         sync::Arc,
@@ -78,14 +81,19 @@ impl Subscriptions {
             .map(|map| map.values())
     }
 
-    fn update(&mut self, request: ClientRequest) {
+    fn update(
+        &mut self,
+        request: ClientRequest,
+        signatures: &mut CachedSignatures,
+        notifications: &mut RpcNotifications,
+    ) {
         match request {
             ClientRequest::Subscribe {
                 client_id,
                 config,
                 tx,
             } => {
-                let subscription_id = self.subscribe(client_id, config);
+                let subscription_id = self.subscribe(client_id, config, signatures, notifications);
                 let _ = tx.send(subscription_id);
             }
             ClientRequest::Unsubscribe {
@@ -100,7 +108,13 @@ impl Subscriptions {
         }
     }
 
-    fn subscribe(&mut self, client_id: ClientId, config: SubscribeConfig) -> SubscriptionId {
+    fn subscribe(
+        &mut self,
+        client_id: ClientId,
+        config: SubscribeConfig,
+        signatures: &mut CachedSignatures,
+        notifications: &mut RpcNotifications,
+    ) -> SubscriptionId {
         let config_hash = config.get_hash_id();
         match self.subscriptions.entry(config_hash) {
             HashMapEntry::Occupied(entry) => {
@@ -125,29 +139,49 @@ impl Subscriptions {
                 let subscription_id = self.subscription_id;
                 self.subscription_id += 1;
 
-                let commitment = config.commitment();
-                let method = config.method();
-                entry.insert((commitment, method, subscription_id));
+                let mut is_final = false;
+                if let SubscribeConfig::Signature {
+                    signature,
+                    commitment,
+                } = &config
+                {
+                    if let Some((slot, err)) = signatures.get(signature, commitment.commitment) {
+                        is_final = true;
+                        let json = RpcNotification::serialize_with_context(
+                            slot,
+                            &RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
+                                err,
+                            }),
+                        );
+                        notifications.push(subscription_id, is_final, json);
+                    }
+                }
 
-                // add subscription info for client
-                self.subscriptions_per_client
-                    .entry(client_id)
-                    .or_default()
-                    .insert(subscription_id, (commitment, method));
+                if !is_final {
+                    let commitment = config.commitment();
+                    let method = config.method();
+                    entry.insert((commitment, method, subscription_id));
 
-                // create subscription info
-                self.subscriptions_per_method
-                    .entry((commitment, method))
-                    .or_default()
-                    .insert(
-                        subscription_id,
-                        SubscriptionInfo {
-                            id: subscription_id,
-                            config_hash,
-                            config,
-                            clients: HashSet::new(),
-                        },
-                    );
+                    // add subscription info for client
+                    self.subscriptions_per_client
+                        .entry(client_id)
+                        .or_default()
+                        .insert(subscription_id, (commitment, method));
+
+                    // create subscription info
+                    self.subscriptions_per_method
+                        .entry((commitment, method))
+                        .or_default()
+                        .insert(
+                            subscription_id,
+                            SubscriptionInfo {
+                                id: subscription_id,
+                                config_hash,
+                                config,
+                                clients: HashSet::new(),
+                            },
+                        );
+                }
 
                 subscription_id
             }
@@ -228,6 +262,7 @@ impl Subscriptions {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn subscriptions_worker(
     messages: Messages,
     mut clients_rx: mpsc::Receiver<ClientRequest>,
@@ -236,6 +271,8 @@ pub fn subscriptions_worker(
     max_clients_request_per_tick: usize,
     max_messages_per_commitment_per_tick: usize,
     mut notifications: RpcNotifications,
+    signatures_cache_max: usize,
+    signatures_cache_slots_max: usize,
 ) -> anyhow::Result<()> {
     // Subscriptions storage
     let mut subscriptions = Subscriptions::default();
@@ -269,6 +306,10 @@ pub fn subscriptions_worker(
         })
         .build()?;
 
+    // Signatures cache
+    let mut signatures = CachedSignatures::new(signatures_cache_max, signatures_cache_slots_max);
+
+    // main loop
     let mut slot_finalized = 0;
     let mut slots_stats = BTreeMap::<Slot, SlotTransactionStatsItem>::new();
     let mut messages_extra = vec![];
@@ -278,7 +319,7 @@ pub fn subscriptions_worker(
         // Update subscriptions from clients
         for _ in 0..max_clients_request_per_tick {
             match clients_rx.try_recv() {
-                Ok(request) => subscriptions.update(request),
+                Ok(request) => subscriptions.update(request, &mut signatures, &mut notifications),
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => return Ok(()), // means shutdown
             };
@@ -332,8 +373,21 @@ pub fn subscriptions_worker(
                                 .add_created_at(message.slot(), message.created_at().into())
                         }
                         ParsedMessage::Slot(message)
+                            if message.commitment() == CommitmentLevelProto::Dead =>
+                        {
+                            signatures.dead_slot(message.slot());
+                            None
+                        }
+                        ParsedMessage::Slot(message)
                             if message.commitment() == CommitmentLevelProto::Finalized =>
                         {
+                            signatures.set_confirmed(message.slot());
+                            None
+                        }
+                        ParsedMessage::Slot(message)
+                            if message.commitment() == CommitmentLevelProto::Finalized =>
+                        {
+                            signatures.set_finalized(message.slot());
                             slot_finalized = message.slot();
                             loop {
                                 match slots_stats.keys().next().copied() {
@@ -345,10 +399,13 @@ pub fn subscriptions_worker(
                             }
                             None
                         }
-                        ParsedMessage::Transaction(message) => slots_stats
-                            .entry(message.slot())
-                            .or_default()
-                            .add_tx(message.failed()),
+                        ParsedMessage::Transaction(message) => {
+                            signatures.add_signature(message);
+                            slots_stats
+                                .entry(message.slot())
+                                .or_default()
+                                .add_tx(message.failed())
+                        }
                         ParsedMessage::Entry(message) => slots_stats
                             .entry(message.slot())
                             .or_default()
@@ -557,6 +614,94 @@ pub fn subscriptions_worker(
                 subscriptions.remove_subscription(subscription_config_hash);
             }
         }
+    }
+}
+
+#[derive(Debug)]
+struct CachedSignature {
+    slot: Slot,
+    err: Option<TransactionError>,
+}
+
+#[derive(Debug)]
+struct CachedSignatures {
+    signatures: HashMap<Signature, CachedSignature>,
+    signatures_max: usize,
+    slots: BTreeMap<Slot, Vec<Signature>>,
+    slots_max: usize,
+    slot_confirmed: Slot,
+    slot_finalized: Slot,
+}
+
+impl CachedSignatures {
+    fn new(signatures_max: usize, slots_max: usize) -> Self {
+        Self {
+            signatures: HashMap::with_capacity(signatures_max),
+            signatures_max,
+            slots: BTreeMap::new(),
+            slots_max,
+            slot_confirmed: 0,
+            slot_finalized: 0,
+        }
+    }
+
+    fn get(
+        &self,
+        signature: &Signature,
+        commitment: CommitmentLevel,
+    ) -> Option<(Slot, Option<TransactionError>)> {
+        if let Some(cached) = self.signatures.get(signature) {
+            let valid_cache = match commitment {
+                CommitmentLevel::Processed => true,
+                CommitmentLevel::Confirmed if self.slot_confirmed >= cached.slot => true,
+                CommitmentLevel::Finalized if self.slot_finalized >= cached.slot => true,
+                _ => false,
+            };
+            if valid_cache {
+                return Some((cached.slot, cached.err.clone()));
+            }
+        }
+        None
+    }
+
+    fn add_signature(&mut self, message: &MessageTransaction) {
+        if let Ok(err) = convert_from::create_tx_error(message.error().as_ref()) {
+            while self.signatures.len() >= self.signatures_max || self.slots.len() >= self.slots_max
+            {
+                let Some((_slot, signatures)) = self.slots.pop_first() else {
+                    break;
+                };
+                for signature in signatures {
+                    self.signatures.remove(&signature);
+                }
+            }
+
+            self.signatures.insert(
+                *message.signature(),
+                CachedSignature {
+                    slot: message.slot(),
+                    err,
+                },
+            );
+            self.slots
+                .entry(message.slot())
+                .or_default()
+                .push(*message.signature());
+        }
+    }
+
+    fn dead_slot(&mut self, slot: Slot) {
+        for signature in self.slots.remove(&slot).unwrap_or_default() {
+            self.signatures.remove(&signature);
+        }
+    }
+
+    fn set_confirmed(&mut self, slot: Slot) {
+        self.slot_confirmed = slot;
+    }
+
+    fn set_finalized(&mut self, slot: Slot) {
+        self.slot_finalized = slot;
     }
 }
 

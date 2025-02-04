@@ -190,5 +190,7 @@ apps:
     subscriptions_max_messages_per_commitment_per_tick: 256
     notifications_message_max_len: 10_000_000
     notifications_message_max_bytes: 34_359_738_368
+    signatures_cache_max: 1_228_800
+    signatures_cache_slots_max: 150
 prometheus:
   endpoint: 127.0.0.1:10124

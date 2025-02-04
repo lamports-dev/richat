@@ -37,6 +37,10 @@ pub struct ConfigAppsPubsub {
     pub notifications_message_max_len: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub notifications_message_max_bytes: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub signatures_cache_max: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub signatures_cache_slots_max: usize,
 }
 
 impl Default for ConfigAppsPubsub {
@@ -56,6 +60,8 @@ impl Default for ConfigAppsPubsub {
             subscriptions_max_messages_per_commitment_per_tick: 256,
             notifications_message_max_len: 10_000_000,
             notifications_message_max_bytes: 32 * 1024 * 1024 * 1024,
+            signatures_cache_max: 150 * 8_192, // 8k more than enough per slot, should be about 300MiB
+            signatures_cache_slots_max: 150,
         }
     }
 }

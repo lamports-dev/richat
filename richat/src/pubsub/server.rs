@@ -80,6 +80,8 @@ impl PubSubServer {
                             config.notifications_message_max_bytes,
                             notifications,
                         ),
+                        config.signatures_cache_max,
+                        config.signatures_cache_slots_max,
                     )
                 }
             },
