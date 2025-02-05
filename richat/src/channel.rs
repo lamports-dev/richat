@@ -1,15 +1,24 @@
 use {
     crate::{
-        config::{ConfigChannelInner, ConfigChannelSource},
+        config::{ConfigChannelInner, ConfigChannelSource, ConfigGrpcClientSource},
         metrics,
     },
     futures::stream::{BoxStream, StreamExt},
+    maplit::hashmap,
     richat_client::error::ReceiveError,
     richat_filter::message::{
         Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageParseError,
         MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
     },
-    richat_proto::{geyser::CommitmentLevel as CommitmentLevelProto, richat::GrpcSubscribeRequest},
+    richat_proto::{
+        geyser::{
+            CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
+            SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
+            SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
+            SubscribeRequestFilterTransactions,
+        },
+        richat::GrpcSubscribeRequest,
+    },
     richat_shared::transports::RecvError,
     solana_nohash_hasher::NoHashHasher,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
@@ -191,15 +200,34 @@ impl Messages {
             ConfigChannelSource::Tcp(config) => {
                 config.connect().await?.subscribe(None, None).await?.boxed()
             }
-            ConfigChannelSource::Grpc(config) => config
-                .connect()
-                .await?
-                .subscribe_richat(GrpcSubscribeRequest {
-                    replay_from_slot: None,
-                    filter: None,
-                })
-                .await?
-                .boxed(),
+            ConfigChannelSource::Grpc { source, config } => {
+                let mut connection = config.connect().await?;
+                match source {
+                    ConfigGrpcClientSource::DragonsMouth => connection
+                        .subscribe_dragons_mouth_once(SubscribeRequest {
+                            accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() },
+                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots::default() },
+                            transactions: hashmap! { "".to_owned() => SubscribeRequestFilterTransactions::default() },
+                            transactions_status: HashMap::new(),
+                            blocks: HashMap::new(),
+                            blocks_meta: hashmap! { "".to_owned() => SubscribeRequestFilterBlocksMeta::default() },
+                            entry: hashmap! { "".to_owned() => SubscribeRequestFilterEntry::default() },
+                            commitment: Some(CommitmentLevelProto::Processed as i32),
+                            accounts_data_slice: vec![],
+                            ping: None,
+                            from_slot: None,
+                        })
+                        .await?
+                        .boxed(),
+                    ConfigGrpcClientSource::Richat => connection
+                        .subscribe_richat(GrpcSubscribeRequest {
+                            replay_from_slot: None,
+                            filter: None,
+                        })
+                        .await?
+                        .boxed(),
+                }
+            }
         })
     }
 }
@@ -218,7 +246,12 @@ pub struct Sender {
 
 impl Sender {
     pub fn push(&mut self, buffer: Vec<u8>) -> Result<(), MessageParseError> {
-        let message: ParsedMessage = Message::parse(buffer, self.parser)?.into();
+        let message: ParsedMessage = (match Message::parse(buffer, self.parser) {
+            Ok(message) => message,
+            Err(MessageParseError::InvalidUpdateMessage("Ping")) => return Ok(()),
+            Err(error) => return Err(error),
+        })
+        .into();
         let slot = message.slot();
 
         // get or create slot info

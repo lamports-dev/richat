@@ -63,7 +63,19 @@ pub enum ConfigChannelSource {
     #[serde(rename = "tcp")]
     Tcp(ConfigTcpClient),
     #[serde(rename = "grpc")]
-    Grpc(ConfigGrpcClient),
+    Grpc {
+        source: ConfigGrpcClientSource,
+        #[serde(flatten)]
+        config: ConfigGrpcClient,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub enum ConfigGrpcClientSource {
+    DragonsMouth,
+    #[default]
+    Richat,
 }
 
 #[derive(Debug, Clone, Deserialize)]

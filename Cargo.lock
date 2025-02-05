@@ -3429,6 +3429,7 @@ dependencies = [
  "humantime-serde",
  "json5",
  "lazy_static",
+ "maplit",
  "prometheus",
  "prost 0.13.4",
  "richat-client",
