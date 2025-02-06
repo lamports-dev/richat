@@ -59,7 +59,7 @@ impl PubSubServer {
         let (clients_tx, clients_rx) = mpsc::channel(config.clients_requests_channel_size);
 
         // Spawn subscription channel
-        let (notifications, _) = broadcast::channel(config.notifications_message_max_len);
+        let (notifications, _) = broadcast::channel(config.notifications_messages_max_count);
         let subscriptions_jh = ConfigAppsWorkers::run_once(
             0,
             "richatPSubWrk".to_owned(),
@@ -76,8 +76,8 @@ impl PubSubServer {
                         config.subscriptions_max_clients_request_per_tick,
                         config.subscriptions_max_messages_per_commitment_per_tick,
                         RpcNotifications::new(
-                            config.notifications_message_max_len,
-                            config.notifications_message_max_bytes,
+                            config.notifications_messages_max_count,
+                            config.notifications_messages_max_bytes,
                             notifications,
                         ),
                         config.signatures_cache_max,

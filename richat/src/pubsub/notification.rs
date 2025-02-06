@@ -51,21 +51,21 @@ impl RpcNotification {
 pub struct RpcNotifications {
     items: VecDeque<Arc<String>>,
     bytes_total: usize,
-    max_len: usize,
+    max_count: usize,
     max_bytes: usize,
     sender: broadcast::Sender<RpcNotification>,
 }
 
 impl RpcNotifications {
     pub fn new(
-        max_len: usize,
+        max_count: usize,
         max_bytes: usize,
         sender: broadcast::Sender<RpcNotification>,
     ) -> Self {
         Self {
-            items: VecDeque::with_capacity(max_len + 1),
+            items: VecDeque::with_capacity(max_count + 1),
             bytes_total: 0,
-            max_len,
+            max_count,
             max_bytes,
             sender,
         }
@@ -82,7 +82,7 @@ impl RpcNotifications {
         self.bytes_total += json.len();
         self.items.push_back(json);
 
-        while self.bytes_total > self.max_bytes || self.items.len() > self.max_len {
+        while self.bytes_total > self.max_bytes || self.items.len() > self.max_count {
             let item = self
                 .items
                 .pop_front()
