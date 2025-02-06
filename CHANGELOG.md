@@ -20,6 +20,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - cli: add bin `richat-track` ([#51](https://github.com/lamports-dev/richat/pull/51))
+- richat: change logs and metrics in the config ([#64](https://github.com/lamports-dev/richat/pull/64))
 
 ### Breaking
 

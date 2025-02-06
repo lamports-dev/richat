@@ -4,7 +4,7 @@ use {
         GeyserPluginError, Result as PluginResult,
     },
     richat_shared::{
-        config::{deserialize_num_str, ConfigPrometheus, ConfigTokio},
+        config::{deserialize_num_str, ConfigMetrics, ConfigTokio},
         transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer},
     },
     serde::{
@@ -18,13 +18,13 @@ use {
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub libpath: String,
-    pub log: ConfigLog,
+    pub logs: ConfigLogs,
+    pub metrics: Option<ConfigMetrics>,
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
     pub quic: Option<ConfigQuicServer>,
     pub tcp: Option<ConfigTcpServer>,
     pub grpc: Option<ConfigGrpcServer>,
-    pub prometheus: Option<ConfigPrometheus>,
 }
 
 impl Config {
@@ -42,12 +42,12 @@ impl Config {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ConfigLog {
+pub struct ConfigLogs {
     /// Log level
     pub level: String,
 }
 
-impl Default for ConfigLog {
+impl Default for ConfigLogs {
     fn default() -> Self {
         Self {
             level: "info".to_owned(),

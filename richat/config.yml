@@ -1,6 +1,8 @@
 ---
-log:
+logs:
   json: false
+metrics:
+  endpoint: 127.0.0.1:10124
 channel:
   tokio:
     worker_threads: 2
@@ -174,5 +176,3 @@ apps:
         include_accounts: false
         include_entries: false
     x_token: []
-prometheus:
-  endpoint: 127.0.0.1:10124

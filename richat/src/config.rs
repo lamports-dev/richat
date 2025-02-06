@@ -4,7 +4,7 @@ use {
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_filter::message::MessageParserEncoding,
     richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, ConfigPrometheus, ConfigTokio},
+        config::{deserialize_affinity, deserialize_num_str, ConfigMetrics, ConfigTokio},
         shutdown::Shutdown,
     },
     serde::Deserialize,
@@ -16,12 +16,12 @@ use {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
-    pub log: ConfigLog,
+    pub logs: ConfigLogs,
+    #[serde(default)]
+    pub metrics: Option<ConfigMetrics>,
     pub channel: ConfigChannel,
     #[serde(default)]
     pub apps: ConfigApps,
-    #[serde(default)]
-    pub prometheus: Option<ConfigPrometheus>,
 }
 
 impl Config {
@@ -40,7 +40,7 @@ impl Config {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ConfigLog {
+pub struct ConfigLogs {
     pub json: bool,
 }
 
