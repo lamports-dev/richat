@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Setup logs
-    richat::log::setup(config.log.json)?;
+    richat::log::setup(config.logs.json)?;
 
     // Shutdown channel/flag
     let shutdown = Shutdown::new();
@@ -139,7 +139,7 @@ fn main() -> anyhow::Result<()> {
                     ready(Ok(())).boxed()
                 };
 
-                let prometheus_fut = if let Some(config) = config.prometheus {
+                let metrics_fut = if let Some(config) = config.metrics {
                     richat::metrics::spawn_server(config, shutdown)
                         .await?
                         .map_err(anyhow::Error::from)
@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
                     ready(Ok(())).boxed()
                 };
 
-                try_join_all(vec![grpc_fut, pubsub_fut, prometheus_fut])
+                try_join_all(vec![grpc_fut, pubsub_fut, metrics_fut])
                     .await
                     .map(|_| ())
             })

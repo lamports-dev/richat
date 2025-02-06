@@ -122,7 +122,7 @@ impl PluginInner {
                 }
 
                 // Start prometheus server
-                if let Some(config) = config.prometheus {
+                if let Some(config) = config.metrics {
                     tasks.push((
                         "Prometheus Server",
                         PluginTask(Box::pin(
@@ -162,7 +162,7 @@ impl GeyserPlugin for Plugin {
         })?;
 
         // Setup logger from the config
-        solana_logger::setup_with_default(&config.log.level);
+        solana_logger::setup_with_default(&config.logs.level);
 
         // Create inner
         self.inner = Some(PluginInner::new(config).inspect_err(|error| {

@@ -1,7 +1,10 @@
 {
   "libpath": "../target/release/librichat_plugin_agave.so",
-  "log": {
+  "logs": {
     "level": "info"
+  },
+  "metrics": {
+    "endpoint": "127.0.0.1:10123"
   },
   "tokio": {
     "worker_threads": 4,
@@ -52,8 +55,5 @@
     "server_initial_connection_window_size": null,
     "server_initial_stream_window_size": null,
     "x_tokens": []
-  },
-  "prometheus": {
-    "endpoint": "127.0.0.1:10123"
   }
 }

@@ -2,7 +2,7 @@ use {
     crate::version::VERSION as VERSION_INFO,
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
-    richat_shared::config::ConfigPrometheus,
+    richat_shared::config::ConfigMetrics,
     solana_sdk::clock::Slot,
     std::{future::Future, io, sync::Once},
     tokio::task::JoinError,
@@ -48,7 +48,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn spawn_server(
-    config: ConfigPrometheus,
+    config: ConfigMetrics,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<impl Future<Output = Result<(), JoinError>>> {
     static REGISTER: Once = Once::new();

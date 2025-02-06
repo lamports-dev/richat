@@ -4841,6 +4841,7 @@ dependencies = [
  "json5",
  "jsonrpsee-types",
  "lazy_static",
+ "maplit",
  "prometheus",
  "prost 0.13.4",
  "prost-types 0.13.4",

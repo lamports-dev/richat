@@ -24,6 +24,7 @@ hyper-util = { workspace = true }
 json5 = { workspace = true }
 jsonrpsee-types = { workspace = true }
 lazy_static = { workspace = true }
+maplit = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }

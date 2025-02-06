@@ -1,5 +1,5 @@
 use {
-    crate::config::ConfigPrometheus,
+    crate::config::ConfigMetrics,
     http_body_util::{combinators::BoxBody, BodyExt, Empty as BodyEmpty, Full as BodyFull},
     hyper::{
         body::{Bytes, Incoming as BodyIncoming},
@@ -17,7 +17,7 @@ use {
 };
 
 pub async fn spawn_server(
-    ConfigPrometheus { endpoint }: ConfigPrometheus,
+    ConfigMetrics { endpoint }: ConfigMetrics,
     gather_metrics: impl Fn() -> Vec<MetricFamily> + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<impl Future<Output = Result<(), JoinError>>> {

@@ -15,10 +15,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: remove extra lock on clients queue ([#49](https://github.com/lamports-dev/richat/pull/49))
 - plugin-agave: set `nodelay` correctly for Tcp ([#53](https://github.com/lamports-dev/richat/pull/53))
 - richat: add minimal sleep ([#54](https://github.com/lamports-dev/richat/pull/54))
+- richat: consume dragons mouth stream ([#62](https://github.com/lamports-dev/richat/pull/62))
 
 ### Features
 
 - cli: add bin `richat-track` ([#51](https://github.com/lamports-dev/richat/pull/51))
+- richat: change logs and metrics in the config ([#64](https://github.com/lamports-dev/richat/pull/64))
 
 ### Breaking
 
