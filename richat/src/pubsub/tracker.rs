@@ -151,7 +151,7 @@ impl Subscriptions {
                             "signatureNotification",
                             subscription_id,
                             slot,
-                            &RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
+                            RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
                                 err,
                             }),
                         );
@@ -459,7 +459,7 @@ pub fn subscriptions_worker(
                                     "accountNotification",
                                     subscription.id,
                                     message.slot(),
-                                    &encode_ui_account(
+                                    encode_ui_account(
                                         message.pubkey(),
                                         message.as_ref(),
                                         encoding,
@@ -513,7 +513,7 @@ pub fn subscriptions_worker(
                                     "signatureNotification",
                                     subscription.id,
                                     message.slot(),
-                                    &RpcSignatureResult::ProcessedSignature(
+                                    RpcSignatureResult::ProcessedSignature(
                                         ProcessedSignatureResult { err },
                                     ),
                                 );
