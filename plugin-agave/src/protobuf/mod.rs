@@ -11,13 +11,13 @@ pub mod fixtures {
     use {
         agave_geyser_plugin_interface::geyser_plugin_interface::{
             ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
-            SlotStatus,
+            SlotStatus as GeyserSlotStatus,
         },
         prost_011::Message,
         richat_proto::{
             convert_to,
             geyser::{
-                CommitmentLevel, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
+                SlotStatus, SubscribeUpdateAccount, SubscribeUpdateAccountInfo,
                 SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateSlot,
                 SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
             },
@@ -317,11 +317,11 @@ pub mod fixtures {
     pub struct GeneratedSlot {
         pub slot: Slot,
         pub parent: Option<Slot>,
-        pub status: SlotStatus,
+        pub status: GeyserSlotStatus,
     }
 
     impl GeneratedSlot {
-        pub const fn to_replica(&self) -> (Slot, Option<Slot>, &SlotStatus) {
+        pub const fn to_replica(&self) -> (Slot, Option<Slot>, &GeyserSlotStatus) {
             (self.slot, self.parent, &self.status)
         }
 
@@ -330,15 +330,15 @@ pub mod fixtures {
                 slot: self.slot,
                 parent: self.parent,
                 status: match &self.status {
-                    SlotStatus::Processed => CommitmentLevel::Processed,
-                    SlotStatus::Rooted => CommitmentLevel::Finalized,
-                    SlotStatus::Confirmed => CommitmentLevel::Confirmed,
-                    SlotStatus::FirstShredReceived => CommitmentLevel::FirstShredReceived,
-                    SlotStatus::Completed => CommitmentLevel::Completed,
-                    SlotStatus::CreatedBank => CommitmentLevel::CreatedBank,
-                    SlotStatus::Dead(_error) => CommitmentLevel::Dead,
+                    GeyserSlotStatus::Processed => SlotStatus::SlotProcessed,
+                    GeyserSlotStatus::Rooted => SlotStatus::SlotFinalized,
+                    GeyserSlotStatus::Confirmed => SlotStatus::SlotConfirmed,
+                    GeyserSlotStatus::FirstShredReceived => SlotStatus::SlotFirstShredReceived,
+                    GeyserSlotStatus::Completed => SlotStatus::SlotCompleted,
+                    GeyserSlotStatus::CreatedBank => SlotStatus::SlotCreatedBank,
+                    GeyserSlotStatus::Dead(_error) => SlotStatus::SlotDead,
                 } as i32,
-                dead_error: if let SlotStatus::Dead(error) = &self.status {
+                dead_error: if let GeyserSlotStatus::Dead(error) = &self.status {
                     Some(error.clone())
                 } else {
                     None
@@ -352,14 +352,14 @@ pub mod fixtures {
         for slot in [0, 42, 310629080] {
             for parent in [None, Some(0), Some(42)] {
                 for status in [
-                    SlotStatus::Processed,
-                    SlotStatus::Rooted,
-                    SlotStatus::Confirmed,
-                    SlotStatus::FirstShredReceived,
-                    SlotStatus::Completed,
-                    SlotStatus::CreatedBank,
-                    SlotStatus::Dead("".to_owned()),
-                    SlotStatus::Dead("42".to_owned()),
+                    GeyserSlotStatus::Processed,
+                    GeyserSlotStatus::Rooted,
+                    GeyserSlotStatus::Confirmed,
+                    GeyserSlotStatus::FirstShredReceived,
+                    GeyserSlotStatus::Completed,
+                    GeyserSlotStatus::CreatedBank,
+                    GeyserSlotStatus::Dead("".to_owned()),
+                    GeyserSlotStatus::Dead("42".to_owned()),
                 ] {
                     slots.push(GeneratedSlot {
                         slot,

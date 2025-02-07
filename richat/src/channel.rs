@@ -12,7 +12,7 @@ use {
     },
     richat_proto::{
         geyser::{
-            CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
+            CommitmentLevel as CommitmentLevelProto, SlotStatus, SubscribeRequest,
             SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
             SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
             SubscribeRequestFilterTransactions,
@@ -269,9 +269,9 @@ impl Sender {
                     self.confirmed.push(slot, message.clone());
                     self.finalized.push(slot, message.clone());
 
-                    if let Some(sender_shared) = match msg.commitment() {
-                        CommitmentLevelProto::Confirmed => Some(&mut self.confirmed),
-                        CommitmentLevelProto::Finalized => Some(&mut self.finalized),
+                    if let Some(sender_shared) = match msg.status() {
+                        SlotStatus::SlotConfirmed => Some(&mut self.confirmed),
+                        SlotStatus::SlotFinalized => Some(&mut self.finalized),
                         _ => None,
                     } {
                         if let Some(slot_info) = self.slots.get(&slot) {
@@ -283,7 +283,7 @@ impl Sender {
                     }
 
                     // remove slot info
-                    if msg.commitment() == CommitmentLevelProto::Finalized {
+                    if msg.status() == SlotStatus::SlotFinalized {
                         loop {
                             match self.slots.keys().next().copied() {
                                 Some(slot_min) if slot_min <= slot => {
@@ -593,8 +593,8 @@ impl SlotInfo {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
             if matches!(
-                message.commitment(),
-                CommitmentLevelProto::Confirmed | CommitmentLevelProto::Finalized
+                message.status(),
+                SlotStatus::SlotConfirmed | SlotStatus::SlotFinalized
             ) {
                 self.landed = true;
             }

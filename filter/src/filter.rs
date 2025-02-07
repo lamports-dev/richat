@@ -15,9 +15,9 @@ use {
     arrayvec::ArrayVec,
     prost::Message as _,
     richat_proto::geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
-        SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlock,
-        SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus,
+        subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdateAccount,
+        SubscribeUpdateAccountInfo, SubscribeUpdateBlock, SubscribeUpdateSlot,
+        SubscribeUpdateTransaction, SubscribeUpdateTransactionStatus,
     },
     smallvec::{smallvec_inline, SmallVec},
     solana_sdk::{commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature},
@@ -189,12 +189,14 @@ impl Filter {
 #[derive(Debug, Default, Clone, Copy)]
 struct FilterSlotsInner {
     filter_by_commitment: bool,
+    interslot_updates: bool,
 }
 
 impl FilterSlotsInner {
     fn new(filter: ConfigFilterSlots) -> Self {
         Self {
             filter_by_commitment: filter.filter_by_commitment.unwrap_or_default(),
+            interslot_updates: filter.interslot_updates.unwrap_or_default(),
         }
     }
 }
@@ -219,19 +221,26 @@ impl FilterSlots {
         message: &'a MessageSlot,
         commitment: CommitmentLevel,
     ) -> Option<FilteredUpdate<'a>> {
-        let msg_commitment = message.commitment();
+        let msg_status = message.status();
 
         let filters = self
             .filters
             .iter()
             .filter_map(|(name, inner)| {
-                if !inner.filter_by_commitment
-                    || ((msg_commitment == CommitmentLevelProto::Processed
+                if (!inner.filter_by_commitment
+                    || ((msg_status == SlotStatus::SlotProcessed
                         && commitment == CommitmentLevel::Processed)
-                        || (msg_commitment == CommitmentLevelProto::Confirmed
+                        || (msg_status == SlotStatus::SlotConfirmed
                             && commitment == CommitmentLevel::Confirmed)
-                        || (msg_commitment == CommitmentLevelProto::Finalized
-                            && commitment == CommitmentLevel::Finalized))
+                        || (msg_status == SlotStatus::SlotFinalized
+                            && commitment == CommitmentLevel::Finalized)))
+                    && (inner.interslot_updates
+                        || matches!(
+                            msg_status,
+                            SlotStatus::SlotProcessed
+                                | SlotStatus::SlotConfirmed
+                                | SlotStatus::SlotFinalized
+                        ))
                 {
                     Some(name.as_ref())
                 } else {
@@ -724,7 +733,7 @@ impl<'a> FilteredUpdate<'a> {
                 MessageSlot::Prost {
                     slot,
                     parent,
-                    commitment,
+                    status,
                     dead_error,
                     created_at,
                     ..
@@ -733,7 +742,7 @@ impl<'a> FilteredUpdate<'a> {
                     update: UpdateOneof::Slot(SubscribeUpdateSlot {
                         slot: *slot,
                         parent: *parent,
-                        status: *commitment as i32,
+                        status: *status as i32,
                         dead_error: dead_error.clone(),
                     }),
                     created_at: *created_at,

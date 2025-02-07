@@ -6612,9 +6612,9 @@ dependencies = [
 
 [[package]]
 name = "yellowstone-grpc-proto"
-version = "4.1.1"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4931eb5efc681021d71fd19d7621a85358e5328d505a86f8c9c627e2deaf423"
+checksum = "9b5c9aed52d059ee34dab8118fe0f115a3a1e52b2e6cc01d099dfd92e1c73e7a"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",

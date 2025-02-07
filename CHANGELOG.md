@@ -16,6 +16,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - plugin-agave: set `nodelay` correctly for Tcp ([#53](https://github.com/lamports-dev/richat/pull/53))
 - richat: add minimal sleep ([#54](https://github.com/lamports-dev/richat/pull/54))
 - richat: consume dragons mouth stream ([#62](https://github.com/lamports-dev/richat/pull/62))
+- richat: fix slot status ([#66](https://github.com/lamports-dev/richat/pull/66))
 
 ### Features
 

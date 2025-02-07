@@ -2,7 +2,7 @@ use {
     crate::{plugin::PluginNotification, protobuf::encoding},
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
-        SlotStatus,
+        SlotStatus as GeyserSlotStatus,
     },
     prost::encoding::message,
     prost_types::Timestamp,
@@ -25,7 +25,7 @@ pub enum ProtobufMessage<'a> {
     Slot {
         slot: Slot,
         parent: Option<u64>,
-        status: &'a SlotStatus,
+        status: &'a GeyserSlotStatus,
     },
     Transaction {
         slot: Slot,
@@ -81,7 +81,7 @@ impl<'a> ProtobufMessage<'a> {
             richat_proto::{
                 convert_to,
                 geyser::{
-                    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeUpdate,
+                    subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate,
                     SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
                     SubscribeUpdateEntry, SubscribeUpdateSlot, SubscribeUpdateTransaction,
                     SubscribeUpdateTransactionInfo,
@@ -117,15 +117,15 @@ impl<'a> ProtobufMessage<'a> {
                     slot: *slot,
                     parent: *parent,
                     status: match status {
-                        SlotStatus::Processed => CommitmentLevel::Processed,
-                        SlotStatus::Rooted => CommitmentLevel::Finalized,
-                        SlotStatus::Confirmed => CommitmentLevel::Confirmed,
-                        SlotStatus::FirstShredReceived => CommitmentLevel::FirstShredReceived,
-                        SlotStatus::Completed => CommitmentLevel::Completed,
-                        SlotStatus::CreatedBank => CommitmentLevel::CreatedBank,
-                        SlotStatus::Dead(_) => CommitmentLevel::Dead,
+                        GeyserSlotStatus::Processed => SlotStatus::SlotProcessed,
+                        GeyserSlotStatus::Rooted => SlotStatus::SlotFinalized,
+                        GeyserSlotStatus::Confirmed => SlotStatus::SlotConfirmed,
+                        GeyserSlotStatus::FirstShredReceived => SlotStatus::SlotFirstShredReceived,
+                        GeyserSlotStatus::Completed => SlotStatus::SlotCompleted,
+                        GeyserSlotStatus::CreatedBank => SlotStatus::SlotCreatedBank,
+                        GeyserSlotStatus::Dead(_) => SlotStatus::SlotDead,
                     } as i32,
-                    dead_error: if let SlotStatus::Dead(error) = status {
+                    dead_error: if let GeyserSlotStatus::Dead(error) = status {
                         Some(error.clone())
                     } else {
                         None
