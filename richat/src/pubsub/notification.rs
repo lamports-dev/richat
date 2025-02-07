@@ -1,5 +1,6 @@
 use {
     crate::pubsub::SubscriptionId,
+    jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
     serde::Serialize,
     solana_rpc_client_api::response::{Response as RpcResponse, RpcResponseContext},
@@ -31,19 +32,39 @@ pub struct RpcNotification {
 }
 
 impl RpcNotification {
-    pub fn serialize<T: Serialize>(value: &T) -> Arc<String> {
-        let json = serde_json::to_string(value).expect("json serialization never fail");
-        Arc::new(json)
+    pub fn serialize<T: Serialize>(
+        method: &str,
+        subscription: SubscriptionId,
+        result: T,
+    ) -> Arc<String> {
+        let response = SubscriptionResponse {
+            jsonrpc: TwoPointZero,
+            method: method.into(),
+            params: SubscriptionPayload {
+                subscription: jsonrpsee_types::SubscriptionId::Num(subscription),
+                result,
+            },
+        };
+        Arc::new(serde_json::to_string(&response).expect("json serialization never fail"))
     }
 
-    pub fn serialize_with_context<T: Serialize>(slot: Slot, value: &T) -> Arc<String> {
-        Self::serialize(&RpcResponse {
-            context: RpcResponseContext {
-                slot,
-                api_version: None,
+    pub fn serialize_with_context<T: Serialize>(
+        method: &str,
+        subscription: SubscriptionId,
+        slot: Slot,
+        value: T,
+    ) -> Arc<String> {
+        Self::serialize(
+            method,
+            subscription,
+            &RpcResponse {
+                context: RpcResponseContext {
+                    slot,
+                    api_version: None,
+                },
+                value,
             },
-            value,
-        })
+        )
     }
 }
 

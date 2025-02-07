@@ -148,6 +148,8 @@ impl Subscriptions {
                     if let Some((slot, err)) = signatures.get(signature, commitment.commitment) {
                         is_final = true;
                         let json = RpcNotification::serialize_with_context(
+                            "signatureNotification",
+                            subscription_id,
                             slot,
                             &RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
                                 err,
@@ -454,6 +456,8 @@ pub fn subscriptions_worker(
                                 subscription.config.filter_account(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
+                                    "accountNotification",
+                                    subscription.id,
                                     message.slot(),
                                     &encode_ui_account(
                                         message.pubkey(),
@@ -471,6 +475,8 @@ pub fn subscriptions_worker(
                                 subscription.config.filter_program(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
+                                    "programNotification",
+                                    subscription.id,
                                     message.slot(),
                                     &RpcKeyedAccount {
                                         pubkey: message.pubkey().to_string(),
@@ -489,6 +495,8 @@ pub fn subscriptions_worker(
                         (SubscribeMethod::Logs, ParsedMessage::Transaction(message)) => {
                             if let Some((err, logs)) = subscription.config.filter_logs(message) {
                                 let json = RpcNotification::serialize_with_context(
+                                    "logsNotification",
+                                    subscription.id,
                                     message.slot(),
                                     &RpcLogsResponse {
                                         signature: message.signature().to_string(),
@@ -502,6 +510,8 @@ pub fn subscriptions_worker(
                         (SubscribeMethod::Signature, ParsedMessage::Transaction(message)) => {
                             if let Some(err) = subscription.config.filter_signature(message) {
                                 let json = RpcNotification::serialize_with_context(
+                                    "signatureNotification",
+                                    subscription.id,
                                     message.slot(),
                                     &RpcSignatureResult::ProcessedSignature(
                                         ProcessedSignatureResult { err },
@@ -512,52 +522,60 @@ pub fn subscriptions_worker(
                         }
                         (SubscribeMethod::Slot, ParsedMessage::Slot(message)) => {
                             if message.commitment() == CommitmentLevelProto::CreatedBank {
-                                let json = RpcNotification::serialize(&SlotInfo {
-                                    slot: message.slot(),
-                                    parent: message.parent().unwrap_or_default(),
-                                    root: slot_finalized,
-                                });
+                                let json = RpcNotification::serialize(
+                                    "slotNotification",
+                                    subscription.id,
+                                    SlotInfo {
+                                        slot: message.slot(),
+                                        parent: message.parent().unwrap_or_default(),
+                                        root: slot_finalized,
+                                    },
+                                );
                                 return Some((subscription, false, json));
                             }
                         }
                         (SubscribeMethod::SlotsUpdates, ParsedMessage::Slot(message)) => {
-                            let json = RpcNotification::serialize(&match message.commitment() {
-                                CommitmentLevelProto::FirstShredReceived => {
-                                    SlotUpdate::FirstShredReceived {
+                            let json = RpcNotification::serialize(
+                                "slotsUpdatesNotification",
+                                subscription.id,
+                                match message.commitment() {
+                                    CommitmentLevelProto::FirstShredReceived => {
+                                        SlotUpdate::FirstShredReceived {
+                                            slot: message.slot(),
+                                            timestamp: message.created_at().as_millis(),
+                                        }
+                                    }
+                                    CommitmentLevelProto::Completed => SlotUpdate::Completed {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
-                                    }
-                                }
-                                CommitmentLevelProto::Completed => SlotUpdate::Completed {
-                                    slot: message.slot(),
-                                    timestamp: message.created_at().as_millis(),
-                                },
-                                CommitmentLevelProto::CreatedBank => SlotUpdate::CreatedBank {
-                                    slot: message.slot(),
-                                    parent: message.parent().unwrap_or_default(),
-                                    timestamp: message.created_at().as_millis(),
-                                },
-                                CommitmentLevelProto::Processed => SlotUpdate::Frozen {
-                                    slot: message.slot(),
-                                    timestamp: message.created_at().as_millis(),
-                                    stats: extra_info?,
-                                },
-                                CommitmentLevelProto::Dead => SlotUpdate::Dead {
-                                    slot: message.slot(),
-                                    timestamp: message.created_at().as_millis(),
-                                    err: message.dead_error().clone().unwrap_or_default(),
-                                },
-                                CommitmentLevelProto::Confirmed => {
-                                    SlotUpdate::OptimisticConfirmation {
+                                    },
+                                    CommitmentLevelProto::CreatedBank => SlotUpdate::CreatedBank {
+                                        slot: message.slot(),
+                                        parent: message.parent().unwrap_or_default(),
+                                        timestamp: message.created_at().as_millis(),
+                                    },
+                                    CommitmentLevelProto::Processed => SlotUpdate::Frozen {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
+                                        stats: extra_info?,
+                                    },
+                                    CommitmentLevelProto::Dead => SlotUpdate::Dead {
+                                        slot: message.slot(),
+                                        timestamp: message.created_at().as_millis(),
+                                        err: message.dead_error().clone().unwrap_or_default(),
+                                    },
+                                    CommitmentLevelProto::Confirmed => {
+                                        SlotUpdate::OptimisticConfirmation {
+                                            slot: message.slot(),
+                                            timestamp: message.created_at().as_millis(),
+                                        }
                                     }
-                                }
-                                CommitmentLevelProto::Finalized => SlotUpdate::Root {
-                                    slot: message.slot(),
-                                    timestamp: message.created_at().as_millis(),
+                                    CommitmentLevelProto::Finalized => SlotUpdate::Root {
+                                        slot: message.slot(),
+                                        timestamp: message.created_at().as_millis(),
+                                    },
                                 },
-                            });
+                            );
                             return Some((subscription, false, json));
                         }
                         (SubscribeMethod::Block, ParsedMessage::Block(message)) => {
@@ -565,15 +583,21 @@ pub fn subscriptions_worker(
                                 subscription.config.filter_block(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
+                                    "blockNotification",
+                                    subscription.id,
                                     message.slot(),
-                                    &RpcBlockUpdate::new(message, encoding, options),
+                                    RpcBlockUpdate::new(message, encoding, options),
                                 );
                                 return Some((subscription, false, json));
                             }
                         }
                         (SubscribeMethod::Root, ParsedMessage::Slot(message)) => {
                             if message.commitment() == CommitmentLevelProto::Finalized {
-                                let json = RpcNotification::serialize(&message.slot());
+                                let json = RpcNotification::serialize(
+                                    "rootNotification",
+                                    subscription.id,
+                                    message.slot(),
+                                );
                                 return Some((subscription, false, json));
                             }
                         }
@@ -586,8 +610,10 @@ pub fn subscriptions_worker(
                             )) = subscription.config.filter_transaction(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
+                                    "transactionNotification",
+                                    subscription.id,
                                     message.slot(),
-                                    &RpcTransactionUpdate::new(
+                                    RpcTransactionUpdate::new(
                                         message,
                                         encoding,
                                         transaction_details,
