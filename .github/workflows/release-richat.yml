@@ -23,7 +23,6 @@ jobs:
     strategy:
       matrix:
         os:
-          - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-24.04
     runs-on: ["${{ matrix.os }}"]
@@ -33,12 +32,6 @@ jobs:
       - uses: fanatid/rust-github-ci-prepare@master
         with:
           cache-version: v0002-richat
-
-      - name: update cc
-        if: matrix.os == 'ubuntu-20.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc g++
 
       - name: Build richat
         run: |
