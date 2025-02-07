@@ -15,7 +15,7 @@ use {
         ThreadPoolBuilder,
     },
     richat_filter::message::{MessageSlot, MessageTransaction},
-    richat_proto::{convert_from, geyser::CommitmentLevel as CommitmentLevelProto},
+    richat_proto::{convert_from, geyser::SlotStatus},
     solana_account_decoder::encode_ui_account,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
@@ -367,7 +367,7 @@ pub fn subscriptions_worker(
                 if commitment == CommitmentLevel::Processed {
                     if let Some((message, stats)) = match &message {
                         ParsedMessage::Slot(message)
-                            if message.commitment() == CommitmentLevelProto::Processed =>
+                            if message.status() == SlotStatus::SlotProcessed =>
                         {
                             slots_stats
                                 .entry(message.slot())
@@ -375,19 +375,19 @@ pub fn subscriptions_worker(
                                 .add_created_at(message.slot(), message.created_at().into())
                         }
                         ParsedMessage::Slot(message)
-                            if message.commitment() == CommitmentLevelProto::Dead =>
+                            if message.status() == SlotStatus::SlotDead =>
                         {
                             signatures.dead_slot(message.slot());
                             None
                         }
                         ParsedMessage::Slot(message)
-                            if message.commitment() == CommitmentLevelProto::Finalized =>
+                            if message.status() == SlotStatus::SlotFinalized =>
                         {
                             signatures.set_confirmed(message.slot());
                             None
                         }
                         ParsedMessage::Slot(message)
-                            if message.commitment() == CommitmentLevelProto::Finalized =>
+                            if message.status() == SlotStatus::SlotFinalized =>
                         {
                             signatures.set_finalized(message.slot());
                             slot_finalized = message.slot();
@@ -521,7 +521,7 @@ pub fn subscriptions_worker(
                             }
                         }
                         (SubscribeMethod::Slot, ParsedMessage::Slot(message)) => {
-                            if message.commitment() == CommitmentLevelProto::CreatedBank {
+                            if message.status() == SlotStatus::SlotCreatedBank {
                                 let json = RpcNotification::serialize(
                                     "slotNotification",
                                     subscription.id,
@@ -538,39 +538,39 @@ pub fn subscriptions_worker(
                             let json = RpcNotification::serialize(
                                 "slotsUpdatesNotification",
                                 subscription.id,
-                                match message.commitment() {
-                                    CommitmentLevelProto::FirstShredReceived => {
+                                match message.status() {
+                                    SlotStatus::SlotFirstShredReceived => {
                                         SlotUpdate::FirstShredReceived {
                                             slot: message.slot(),
                                             timestamp: message.created_at().as_millis(),
                                         }
                                     }
-                                    CommitmentLevelProto::Completed => SlotUpdate::Completed {
+                                    SlotStatus::SlotCompleted => SlotUpdate::Completed {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
                                     },
-                                    CommitmentLevelProto::CreatedBank => SlotUpdate::CreatedBank {
+                                    SlotStatus::SlotCreatedBank => SlotUpdate::CreatedBank {
                                         slot: message.slot(),
                                         parent: message.parent().unwrap_or_default(),
                                         timestamp: message.created_at().as_millis(),
                                     },
-                                    CommitmentLevelProto::Processed => SlotUpdate::Frozen {
+                                    SlotStatus::SlotProcessed => SlotUpdate::Frozen {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
                                         stats: extra_info?,
                                     },
-                                    CommitmentLevelProto::Dead => SlotUpdate::Dead {
+                                    SlotStatus::SlotDead => SlotUpdate::Dead {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
                                         err: message.dead_error().clone().unwrap_or_default(),
                                     },
-                                    CommitmentLevelProto::Confirmed => {
+                                    SlotStatus::SlotConfirmed => {
                                         SlotUpdate::OptimisticConfirmation {
                                             slot: message.slot(),
                                             timestamp: message.created_at().as_millis(),
                                         }
                                     }
-                                    CommitmentLevelProto::Finalized => SlotUpdate::Root {
+                                    SlotStatus::SlotFinalized => SlotUpdate::Root {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
                                     },
@@ -592,7 +592,7 @@ pub fn subscriptions_worker(
                             }
                         }
                         (SubscribeMethod::Root, ParsedMessage::Slot(message)) => {
-                            if message.commitment() == CommitmentLevelProto::Finalized {
+                            if message.status() == SlotStatus::SlotFinalized {
                                 let json = RpcNotification::serialize(
                                     "rootNotification",
                                     subscription.id,
@@ -795,7 +795,7 @@ impl SlotTransactionStatsItem {
             let message = MessageSlot::Prost {
                 slot: self.slot,
                 parent: None,
-                commitment: CommitmentLevelProto::Processed,
+                status: SlotStatus::SlotProcessed,
                 dead_error: None,
                 created_at: self.created_at,
                 size: 0,

@@ -1,7 +1,7 @@
 use {
     crate::channel::ParsedMessage,
     futures::future::TryFutureExt,
-    richat_proto::geyser::CommitmentLevel as CommitmentLevelProto,
+    richat_proto::geyser::{CommitmentLevel as CommitmentLevelProto, SlotStatus},
     solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
     std::{collections::HashMap, future::Future, sync::Arc},
     tokio::sync::{mpsc, oneshot},
@@ -64,13 +64,13 @@ impl BlockMetaStorage {
                 message = messages_rx.recv() => match message {
                     Some(ParsedMessage::Slot(msg)) => {
                         let slot = msg.slot();
-                        let commitment = msg.commitment();
-                        if commitment == CommitmentLevelProto::Confirmed {
+                        let status = msg.status();
+                        if status == SlotStatus::SlotConfirmed {
                             let entry = blocks.entry(slot).or_default();
                             entry.confirmed = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().confirmed = true;
                             confirmed = slot;
-                        } else if commitment == CommitmentLevelProto::Finalized {
+                        } else if status == SlotStatus::SlotFinalized {
                             let entry = blocks.entry(slot).or_default();
                             entry.finalized = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().finalized = true;
@@ -99,21 +99,21 @@ impl BlockMetaStorage {
                 request = requests_rx.recv() => {
                     match request {
                         Some(Request::GetBlock(tx, commitment)) => {
-                            let block = match commitment {
-                                CommitmentLevelProto::Processed => Some(processed),
-                                CommitmentLevelProto::Confirmed => Some(confirmed),
-                                CommitmentLevelProto::Finalized => Some(finalized),
-                                _ => None
-                            }.and_then(|slot| blocks.get(&slot).cloned());
+                            let slot = match commitment {
+                                CommitmentLevelProto::Processed => processed,
+                                CommitmentLevelProto::Confirmed => confirmed,
+                                CommitmentLevelProto::Finalized => finalized,
+                            };
+                            let block = blocks.get(&slot).cloned();
                             let _ = tx.send(block);
                         }
                         Some(Request::IsBlockhashValid(tx, blockhash, commitment)) => {
-                            let block = match commitment {
-                                CommitmentLevelProto::Processed => Some(processed),
-                                CommitmentLevelProto::Confirmed => Some(confirmed),
-                                CommitmentLevelProto::Finalized => Some(finalized),
-                                _ => None
-                            }.and_then(|slot| blocks.get(&slot).cloned());
+                            let slot = match commitment {
+                                CommitmentLevelProto::Processed => processed,
+                                CommitmentLevelProto::Confirmed => confirmed,
+                                CommitmentLevelProto::Finalized => finalized,
+                            };
+                            let block = blocks.get(&slot).cloned();
                             let value = if let (Some(block), Some(entry)) = (block, blockhashes.get(&blockhash)) {
                                 let valid = block.block_height < entry.last_valid_block_height;
                                 Some((valid, block.slot))

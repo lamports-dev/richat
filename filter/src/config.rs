@@ -469,8 +469,6 @@ pub enum ConfigFilterError {
     Signature(String, ParseSignatureError),
     #[error("Unknown commitment level: {0}")]
     UnknownCommitment(i32),
-    #[error("Commitment {0:?} not allowed, only processed/confirmed/finalized are supported")]
-    InvalidCommitment(CommitmentLevelProto),
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -574,6 +572,7 @@ impl From<ConfigFilter> for SubscribeRequest {
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigFilterSlots {
     pub filter_by_commitment: Option<bool>,
+    pub interslot_updates: Option<bool>,
 }
 
 impl TryFrom<SubscribeRequestFilterSlots> for ConfigFilterSlots {
@@ -582,6 +581,7 @@ impl TryFrom<SubscribeRequestFilterSlots> for ConfigFilterSlots {
     fn try_from(value: SubscribeRequestFilterSlots) -> Result<Self, Self::Error> {
         Ok(Self {
             filter_by_commitment: value.filter_by_commitment,
+            interslot_updates: value.interslot_updates,
         })
     }
 }
@@ -590,6 +590,7 @@ impl From<ConfigFilterSlots> for SubscribeRequestFilterSlots {
     fn from(value: ConfigFilterSlots) -> Self {
         Self {
             filter_by_commitment: value.filter_by_commitment,
+            interslot_updates: value.interslot_updates,
         }
     }
 }
@@ -930,20 +931,17 @@ impl TryFrom<i32> for ConfigFilterCommitment {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         CommitmentLevelProto::try_from(value)
-            .map_err(|_error| ConfigFilterError::UnknownCommitment(value))?
-            .try_into()
+            .map(Into::into)
+            .map_err(|_error| ConfigFilterError::UnknownCommitment(value))
     }
 }
 
-impl TryFrom<CommitmentLevelProto> for ConfigFilterCommitment {
-    type Error = ConfigFilterError;
-
-    fn try_from(value: CommitmentLevelProto) -> Result<Self, Self::Error> {
+impl From<CommitmentLevelProto> for ConfigFilterCommitment {
+    fn from(value: CommitmentLevelProto) -> Self {
         match value {
-            CommitmentLevelProto::Processed => Ok(Self::Processed),
-            CommitmentLevelProto::Confirmed => Ok(Self::Confirmed),
-            CommitmentLevelProto::Finalized => Ok(Self::Finalized),
-            value => Err(ConfigFilterError::InvalidCommitment(value)),
+            CommitmentLevelProto::Processed => Self::Processed,
+            CommitmentLevelProto::Confirmed => Self::Confirmed,
+            CommitmentLevelProto::Finalized => Self::Finalized,
         }
     }
 }

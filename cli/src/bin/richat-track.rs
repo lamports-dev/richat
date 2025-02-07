@@ -217,7 +217,8 @@ impl ConfigYellowstoneGrpc {
         let request = SubscribeRequest {
             accounts,
             slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
-                filter_by_commitment: None
+                filter_by_commitment: Some(false),
+                interslot_updates: Some(true),
             } },
             transactions,
             transactions_status: HashMap::new(),

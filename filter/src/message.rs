@@ -4,9 +4,8 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
-            SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
-            SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
+            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo,
+            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
         },
         solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
     },
@@ -197,7 +196,7 @@ impl MessageParserProst {
                 UpdateOneof::Slot(message) => Message::Slot(MessageSlot::Prost {
                     slot: message.slot,
                     parent: message.parent,
-                    commitment: CommitmentLevelProto::try_from(message.status)
+                    status: SlotStatus::try_from(message.status)
                         .map_err(|_| MessageParseError::InvalidEnumValue(message.status))?,
                     dead_error: message.dead_error,
                     created_at,
@@ -401,7 +400,7 @@ pub enum MessageSlot {
     Prost {
         slot: Slot,
         parent: Option<Slot>,
-        commitment: CommitmentLevelProto,
+        status: SlotStatus,
         dead_error: Option<String>,
         created_at: Timestamp,
         size: usize,
@@ -437,10 +436,10 @@ impl MessageSlot {
         }
     }
 
-    pub fn commitment(&self) -> CommitmentLevelProto {
+    pub fn status(&self) -> SlotStatus {
         match self {
             Self::Limited => todo!(),
-            Self::Prost { commitment, .. } => *commitment,
+            Self::Prost { status, .. } => *status,
         }
     }
 

@@ -12,7 +12,7 @@ use {
     },
     richat_proto::{
         geyser::{
-            CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
+            CommitmentLevel as CommitmentLevelProto, SlotStatus, SubscribeRequest,
             SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
             SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
             SubscribeRequestFilterTransactions,
@@ -205,7 +205,10 @@ impl Messages {
                     ConfigGrpcClientSource::DragonsMouth => connection
                         .subscribe_dragons_mouth_once(SubscribeRequest {
                             accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() },
-                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots::default() },
+                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
+                                filter_by_commitment: Some(false),
+                                interslot_updates: Some(true),
+                            } },
                             transactions: hashmap! { "".to_owned() => SubscribeRequestFilterTransactions::default() },
                             transactions_status: HashMap::new(),
                             blocks: HashMap::new(),
@@ -266,7 +269,7 @@ impl Sender {
                 if let Some(shared) = self.confirmed.as_mut() {
                     shared.push(slot, message.clone());
 
-                    if msg.commitment() == CommitmentLevelProto::Confirmed {
+                    if msg.status() == SlotStatus::SlotConfirmed {
                         if let Some(slot_info) = self.slots.get(&slot) {
                             for message in slot_info.get_messages_cloned() {
                                 shared.push(slot, message);
@@ -279,7 +282,7 @@ impl Sender {
                 if let Some(shared) = self.finalized.as_mut() {
                     shared.push(slot, message.clone());
 
-                    if msg.commitment() == CommitmentLevelProto::Finalized {
+                    if msg.status() == SlotStatus::SlotFinalized {
                         if let Some(mut slot_info) = self.slots.remove(&slot) {
                             for message in slot_info.get_messages_owned() {
                                 shared.push(slot, message);
@@ -290,7 +293,7 @@ impl Sender {
                 }
 
                 // remove slot info
-                if msg.commitment() == CommitmentLevelProto::Finalized {
+                if msg.status() == SlotStatus::SlotFinalized {
                     loop {
                         match self.slots.keys().next().copied() {
                             Some(slot_min) if slot_min <= slot => {
@@ -601,8 +604,8 @@ impl SlotInfo {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
             if matches!(
-                message.commitment(),
-                CommitmentLevelProto::Confirmed | CommitmentLevelProto::Finalized
+                message.status(),
+                SlotStatus::SlotConfirmed | SlotStatus::SlotFinalized
             ) {
                 self.landed = true;
             }

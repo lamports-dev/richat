@@ -1,7 +1,7 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
-        SlotStatus,
+        SlotStatus as GeyserSlotStatus,
     },
     anyhow::Context,
     clap::{Parser, Subcommand},
@@ -18,7 +18,7 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeUpdate,
+            subscribe_update::UpdateOneof, CommitmentLevel, SlotStatus, SubscribeUpdate,
             SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
             SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
@@ -505,15 +505,15 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
             let msg = ProtobufMessage::Slot {
                 slot: *slot,
                 parent: *parent,
-                status: &match CommitmentLevel::try_from(*status) {
-                    Ok(CommitmentLevel::Processed) => SlotStatus::Processed,
-                    Ok(CommitmentLevel::Confirmed) => SlotStatus::Confirmed,
-                    Ok(CommitmentLevel::Finalized) => SlotStatus::Rooted,
-                    Ok(CommitmentLevel::FirstShredReceived) => SlotStatus::FirstShredReceived,
-                    Ok(CommitmentLevel::Completed) => SlotStatus::Completed,
-                    Ok(CommitmentLevel::CreatedBank) => SlotStatus::CreatedBank,
-                    Ok(CommitmentLevel::Dead) => {
-                        SlotStatus::Dead(dead_error.clone().unwrap_or_default())
+                status: &match SlotStatus::try_from(*status) {
+                    Ok(SlotStatus::SlotProcessed) => GeyserSlotStatus::Processed,
+                    Ok(SlotStatus::SlotConfirmed) => GeyserSlotStatus::Confirmed,
+                    Ok(SlotStatus::SlotFinalized) => GeyserSlotStatus::Rooted,
+                    Ok(SlotStatus::SlotFirstShredReceived) => GeyserSlotStatus::FirstShredReceived,
+                    Ok(SlotStatus::SlotCompleted) => GeyserSlotStatus::Completed,
+                    Ok(SlotStatus::SlotCreatedBank) => GeyserSlotStatus::CreatedBank,
+                    Ok(SlotStatus::SlotDead) => {
+                        GeyserSlotStatus::Dead(dead_error.clone().unwrap_or_default())
                     }
                     Err(value) => anyhow::bail!("invalid status: {value}"),
                 },
