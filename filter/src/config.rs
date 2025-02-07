@@ -469,8 +469,6 @@ pub enum ConfigFilterError {
     Signature(String, ParseSignatureError),
     #[error("Unknown commitment level: {0}")]
     UnknownCommitment(i32),
-    // #[error("Commitment {0:?} not allowed, only processed/confirmed/finalized are supported")]
-    // InvalidCommitment(CommitmentLevelProto),
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
