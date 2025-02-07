@@ -4887,6 +4887,7 @@ dependencies = [
  "env_logger 0.11.6",
  "futures 0.3.31",
  "indicatif",
+ "jsonrpsee-types",
  "maplit",
  "prost 0.13.4",
  "richat-client",
@@ -4896,9 +4897,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "solana-account-decoder",
+ "solana-client",
+ "solana-rpc-client-api",
  "solana-sdk",
  "solana-transaction-status",
  "tokio",
+ "tokio-tungstenite 0.26.1",
  "tonic 0.12.3",
  "tracing",
 ]
@@ -6804,8 +6809,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
- "tokio-tungstenite",
- "tungstenite",
+ "tokio-tungstenite 0.20.1",
+ "tungstenite 0.20.1",
  "url 2.5.4",
 ]
 
@@ -8765,8 +8770,21 @@ dependencies = [
  "rustls 0.21.12",
  "tokio",
  "tokio-rustls 0.24.1",
- "tungstenite",
+ "tungstenite 0.20.1",
  "webpki-roots 0.25.4",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be4bf6fecd69fcdede0ec680aaf474cdab988f9de6bc73d3758f0160e3b7025a"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls 0.23.21",
+ "tokio",
+ "tungstenite 0.26.1",
 ]
 
 [[package]]
@@ -9085,6 +9103,24 @@ dependencies = [
  "url 2.5.4",
  "utf-8",
  "webpki-roots 0.24.0",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413083a99c579593656008130e29255e54dcaae495be556cc26888f211648c24"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http 1.2.0",
+ "httparse",
+ "log",
+ "rand 0.8.5",
+ "sha1",
+ "thiserror 2.0.11",
+ "utf-8",
 ]
 
 [[package]]

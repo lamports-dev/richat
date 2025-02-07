@@ -19,6 +19,7 @@ const-hex = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 indicatif = { workspace = true }
+jsonrpsee-types = { workspace = true }
 maplit = { workspace = true }
 prost = { workspace = true }
 richat-client = { workspace = true }
@@ -28,9 +29,13 @@ richat-shared = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+solana-account-decoder = { workspace = true }
+solana-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
+tokio-tungstenite = { workspace = true, features = ["rustls"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tracing = { workspace = true }
 

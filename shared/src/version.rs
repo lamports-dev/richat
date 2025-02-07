@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Version {
@@ -18,12 +18,12 @@ impl Version {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GrpcVersionInfoExtra {
     hostname: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GrpcVersionInfo {
     version: Version,
     extra: GrpcVersionInfoExtra,
