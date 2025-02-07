@@ -34,6 +34,12 @@ jobs:
         with:
           cache-version: v0002-richat
 
+      - name: update cc
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++
+
       - name: Build richat
         run: |
           cargo build -p richat --release

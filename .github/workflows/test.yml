@@ -30,6 +30,12 @@ jobs:
         with:
           cache-version: v0003
 
+      - name: update cc
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++
+
       - name: cargo deny check advisories
         uses: EmbarkStudios/cargo-deny-action@v1
         with:
