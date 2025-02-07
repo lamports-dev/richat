@@ -206,7 +206,10 @@ impl Messages {
                     ConfigGrpcClientSource::DragonsMouth => connection
                         .subscribe_dragons_mouth_once(SubscribeRequest {
                             accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() },
-                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots::default() },
+                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
+                                filter_by_commitment: Some(false),
+                                interslot_updates: Some(true),
+                            } },
                             transactions: hashmap! { "".to_owned() => SubscribeRequestFilterTransactions::default() },
                             transactions_status: HashMap::new(),
                             blocks: HashMap::new(),
