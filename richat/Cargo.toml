@@ -6,7 +6,7 @@ edition = { workspace = true }
 description = "Richat App"
 homepage = { workspace = true }
 repository = { workspace = true }
-license = { workspace = true }
+license = "Apache-2.0"
 keywords = { workspace = true }
 publish = { workspace = true }
 
