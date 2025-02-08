@@ -328,7 +328,7 @@ pub fn subscriptions_worker(
         }
 
         // Collect messages from channels
-        let mut jobs = Vec::with_capacity(0);
+        let mut jobs = Vec::with_capacity(max_messages_per_commitment_per_tick * 3 * 3);
         let mut messages_processed = Vec::with_capacity(max_messages_per_commitment_per_tick);
         let mut messages_confirmed = Vec::with_capacity(max_messages_per_commitment_per_tick);
         let mut messages_finalized = Vec::with_capacity(max_messages_per_commitment_per_tick);

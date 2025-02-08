@@ -57,7 +57,7 @@ impl RpcNotification {
         Self::serialize(
             method,
             subscription,
-            &RpcResponse {
+            RpcResponse {
                 context: RpcResponseContext {
                     slot,
                     api_version: None,

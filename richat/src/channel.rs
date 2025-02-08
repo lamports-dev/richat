@@ -267,8 +267,6 @@ impl Sender {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
                 if let Some(shared) = self.confirmed.as_mut() {
-                    shared.push(slot, message.clone());
-
                     if msg.status() == SlotStatus::SlotConfirmed {
                         if let Some(slot_info) = self.slots.get(&slot) {
                             for message in slot_info.get_messages_cloned() {
@@ -277,11 +275,10 @@ impl Sender {
                             shared.try_clear(self.bytes_max, self.slots_max);
                         }
                     }
+                    shared.push(slot, message.clone());
                 }
 
                 if let Some(shared) = self.finalized.as_mut() {
-                    shared.push(slot, message.clone());
-
                     if msg.status() == SlotStatus::SlotFinalized {
                         if let Some(mut slot_info) = self.slots.remove(&slot) {
                             for message in slot_info.get_messages_owned() {
@@ -290,6 +287,7 @@ impl Sender {
                             shared.try_clear(self.bytes_max, self.slots_max);
                         }
                     }
+                    shared.push(slot, message.clone());
                 }
 
                 // remove slot info
