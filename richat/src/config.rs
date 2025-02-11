@@ -84,8 +84,6 @@ pub struct ConfigChannelInner {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_messages: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
-    pub max_slots: usize,
-    #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
     pub parser: MessageParserEncoding,
     #[serde(deserialize_with = "deserialize_num_str")]
@@ -97,9 +95,8 @@ pub struct ConfigChannelInner {
 impl Default for ConfigChannelInner {
     fn default() -> Self {
         Self {
-            max_messages: 2_097_152, // assume 20k messages per slot, aligned to power of 2
-            max_slots: 100,
-            max_bytes: 10 * 1024 * 1024 * 1024, // 10GiB, assume 100MiB per slot
+            max_messages: 2_097_152, // aligned to power of 2, ~20k/slot should give us ~100 slots
+            max_bytes: 15 * 1024 * 1024 * 1024, // 15GiB with ~150MiB/slot should give us ~100 slots
             parser: MessageParserEncoding::Prost,
             parser_channel_size: 65_536,
             parser_affinity: None,

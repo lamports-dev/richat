@@ -46,7 +46,6 @@ impl Sender {
                 head: max_messages as u64,
                 tail: max_messages as u64,
                 slots: BTreeMap::new(),
-                slots_max: config.max_slots,
                 bytes_total: 0,
                 bytes_max: config.max_bytes,
                 wakers: Vec::with_capacity(16),
@@ -140,55 +139,10 @@ impl Sender {
             }
         }
 
-        // drop extra messages by extra slots
-        while state.slots.len() > state.slots_max {
-            let (slot, slot_info) = state
-                .slots
-                .pop_first()
-                .expect("nothing to remove to keep slots under limit #1");
-
-            // remove everything up to beginning of removed slot (messages from geyser are not ordered)
-            while state.head < slot_info.head {
-                assert!(
-                    state.head < state.tail,
-                    "head overflow tail on remove process by slots limit #1"
-                );
-
-                let idx = self.shared.get_idx(state.head);
-                let mut item = self.shared.buffer_idx_write(idx);
-                let Some(message) = item.data.take() else {
-                    panic!("nothing to remove to keep slots under limit #2")
-                };
-
-                state.head = state.head.wrapping_add(1);
-                state.remove_slots(Some(slot + 1), item.slot);
-                state.bytes_total -= message.1.len();
-            }
-
-            // remove messages while slot is same
-            loop {
-                assert!(
-                    state.head < state.tail,
-                    "head overflow tail on remove process by slots limit #2"
-                );
-
-                let idx = self.shared.get_idx(state.head);
-                let mut item = self.shared.buffer_idx_write(idx);
-                if slot != item.slot {
-                    break;
-                }
-                let Some(message) = item.data.take() else {
-                    panic!("nothing to remove to keep slots under limit #3")
-                };
-
-                state.head = state.head.wrapping_add(1);
-                state.bytes_total -= message.1.len();
-            }
-        }
-
         // drop extra messages by max bytes
         state.bytes_total += data.len();
-        while state.bytes_total > state.bytes_max {
+        let mut removed_max_slot = None;
+        while state.bytes_total >= state.bytes_max {
             assert!(
                 state.head < state.tail,
                 "head overflow tail on remove process by bytes limit"
@@ -201,8 +155,14 @@ impl Sender {
             };
 
             state.head = state.head.wrapping_add(1);
-            state.remove_slots(None, item.slot);
             state.bytes_total -= message.1.len();
+            removed_max_slot = Some(match removed_max_slot {
+                Some(slot) => item.slot.max(slot),
+                None => item.slot,
+            });
+        }
+        if let Some(slot) = removed_max_slot {
+            state.remove_slots(slot);
         }
 
         // update tail
@@ -213,7 +173,7 @@ impl Sender {
         let mut item = self.shared.buffer_idx_write(idx);
         if let Some(message) = item.data.take() {
             state.head = state.head.wrapping_add(1);
-            state.remove_slots(None, item.slot);
+            state.remove_slots(item.slot);
             state.bytes_total -= message.1.len();
         }
         item.pos = pos;
@@ -440,20 +400,16 @@ struct State {
     head: u64,
     tail: u64,
     slots: BTreeMap<Slot, SlotInfo>,
-    slots_max: usize,
     bytes_total: usize,
     bytes_max: usize,
     wakers: Vec<Waker>,
 }
 
 impl State {
-    fn remove_slots(&mut self, first_slot: Option<Slot>, remove_upto: Slot) {
-        let mut slot = match first_slot {
-            Some(slot) => slot,
-            None => match self.slots.first_key_value() {
-                Some((slot, _)) => *slot,
-                None => return,
-            },
+    fn remove_slots(&mut self, remove_upto: Slot) {
+        let mut slot = match self.slots.first_key_value() {
+            Some((slot, _)) => *slot,
+            None => return,
         };
         while slot <= remove_upto {
             self.slots.remove(&slot);

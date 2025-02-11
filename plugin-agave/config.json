@@ -13,8 +13,7 @@
   "channel": {
     "encoder": "raw",
     "max_messages": "2_097_152",
-    "max_slots": 100,
-    "max_bytes": "10_737_418_240"
+    "max_bytes": "16_106_127_360"
   },
   "quic": {
     "endpoint": "127.0.0.1:10100",

@@ -123,7 +123,6 @@ pub struct Messages {
     shared_confirmed: Option<Arc<Shared>>,
     shared_finalized: Option<Arc<Shared>>,
     max_messages: usize,
-    max_slots: usize,
     max_bytes: usize,
     parser: MessageParserEncoding,
 }
@@ -136,7 +135,6 @@ impl Messages {
             shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages))),
             shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages))),
             max_messages,
-            max_slots: config.max_slots,
             max_bytes: config.max_bytes,
             parser: config.parser,
         }
@@ -145,7 +143,6 @@ impl Messages {
     pub fn to_sender(&self) -> Sender {
         Sender {
             parser: self.parser,
-            slots_max: self.max_slots,
             bytes_max: self.max_bytes,
             slots: BTreeMap::new(),
             processed: SenderShared::new(&self.shared_processed, self.max_messages),
@@ -237,7 +234,6 @@ impl Messages {
 #[derive(Debug)]
 pub struct Sender {
     parser: MessageParserEncoding,
-    slots_max: usize,
     bytes_max: usize,
     slots: BTreeMap<Slot, SlotInfo>,
     processed: SenderShared,
@@ -272,7 +268,7 @@ impl Sender {
                             for message in slot_info.get_messages_cloned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear(self.bytes_max, self.slots_max);
+                            shared.try_clear(self.bytes_max);
                         }
                     }
                     shared.push(slot, message.clone());
@@ -284,7 +280,7 @@ impl Sender {
                             for message in slot_info.get_messages_owned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear(self.bytes_max, self.slots_max);
+                            shared.try_clear(self.bytes_max);
                         }
                     }
                     shared.push(slot, message.clone());
@@ -306,7 +302,7 @@ impl Sender {
             // push to processed
             self.processed.push(slot, message);
         }
-        self.processed.try_clear(self.bytes_max, self.slots_max);
+        self.processed.try_clear(self.bytes_max);
 
         Ok(())
     }
@@ -368,7 +364,7 @@ impl SenderShared {
         });
     }
 
-    fn try_clear(&mut self, bytes_max: usize, slots_max: usize) {
+    fn try_clear(&mut self, bytes_max: usize) {
         // drop messages by extra bytes
         while self.bytes_total > bytes_max {
             assert!(
@@ -386,60 +382,6 @@ impl SenderShared {
             self.bytes_total -= message.size();
             if self.slots.remove(&item.slot).is_some() {
                 self.shared.slots_lock().remove(&item.slot);
-            }
-        }
-
-        // drop messages by extra slots
-        while self.slots.len() > slots_max {
-            let slot_min = self
-                .slots
-                .keys()
-                .min()
-                .copied()
-                .expect("nothing to remove to keep slots under limit #1");
-            let slot_info = self
-                .slots
-                .remove(&slot_min)
-                .expect("nothing to remove to keep slots under limit #1");
-
-            // remove everything up to beginning of removed slot (messages from geyser are not ordered)
-            while self.head < slot_info.head {
-                assert!(
-                    self.head < self.tail,
-                    "head overflow tail on remove process by slots limit #1"
-                );
-
-                let idx = self.shared.get_idx(self.head);
-                let mut item = self.shared.buffer_idx_write(idx);
-                let Some(message) = item.data.take() else {
-                    panic!("nothing to remove to keep slots under limit #2")
-                };
-
-                self.head = self.head.wrapping_add(1);
-                self.bytes_total -= message.size();
-                if self.slots.remove(&item.slot).is_some() {
-                    self.shared.slots_lock().remove(&item.slot);
-                }
-            }
-
-            // remove messages while slot is same
-            loop {
-                assert!(
-                    self.head < self.tail,
-                    "head overflow tail on remove process by slots limit #2"
-                );
-
-                let idx = self.shared.get_idx(self.head);
-                let mut item = self.shared.buffer_idx_write(idx);
-                if slot_min != item.slot {
-                    break;
-                }
-                let Some(message) = item.data.take() else {
-                    panic!("nothing to remove to keep slots under limit #3")
-                };
-
-                self.head = self.head.wrapping_add(1);
-                self.bytes_total -= message.size();
             }
         }
     }
