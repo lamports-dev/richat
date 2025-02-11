@@ -143,17 +143,16 @@ impl Messages {
     pub fn to_sender(&self) -> Sender {
         Sender {
             parser: self.parser,
-            bytes_max: self.max_bytes,
             slots: BTreeMap::new(),
-            processed: SenderShared::new(&self.shared_processed, self.max_messages),
+            processed: SenderShared::new(&self.shared_processed, self.max_messages, self.max_bytes),
             confirmed: self
                 .shared_confirmed
                 .as_ref()
-                .map(|shared| SenderShared::new(shared, self.max_messages)),
+                .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
             finalized: self
                 .shared_finalized
                 .as_ref()
-                .map(|shared| SenderShared::new(shared, self.max_messages)),
+                .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
         }
     }
 
@@ -234,7 +233,6 @@ impl Messages {
 #[derive(Debug)]
 pub struct Sender {
     parser: MessageParserEncoding,
-    bytes_max: usize,
     slots: BTreeMap<Slot, SlotInfo>,
     processed: SenderShared,
     confirmed: Option<SenderShared>,
@@ -268,7 +266,7 @@ impl Sender {
                             for message in slot_info.get_messages_cloned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear(self.bytes_max);
+                            shared.try_clear();
                         }
                     }
                     shared.push(slot, message.clone());
@@ -280,7 +278,7 @@ impl Sender {
                             for message in slot_info.get_messages_owned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear(self.bytes_max);
+                            shared.try_clear();
                         }
                     }
                     shared.push(slot, message.clone());
@@ -302,7 +300,7 @@ impl Sender {
             // push to processed
             self.processed.push(slot, message);
         }
-        self.processed.try_clear(self.bytes_max);
+        self.processed.try_clear();
 
         Ok(())
     }
@@ -314,16 +312,18 @@ struct SenderShared {
     head: u64,
     tail: u64,
     bytes_total: usize,
+    bytes_max: usize,
     slots: SlotHeads,
 }
 
 impl SenderShared {
-    fn new(shared: &Arc<Shared>, max_messages: usize) -> Self {
+    fn new(shared: &Arc<Shared>, max_messages: usize, max_bytes: usize) -> Self {
         Self {
             shared: Arc::clone(shared),
             head: max_messages as u64,
             tail: max_messages as u64,
             bytes_total: 0,
+            bytes_max: max_bytes,
             slots: Default::default(),
         }
     }
@@ -364,9 +364,9 @@ impl SenderShared {
         });
     }
 
-    fn try_clear(&mut self, bytes_max: usize) {
+    fn try_clear(&mut self) {
         // drop messages by extra bytes
-        while self.bytes_total > bytes_max {
+        while self.bytes_total >= self.bytes_max {
             assert!(
                 self.head < self.tail,
                 "head overflow tail on remove process by bytes limit"
