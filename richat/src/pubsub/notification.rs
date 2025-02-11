@@ -101,15 +101,14 @@ impl RpcNotifications {
         let _ = self.sender.send(notification);
 
         self.bytes_total += json.len();
-        self.items.push_back(json);
-
-        while self.bytes_total > self.max_bytes || self.items.len() > self.max_count {
+        while self.bytes_total >= self.max_bytes || self.items.len() >= self.max_count {
             let item = self
                 .items
                 .pop_front()
                 .expect("RpcNotifications item should exists");
             self.bytes_total -= item.len();
         }
+        self.items.push_back(json);
     }
 }
 

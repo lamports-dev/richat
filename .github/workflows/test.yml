@@ -9,6 +9,7 @@ on:
       - master
       - agave-v2.0
       - agave-v2.1
+      - agave-v2.2
   workflow_dispatch:
 
 env:

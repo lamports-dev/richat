@@ -3093,7 +3093,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "affinity",
  "agave-geyser-plugin-interface",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "affinity",
  "anyhow",

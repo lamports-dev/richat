@@ -1,5 +1,5 @@
 use {
-    clap::Parser,
+    clap::Args,
     futures::{
         future::try_join_all,
         stream::{BoxStream, StreamExt},
@@ -25,18 +25,14 @@ use {
     solana_sdk::clock::Slot,
     std::{
         collections::{BTreeMap, HashMap},
-        sync::{
-            atomic::{AtomicU64, Ordering},
-            Arc,
-        },
+        sync::Arc,
         time::{Duration, SystemTime},
     },
     tokio::{fs, sync::Mutex},
 };
 
-#[derive(Debug, Parser)]
-#[clap(author, version, about = "Richat Cli Events Tracker")]
-struct Args {
+#[derive(Debug, Args)]
+pub struct ArgsAppTrack {
     /// Path to config
     #[clap(short, long, default_value_t = String::from("config.json"))]
     config: String,
@@ -44,6 +40,34 @@ struct Args {
     /// Show only progress, without events
     #[clap(long, default_value_t = false)]
     show_events: bool,
+}
+
+impl ArgsAppTrack {
+    pub async fn run(self) -> anyhow::Result<()> {
+        let config = fs::read(&self.config).await?;
+        let config: Config = serde_yaml::from_slice(&config)?;
+
+        let storage = TrackStorage::new(config.sources.keys().cloned(), self.show_events)?;
+        let storage = Arc::new(Mutex::new(storage));
+
+        let mut futures = vec![];
+        for (name, source) in config.sources {
+            let stream = source
+                .subscribe(config.accounts, config.transactions)
+                .await?;
+            let locked = storage.lock().await;
+            locked.pb_multi.println(format!("connected to {name}"))?;
+            let jh = tokio::spawn(ConfigSource::run_stream(
+                stream,
+                Arc::clone(&storage),
+                config.tracks.clone(),
+                name,
+            ));
+            futures.push(async move { jh.await? });
+        }
+
+        try_join_all(futures).await.map(|_: Vec<()>| ())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -397,43 +421,4 @@ impl TrackStorage {
     fn clear(&mut self, finalized: Slot) {
         self.map.retain(|k, _v| *k >= finalized);
     }
-}
-
-async fn main2() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let config = fs::read(&args.config).await?;
-    let config: Config = serde_yaml::from_slice(&config)?;
-
-    let storage = TrackStorage::new(config.sources.keys().cloned(), args.show_events)?;
-    let storage = Arc::new(Mutex::new(storage));
-
-    let mut futures = vec![];
-    for (name, source) in config.sources {
-        let stream = source
-            .subscribe(config.accounts, config.transactions)
-            .await?;
-        let locked = storage.lock().await;
-        locked.pb_multi.println(format!("connected to {name}"))?;
-        let jh = tokio::spawn(ConfigSource::run_stream(
-            stream,
-            Arc::clone(&storage),
-            config.tracks.clone(),
-            name,
-        ));
-        futures.push(async move { jh.await? });
-    }
-
-    try_join_all(futures).await.map(|_: Vec<()>| ())
-}
-
-fn main() -> anyhow::Result<()> {
-    tokio::runtime::Builder::new_multi_thread()
-        .thread_name_fn(move || {
-            static ATOMIC_ID: AtomicU64 = AtomicU64::new(0);
-            let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-            format!("richatTrack{id:02}")
-        })
-        .enable_all()
-        .build()?
-        .block_on(main2())
 }

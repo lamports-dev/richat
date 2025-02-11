@@ -139,13 +139,13 @@ impl ConnectionsTransport {
     }
 }
 
-pub fn connections_total_add(transport: ConnectionsTransport) {
+pub fn connections_add(transport: ConnectionsTransport) {
     CONNECTIONS_TOTAL
         .with_label_values(&[transport.as_str()])
         .inc();
 }
 
-pub fn connections_total_dec(transport: ConnectionsTransport) {
+pub fn connections_dec(transport: ConnectionsTransport) {
     CONNECTIONS_TOTAL
         .with_label_values(&[transport.as_str()])
         .dec();

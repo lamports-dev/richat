@@ -331,12 +331,12 @@ impl GrpcServer {
                 CommitmentLevel::Finalized => &mut messages_cache_finalized,
             };
             let mut errored = false;
-            let mut count = 0;
-            while !state.is_full() && count < messages_max_per_tick {
+            let mut messages_counter = 0;
+            while !state.is_full() && messages_counter < messages_max_per_tick {
                 let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
                 {
                     Ok(Some(message)) => {
-                        count += 1;
+                        messages_counter += 1;
                         state.head += 1;
                         message
                     }

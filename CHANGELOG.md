@@ -12,6 +12,21 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+### Features
+
+### Breaking
+
+## 2025-02-11
+
+- richat-cli-v2.2.0
+- richat-client-v2.2.0
+- richat-filter-v2.3.0
+- richat-plugin-agave-v2.1.0
+- richat-v2.2.0
+- richat-shared-v2.2.0
+
+### Fixes
+
 - richat: remove extra lock on clients queue ([#49](https://github.com/lamports-dev/richat/pull/49))
 - plugin-agave: set `nodelay` correctly for Tcp ([#53](https://github.com/lamports-dev/richat/pull/53))
 - richat: add minimal sleep ([#54](https://github.com/lamports-dev/richat/pull/54))
@@ -23,6 +38,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - cli: add bin `richat-track` ([#51](https://github.com/lamports-dev/richat/pull/51))
 - richat: change logs and metrics in the config ([#64](https://github.com/lamports-dev/richat/pull/64))
 - richat: add solana pubsub ([#65](https://github.com/lamports-dev/richat/pull/65))
+- richat: add metrics (backport of [private#5](https://github.com/lamports-dev/richat-private/pull/5)) ([#69](https://github.com/lamports-dev/richat/pull/69))
 
 ### Breaking
 

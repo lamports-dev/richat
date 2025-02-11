@@ -67,7 +67,7 @@ impl PluginInner {
                 let shutdown = Shutdown::new();
                 let mut tasks = Vec::with_capacity(4);
 
-                use metrics::{connections_total_add, connections_total_dec, ConnectionsTransport};
+                use metrics::{connections_add, connections_dec, ConnectionsTransport};
 
                 // Start Quic
                 if let Some(config) = config.quic {
@@ -77,8 +77,8 @@ impl PluginInner {
                             QuicServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_total_add(ConnectionsTransport::Quic), // on_conn_new_cb
-                                || connections_total_dec(ConnectionsTransport::Quic), // on_conn_drop_cb
+                                || connections_add(ConnectionsTransport::Quic), // on_conn_new_cb
+                                || connections_dec(ConnectionsTransport::Quic), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -94,8 +94,8 @@ impl PluginInner {
                             TcpServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_total_add(ConnectionsTransport::Tcp), // on_conn_new_cb
-                                || connections_total_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
+                                || connections_add(ConnectionsTransport::Tcp), // on_conn_new_cb
+                                || connections_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -111,8 +111,8 @@ impl PluginInner {
                             GrpcServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_total_add(ConnectionsTransport::Grpc), // on_conn_new_cb
-                                || connections_total_dec(ConnectionsTransport::Grpc), // on_conn_drop_cb
+                                || connections_add(ConnectionsTransport::Grpc), // on_conn_new_cb
+                                || connections_dec(ConnectionsTransport::Grpc), // on_conn_drop_cb
                                 VERSION,
                                 shutdown.clone(),
                             )

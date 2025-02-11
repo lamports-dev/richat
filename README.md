@@ -2,6 +2,8 @@
 
 Next iteration of [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/rpcpool/yellowstone-grpc) that was originally developed and currently maintained by [Triton One](https://triton.one/). `Richat` includes code derived from `Dragon's Mouth` (copyright `Triton One Limited`) with significant architecture changes.
 
+In addition to `Yellowstone Drangon's Mouth / Geyser gRPC` richat includes Solana PubSub implementation.
+
 ## Sponsored by
 
 ## Licensing
@@ -16,7 +18,7 @@ Default license for any file in this project is `AGPL-3.0-only`, except files in
 
 Any issue not related with bugs / features related topics would be closed. If you struggle to load plugin or have some questions how to use crates please drop your question in Telegram group: [https://t.me/lamportsdev](https://t.me/lamportsdev)
 
-In addition to open-source version there also enterprise version with **[Prometheus](https://prometheus.io/) metrics** and ability to **downstream full stream**. To get more info please send email to: [customers@lamports.dev](mailto:customers@lamports.dev)
+In addition to open-source version there also private version with **[Prometheus](https://prometheus.io/) metrics** and ability to **downstream full stream** (with full access to code). To get more info please send email to: [customers@lamports.dev](mailto:customers@lamports.dev)
 
 ```mermaid
 flowchart LR
@@ -29,56 +31,89 @@ flowchart LR
 ```
 
 <details>
-<summary>gRPC metrics example (click to toggle):</summary>
+<summary>metrics example (click to toggle):</summary>
 
 ```
 $ curl -s 127.0.0.1:10224/metrics
 # HELP block_message_failed Block message reconstruction errors
 # TYPE block_message_failed gauge
-block_message_failed{reason="MismatchEntries"} 1
-block_message_failed{reason="MismatchTransactions"} 1
-block_message_failed{reason="MissedBlockMeta"} 31
-block_message_failed{reason="Total"} 33
+block_message_failed{reason="MissedBlockMeta"} 32
+block_message_failed{reason="Total"} 32
 # HELP channel_bytes_total Total size of all messages in channel
 # TYPE channel_bytes_total gauge
-channel_bytes_total 1073739858
+channel_bytes_total 15254736504
 # HELP channel_messages_total Total number of messages in channel
 # TYPE channel_messages_total gauge
-channel_messages_total 183950
+channel_messages_total 2097152
 # HELP channel_slot Latest slot in channel by commitment
 # TYPE channel_slot gauge
-channel_slot{commitment="confirmed"} 315344683
-channel_slot{commitment="finalized"} 315344653
-channel_slot{commitment="processed"} 315344684
+channel_slot{commitment="confirmed"} 319976982
+channel_slot{commitment="finalized"} 319976952
+channel_slot{commitment="processed"} 319976983
 # HELP channel_slots_total Total number of slots in channel
 # TYPE channel_slots_total gauge
-channel_slots_total 36
-# HELP grpc_block_meta Latest slot in gRPC block meta
-# TYPE grpc_block_meta gauge
-grpc_block_meta{commitment="confirmed"} 315344683
-grpc_block_meta{commitment="finalized"} 315344653
-grpc_block_meta{commitment="processed"} 315344684
+channel_slots_total 209
+# HELP grpc_block_meta_slot Latest slot in gRPC block meta
+# TYPE grpc_block_meta_slot gauge
+grpc_block_meta_slot{commitment="confirmed"} 319976982
+grpc_block_meta_slot{commitment="finalized"} 319976952
+grpc_block_meta_slot{commitment="processed"} 319976983
 # HELP grpc_block_meta_queue_size Number of gRPC requests to block meta data
 # TYPE grpc_block_meta_queue_size gauge
 grpc_block_meta_queue_size 0
 # HELP grpc_requests_total Number of gRPC requests per method
 # TYPE grpc_requests_total gauge
-grpc_requests_total{method="get_block_height",x_subscription_id=""} 1
-grpc_requests_total{method="get_slot",x_subscription_id=""} 4
-grpc_requests_total{method="ping",x_subscription_id=""} 1
-grpc_requests_total{method="subscribe",x_subscription_id=""} 2
-# HELP grpc_subscribes_messages_total Number of gRPC messages in subscriptions
-# TYPE grpc_subscribes_messages_total gauge
-grpc_subscribes_messages_total{message="account",x_subscription_id=""} 267528
-grpc_subscribes_messages_total{message="blockmeta",x_subscription_id=""} 57
-grpc_subscribes_messages_total{message="ping",x_subscription_id=""} 6
-grpc_subscribes_messages_total{message="transaction",x_subscription_id=""} 40071
-# HELP grpc_subscribes_total Number of gRPC subscriptions
-# TYPE grpc_subscribes_total gauge
-grpc_subscribes_total{x_subscription_id=""} 0
+grpc_requests_total{method="get_slot",x_subscription_id=""} 1
+grpc_requests_total{method="subscribe",x_subscription_id=""} 1
+# HELP grpc_subscribe_cpu_seconds_total CPU consumption of gRPC filters in subscriptions
+# TYPE grpc_subscribe_cpu_seconds_total gauge
+grpc_subscribe_cpu_seconds_total{x_subscription_id=""} 4.828066549975842
+# HELP grpc_subscribe_messages_count_total Number of gRPC messages in subscriptions by type
+# TYPE grpc_subscribe_messages_count_total gauge
+grpc_subscribe_messages_count_total{message="ping",x_subscription_id=""} 62
+grpc_subscribe_messages_count_total{message="slot",x_subscription_id=""} 1400
+# HELP grpc_subscribe_messages_bytes_total Total size of gRPC messages in subscriptions by type
+# TYPE grpc_subscribe_messages_bytes_total gauge
+grpc_subscribe_messages_bytes_total{message="ping",x_subscription_id=""} 992
+grpc_subscribe_messages_bytes_total{message="slot",x_subscription_id=""} 49106
+# HELP grpc_subscribe_total Number of gRPC subscriptions
+# TYPE grpc_subscribe_total gauge
+grpc_subscribe_total{x_subscription_id=""} 0
+# HELP pubsub_cached_signatures_total Number of cached signatures
+# TYPE pubsub_cached_signatures_total gauge
+pubsub_cached_signatures_total 56566
+# HELP pubsub_connections_total Number of connections to PubSub
+# TYPE pubsub_connections_total gauge
+pubsub_connections_total{x_subscription_id=""} 0
+# HELP pubsub_messages_sent_count_total Number of sent filtered messages by type
+# TYPE pubsub_messages_sent_count_total counter
+pubsub_messages_sent_count_total{subscription="account",x_subscription_id=""} 16
+pubsub_messages_sent_count_total{subscription="root",x_subscription_id=""} 118
+pubsub_messages_sent_count_total{subscription="slotsupdates",x_subscription_id=""} 383
+# HELP pubsub_messages_sent_bytes_total Total size of sent filtered messages by type
+# TYPE pubsub_messages_sent_bytes_total counter
+pubsub_messages_sent_bytes_total{subscription="account",x_subscription_id=""} 4208
+pubsub_messages_sent_bytes_total{subscription="root",x_subscription_id=""} 10856
+pubsub_messages_sent_bytes_total{subscription="slotsupdates",x_subscription_id=""} 69399
+# HELP pubsub_slot Latest slot handled in PubSub by commitment
+# TYPE pubsub_slot gauge
+pubsub_slot{commitment="confirmed"} 319976982
+pubsub_slot{commitment="finalized"} 319976952
+pubsub_slot{commitment="processed"} 319976983
+# HELP pubsub_stored_messages_count_total Number of stored filtered messages in cache
+# TYPE pubsub_stored_messages_count_total gauge
+pubsub_stored_messages_count_total 2337
+# HELP pubsub_stored_messages_bytes_total Total size of stored filtered messages in cache
+# TYPE pubsub_stored_messages_bytes_total gauge
+pubsub_stored_messages_bytes_total 404610
+# HELP pubsub_subscriptions_total Number of subscriptions by type
+# TYPE pubsub_subscriptions_total gauge
+pubsub_subscriptions_total{subscription="account",x_subscription_id=""} 0
+pubsub_subscriptions_total{subscription="root",x_subscription_id=""} 0
+pubsub_subscriptions_total{subscription="slotsupdates",x_subscription_id=""} 0
 # HELP version Richat App version info
 # TYPE version counter
-version{buildts="2025-01-21T03:08:45.829475407Z",git="cc2a387-modified",package="richat",proto="4.1.1",rustc="1.81.0",solana="2.1.10",version="2.0.0"} 1
+version{buildts="2025-02-11T15:49:26.646046121Z",git="2991f89-modified",package="richat",proto="5.0.0",rustc="1.81.0",solana="2.1.10",version="2.2.0"} 1
 ```
 </details>
 
@@ -100,10 +135,24 @@ flowchart LR
             subgraph grpc1 [gRPC]
                 richat1_grpc1_streaming1(streaming)
                 richat1_grpc1_unary(unary)
+
+                richat1_grpc1_blockmeta[(block meta<br/>storage)]
+                richat1_grpc1_subscriptions[(clients<br/>subscriptions)]
             end
 
-            richat1_tokio2_blockmeta[(block meta<br/>storage)]
-            richat1_tokio2_grpc1_subscriptions[(clients<br/>subscriptions)]
+            subgraph pubsub1 [Solana PubSub]
+                richat1_pubsub1_server(server)
+                richat1_pubsub1_subscriptions[(clients<br/>subscriptions)]
+            end
+
+            subgraph richat_server1 [Tcp/gRPC/Quic]
+                richat_server1_sender(server)
+            end
+        end
+
+        subgraph pubsub1_pool [Filter Thread Pool]
+            richat1_pubsub1_pool_worker1(worker 1)
+            richat1_pubsub1_pool_worker2(worker N)
         end
 
         subgraph messages [Messages Thread]
@@ -122,6 +171,8 @@ flowchart LR
     end
 
     client1(client)
+    client2(client)
+    client3(client)
 
     geyser1 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
     richat1_tokio1_receiver --> richat1_parser
@@ -129,13 +180,20 @@ flowchart LR
     richat1_channel --> richat1_blockmeta_recv_thread
     richat1_channel --> richat1_grpc_worker1
     richat1_channel --> richat1_grpc_worker2
-    richat1_blockmeta_recv_thread --> richat1_tokio2_blockmeta
-    richat1_tokio2_blockmeta <--> richat1_grpc1_unary
-    richat1_grpc_worker1 <--> richat1_tokio2_grpc1_subscriptions
-    richat1_grpc_worker2 <--> richat1_tokio2_grpc1_subscriptions
-    richat1_tokio2_grpc1_subscriptions <--> richat1_grpc1_streaming1
+    richat1_blockmeta_recv_thread --> richat1_grpc1_blockmeta
+    richat1_grpc1_blockmeta <--> richat1_grpc1_unary
+    richat1_grpc_worker1 <--> richat1_grpc1_subscriptions
+    richat1_grpc_worker2 <--> richat1_grpc1_subscriptions
+    richat1_grpc1_subscriptions <--> richat1_grpc1_streaming1
     client1 <--> |gRPC<br/>filtered stream| richat1_grpc1_streaming1
     client1 --> richat1_grpc1_unary
+    richat1_channel --> richat_server1_sender
+    richat_server1_sender -->|Tcp / gRPC / Quic<br/>full stream| client2
+    richat1_channel --> richat1_pubsub1_subscriptions
+    richat1_pubsub1_subscriptions <--> richat1_pubsub1_pool_worker1
+    richat1_pubsub1_subscriptions <--> richat1_pubsub1_pool_worker2
+    richat1_pubsub1_subscriptions <--> richat1_pubsub1_server
+    richat1_pubsub1_server <-->|WebSocket| client3
 ```
 
 ## Components
@@ -153,8 +211,8 @@ flowchart LR
 #### Branches
 
 - `master` — development branch
-- `agave-v2.1` — development branch for agave v2.1
 - `agave-v2.0` — development branch for agave v2.0
+- `agave-v2.1` — development branch for agave v2.1
 
 #### Tags
 

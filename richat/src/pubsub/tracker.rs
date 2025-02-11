@@ -29,6 +29,7 @@ use {
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         sync::Arc,
         thread,
+        time::Duration,
     },
     tokio::sync::{mpsc, oneshot},
 };
@@ -381,7 +382,7 @@ pub fn subscriptions_worker(
                             None
                         }
                         ParsedMessage::Slot(message)
-                            if message.status() == SlotStatus::SlotFinalized =>
+                            if message.status() == SlotStatus::SlotConfirmed =>
                         {
                             signatures.set_confirmed(message.slot());
                             None
@@ -444,6 +445,11 @@ pub fn subscriptions_worker(
                     jobs.push((method, message, subscription, Some(*stats)));
                 }
             }
+        }
+
+        if jobs.is_empty() {
+            thread::sleep(Duration::from_micros(1));
+            continue;
         }
 
         // Filter messages

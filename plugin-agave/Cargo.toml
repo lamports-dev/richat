@@ -1,6 +1,6 @@
 [package]
 name = "richat-plugin-agave"
-version = "2.0.0"
+version = "2.1.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Agave Geyser Plugin"
@@ -14,7 +14,7 @@ publish = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "richat-plugin-config-check"
+name = "richat-plugin-agave-config-check"
 path = "src/bin/config-check.rs"
 
 [[bench]]
