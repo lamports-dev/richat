@@ -266,7 +266,6 @@ impl Sender {
                             for message in slot_info.get_messages_cloned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear();
                         }
                     }
                     shared.push(slot, message.clone());
@@ -278,7 +277,6 @@ impl Sender {
                             for message in slot_info.get_messages_owned() {
                                 shared.push(slot, message);
                             }
-                            shared.try_clear();
                         }
                     }
                     shared.push(slot, message.clone());
@@ -300,7 +298,6 @@ impl Sender {
             // push to processed
             self.processed.push(slot, message);
         }
-        self.processed.try_clear();
 
         Ok(())
     }
@@ -329,42 +326,8 @@ impl SenderShared {
     }
 
     fn push(&mut self, slot: Slot, message: ParsedMessage) {
-        // bump current tail
-        let pos = self.tail;
-        self.tail = self.tail.wrapping_add(1);
-
-        // get item
-        let idx = self.shared.get_idx(pos);
-        let mut item = self.shared.buffer_idx_write(idx);
-
-        // drop existed message
-        if let Some(message) = item.data.take() {
-            self.head = self.head.wrapping_add(1);
-            self.bytes_total -= message.size();
-            if self.slots.remove(&item.slot).is_some() {
-                self.shared.slots_lock().remove(&item.slot);
-            }
-        }
-
-        // store new message
         self.bytes_total += message.size();
-        item.pos = pos;
-        item.slot = slot;
-        item.data = Some(message);
-        drop(item);
 
-        // store new position for receivers
-        self.shared.tail.store(pos, Ordering::Relaxed);
-
-        // update slot head info
-        self.slots.entry(slot).or_insert_with(|| {
-            let obj = SlotHead { head: pos };
-            self.shared.slots_lock().insert(slot, obj);
-            obj
-        });
-    }
-
-    fn try_clear(&mut self) {
         // drop messages by extra bytes
         while self.bytes_total >= self.bytes_max {
             assert!(
@@ -384,6 +347,39 @@ impl SenderShared {
                 self.shared.slots_lock().remove(&item.slot);
             }
         }
+
+        // bump current tail
+        let pos = self.tail;
+        self.tail = self.tail.wrapping_add(1);
+
+        // get item
+        let idx = self.shared.get_idx(pos);
+        let mut item = self.shared.buffer_idx_write(idx);
+
+        // drop existed message
+        if let Some(message) = item.data.take() {
+            self.head = self.head.wrapping_add(1);
+            self.bytes_total -= message.size();
+            if self.slots.remove(&item.slot).is_some() {
+                self.shared.slots_lock().remove(&item.slot);
+            }
+        }
+
+        // store new message
+        item.pos = pos;
+        item.slot = slot;
+        item.data = Some(message);
+        drop(item);
+
+        // store new position for receivers
+        self.shared.tail.store(pos, Ordering::Relaxed);
+
+        // update slot head info
+        self.slots.entry(slot).or_insert_with(|| {
+            let obj = SlotHead { head: pos };
+            self.shared.slots_lock().insert(slot, obj);
+            obj
+        });
     }
 }
 
