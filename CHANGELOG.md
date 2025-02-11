@@ -26,7 +26,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-- plugin-agave,richat: remove `max_slots` ([#67](https://github.com/lamports-dev/richat/pull/67))
+- plugin-agave,richat: remove `max_slots` ([#68](https://github.com/lamports-dev/richat/pull/68))
 
 ## 2025-01-22
 
