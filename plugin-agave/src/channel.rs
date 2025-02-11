@@ -161,9 +161,6 @@ impl Sender {
                 None => item.slot,
             });
         }
-        if let Some(slot) = removed_max_slot {
-            state.remove_slots(slot);
-        }
 
         // update tail
         state.tail = state.tail.wrapping_add(1);
@@ -173,13 +170,21 @@ impl Sender {
         let mut item = self.shared.buffer_idx_write(idx);
         if let Some(message) = item.data.take() {
             state.head = state.head.wrapping_add(1);
-            state.remove_slots(item.slot);
             state.bytes_total -= message.1.len();
+            removed_max_slot = Some(match removed_max_slot {
+                Some(slot) => item.slot.max(slot),
+                None => item.slot,
+            });
         }
         item.pos = pos;
         item.slot = slot;
         item.data = Some((message.get_plugin_notification(), Arc::new(data)));
         drop(item);
+
+        // remove not-complete slots
+        if let Some(slot) = removed_max_slot {
+            state.remove_slots(slot);
+        }
 
         // update metrics
         if let ProtobufMessage::Slot { status, .. } = message {
