@@ -20,12 +20,10 @@ use {
         richat::GrpcSubscribeRequest,
     },
     richat_shared::transports::RecvError,
-    solana_nohash_hasher::NoHashHasher,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
         fmt,
-        hash::BuildHasherDefault,
         sync::{
             atomic::{AtomicU64, Ordering},
             Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
@@ -310,7 +308,6 @@ struct SenderShared {
     tail: u64,
     bytes_total: usize,
     bytes_max: usize,
-    slots: SlotHeads,
 }
 
 impl SenderShared {
@@ -321,14 +318,15 @@ impl SenderShared {
             tail: max_messages as u64,
             bytes_total: 0,
             bytes_max: max_bytes,
-            slots: Default::default(),
         }
     }
 
     fn push(&mut self, slot: Slot, message: ParsedMessage) {
-        self.bytes_total += message.size();
+        let mut slots_lock = self.shared.slots_lock();
+        let mut removed_max_slot = None;
 
         // drop messages by extra bytes
+        self.bytes_total += message.size();
         while self.bytes_total >= self.bytes_max {
             assert!(
                 self.head < self.tail,
@@ -343,9 +341,10 @@ impl SenderShared {
 
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
-            if self.slots.remove(&item.slot).is_some() {
-                self.shared.slots_lock().remove(&item.slot);
-            }
+            removed_max_slot = Some(match removed_max_slot {
+                Some(slot) => item.slot.max(slot),
+                None => item.slot,
+            });
         }
 
         // bump current tail
@@ -360,9 +359,10 @@ impl SenderShared {
         if let Some(message) = item.data.take() {
             self.head = self.head.wrapping_add(1);
             self.bytes_total -= message.size();
-            if self.slots.remove(&item.slot).is_some() {
-                self.shared.slots_lock().remove(&item.slot);
-            }
+            removed_max_slot = Some(match removed_max_slot {
+                Some(slot) => item.slot.max(slot),
+                None => item.slot,
+            });
         }
 
         // store new message
@@ -375,11 +375,24 @@ impl SenderShared {
         self.shared.tail.store(pos, Ordering::Relaxed);
 
         // update slot head info
-        self.slots.entry(slot).or_insert_with(|| {
-            let obj = SlotHead { head: pos };
-            self.shared.slots_lock().insert(slot, obj);
-            obj
-        });
+        slots_lock
+            .entry(slot)
+            .or_insert_with(|| SlotHead { head: pos });
+
+        // remove not-complete slots
+        if let Some(remove_upto) = removed_max_slot {
+            let mut slot = match slots_lock.first_key_value() {
+                Some((slot, _)) => *slot,
+                None => return,
+            };
+            while slot <= remove_upto {
+                slots_lock.remove(&slot);
+                slot = match slots_lock.first_key_value() {
+                    Some((slot, _)) => *slot,
+                    None => return,
+                };
+            }
+        }
     }
 }
 
@@ -423,7 +436,7 @@ struct Shared {
     tail: AtomicU64,
     mask: u64,
     buffer: Box<[RwLock<Item>]>,
-    slots: Mutex<SlotHeads>,
+    slots: Mutex<BTreeMap<Slot, SlotHead>>,
 }
 
 impl fmt::Debug for Shared {
@@ -473,15 +486,13 @@ impl Shared {
     }
 
     #[inline]
-    fn slots_lock(&self) -> MutexGuard<'_, SlotHeads> {
+    fn slots_lock(&self) -> MutexGuard<'_, BTreeMap<Slot, SlotHead>> {
         match self.slots.lock() {
             Ok(lock) => lock,
             Err(p_err) => p_err.into_inner(),
         }
     }
 }
-
-type SlotHeads = HashMap<Slot, SlotHead, BuildHasherDefault<NoHashHasher<Slot>>>;
 
 #[derive(Debug, Clone, Copy)]
 struct SlotHead {

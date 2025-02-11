@@ -4858,7 +4858,6 @@ dependencies = [
  "smallvec",
  "solana-account",
  "solana-account-decoder",
- "solana-nohash-hasher",
  "solana-rpc",
  "solana-rpc-client-api",
  "solana-sdk",

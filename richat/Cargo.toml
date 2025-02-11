@@ -41,7 +41,6 @@ signal-hook = { workspace = true }
 smallvec = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
-solana-nohash-hasher = { workspace = true }
 solana-rpc = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
