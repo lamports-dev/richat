@@ -2,6 +2,7 @@ use {
     crate::pubsub::SubscriptionId,
     jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
+    richat_shared::five8::signature_encode,
     serde::Serialize,
     solana_rpc_client_api::response::{Response as RpcResponse, RpcResponseContext},
     solana_sdk::{
@@ -141,7 +142,9 @@ impl RpcTransactionUpdate {
                     max_supported_transaction_version,
                 )),
             ),
-            TransactionDetails::Signatures => (Some(message.signature().to_string()), None),
+            TransactionDetails::Signatures => {
+                (Some(signature_encode(&(*message.signature()).into())), None)
+            }
             TransactionDetails::None => (None, None),
             TransactionDetails::Accounts => (
                 None,
@@ -276,7 +279,7 @@ impl RpcTransactionUpdate {
                     .transaction
                     .signatures
                     .iter()
-                    .map(ToString::to_string)
+                    .map(|sig| signature_encode(&(*sig).into()))
                     .collect(),
                 account_keys,
             }),

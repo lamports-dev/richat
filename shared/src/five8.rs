@@ -6,7 +6,7 @@ use {
     },
 };
 
-pub fn pubkey_parse<I: AsRef<[u8]>>(encoded: I) -> Result<Pubkey, ParsePubkeyError> {
+pub fn pubkey_decode<I: AsRef<[u8]>>(encoded: I) -> Result<Pubkey, ParsePubkeyError> {
     let mut out = [0; 32];
     match five8::decode_32(encoded, &mut out) {
         Ok(()) => Ok(Pubkey::new_from_array(out)),
@@ -18,7 +18,13 @@ pub fn pubkey_parse<I: AsRef<[u8]>>(encoded: I) -> Result<Pubkey, ParsePubkeyErr
     }
 }
 
-pub fn signature_parse<I: AsRef<[u8]>>(encoded: I) -> Result<Signature, ParseSignatureError> {
+pub fn pubkey_encode(bytes: &[u8; 32]) -> String {
+    let mut out = [0; 44];
+    let len = five8::encode_32(bytes, &mut out) as usize;
+    out[0..len].iter().copied().map(char::from).collect()
+}
+
+pub fn signature_decode<I: AsRef<[u8]>>(encoded: I) -> Result<Signature, ParseSignatureError> {
     let mut out = [0; 64];
     match five8::decode_64(encoded, &mut out) {
         Ok(()) => Ok(Signature::from(out)),
@@ -28,4 +34,10 @@ pub fn signature_parse<I: AsRef<[u8]>>(encoded: I) -> Result<Signature, ParseSig
         Err(DecodeError::LargestTermTooHigh) => Err(ParseSignatureError::WrongSize),
         Err(DecodeError::OutputTooLong) => Err(ParseSignatureError::WrongSize),
     }
+}
+
+pub fn signature_encode(bytes: &[u8; 64]) -> String {
+    let mut out = [0; 88];
+    let len = five8::encode_64(bytes, &mut out) as usize;
+    out[0..len].iter().copied().map(char::from).collect()
 }

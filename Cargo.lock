@@ -4889,7 +4889,6 @@ version = "2.2.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
- "bs58",
  "clap 4.5.26",
  "const-hex",
  "env_logger 0.11.6",

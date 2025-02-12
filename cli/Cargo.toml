@@ -13,7 +13,6 @@ publish = { workspace = true }
 [dependencies]
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
-bs58 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 const-hex = { workspace = true }
 env_logger = { workspace = true }

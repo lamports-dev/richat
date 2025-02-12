@@ -16,6 +16,7 @@ use {
     },
     richat_filter::message::{MessageSlot, MessageTransaction},
     richat_proto::{convert_from, geyser::SlotStatus},
+    richat_shared::five8::{pubkey_encode, signature_encode},
     solana_account_decoder::encode_ui_account,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
@@ -485,7 +486,7 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     &RpcKeyedAccount {
-                                        pubkey: message.pubkey().to_string(),
+                                        pubkey: pubkey_encode(&(*message.pubkey()).to_bytes()),
                                         account: encode_ui_account(
                                             message.pubkey(),
                                             message.as_ref(),
@@ -505,7 +506,7 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     &RpcLogsResponse {
-                                        signature: message.signature().to_string(),
+                                        signature: signature_encode(&(*message.signature()).into()),
                                         err,
                                         logs,
                                     },

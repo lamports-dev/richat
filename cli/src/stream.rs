@@ -603,7 +603,7 @@ fn create_pretty_account(account: SubscribeUpdateAccountInfo) -> anyhow::Result<
         "rentEpoch": account.rent_epoch,
         "data": const_hex::encode(account.data),
         "writeVersion": account.write_version,
-        "txnSignature": account.txn_signature.map(|sig| bs58::encode(sig).into_string()),
+        "txnSignature": account.txn_signature.map(|sig| Signature::try_from(sig).unwrap().to_string()),
     }))
 }
 
