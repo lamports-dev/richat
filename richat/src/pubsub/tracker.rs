@@ -486,7 +486,7 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     &RpcKeyedAccount {
-                                        pubkey: pubkey_encode(&(*message.pubkey()).to_bytes()),
+                                        pubkey: pubkey_encode(&(*message.pubkey()).to_bytes()), // TODO: use `.as_bytes()` from 2.2
                                         account: encode_ui_account(
                                             message.pubkey(),
                                             message.as_ref(),
