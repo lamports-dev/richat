@@ -10,9 +10,12 @@ use {
         SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterBlocks,
         SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
     },
-    richat_shared::config::{
-        deserialize_maybe_signature, deserialize_num_str, deserialize_pubkey_set,
-        deserialize_pubkey_vec,
+    richat_shared::{
+        config::{
+            deserialize_maybe_signature, deserialize_num_str, deserialize_pubkey_set,
+            deserialize_pubkey_vec,
+        },
+        five8::{pubkey_parse, signature_parse},
     },
     serde::{
         de::{self, Deserializer},
@@ -512,9 +515,7 @@ impl ConfigFilter {
         pubkeys
             .into_iter()
             .map(|pubkey| {
-                pubkey
-                    .parse()
-                    .map_err(|error| ConfigFilterError::Pubkey(pubkey, error))
+                pubkey_parse(&pubkey).map_err(|error| ConfigFilterError::Pubkey(pubkey, error))
             })
             .collect::<Result<Vec<_>, _>>()
     }
@@ -859,8 +860,7 @@ impl TryFrom<SubscribeRequestFilterTransactions> for ConfigFilterTransactions {
             signature: value
                 .signature
                 .map(|sig| {
-                    sig.parse()
-                        .map_err(|error| ConfigFilterError::Signature(sig, error))
+                    signature_parse(&sig).map_err(|error| ConfigFilterError::Signature(sig, error))
                 })
                 .transpose()?,
             account_include: ConfigFilter::parse_vec_pubkeys(value.account_include)?,

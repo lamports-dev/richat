@@ -1,4 +1,5 @@
 use {
+    crate::five8::{pubkey_parse, signature_parse},
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
@@ -151,8 +152,7 @@ where
     Vec::<&str>::deserialize(deserializer)?
         .into_iter()
         .map(|value| {
-            value
-                .parse()
+            pubkey_parse(value)
                 .map_err(|error| de::Error::custom(format!("Invalid pubkey: {value} ({error:?})")))
         })
         .collect::<Result<_, _>>()
@@ -170,7 +170,7 @@ where
     D: Deserializer<'de>,
 {
     let sig: Option<&str> = Deserialize::deserialize(deserializer)?;
-    sig.map(|sig| sig.parse().map_err(de::Error::custom))
+    sig.map(|sig| signature_parse(sig).map_err(de::Error::custom))
         .transpose()
 }
 
