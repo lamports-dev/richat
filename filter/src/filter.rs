@@ -10,9 +10,9 @@ use {
             Message, MessageAccount, MessageBlock, MessageBlockCreatedAt, MessageBlockMeta,
             MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
-        protobuf::{
-            limited::{UpdateOneofLimited, UpdateOneofLimitedAccount},
-            SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst,
+        protobuf::encode::{
+            SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst, UpdateOneofLimited,
+            UpdateOneofLimitedAccount,
         },
     },
     arrayvec::ArrayVec,
@@ -742,12 +742,28 @@ impl<'a> FilteredUpdate<'a> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
                 MessageSlot::Limited {
-                    created_at, buffer, ..
-                } => SubscribeUpdateMessageLimited {
+                    slot,
+                    parent,
+                    status,
+                    dead_error,
+                    created_at,
+                    buffer,
+                    ..
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
-                    update: UpdateOneofLimited::Slot(buffer.as_slice()),
+                    update: UpdateOneof::Slot(SubscribeUpdateSlot {
+                        slot: *slot,
+                        parent: *parent,
+                        status: *status as i32,
+                        dead_error: dead_error.clone(),
+                    }),
                     created_at: *created_at,
                 }
+                // } => SubscribeUpdateMessageLimited {
+                //     filters: &self.filters,
+                //     update: UpdateOneofLimited::Slot(buffer.as_slice()),
+                //     created_at: *created_at,
+                // }
                 .encode_to_vec(),
                 MessageSlot::Prost {
                     slot,
@@ -825,12 +841,24 @@ impl<'a> FilteredUpdate<'a> {
             },
             FilteredUpdateType::Transaction { message } => match message {
                 MessageTransaction::Limited {
-                    created_at, buffer, ..
-                } => SubscribeUpdateMessageLimited {
+                    transaction,
+                    slot,
+                    created_at,
+                    buffer,
+                    ..
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
-                    update: UpdateOneofLimited::Transaction(buffer.as_slice()),
+                    update: UpdateOneof::Transaction(SubscribeUpdateTransaction {
+                        transaction: Some(transaction.clone()),
+                        slot: *slot,
+                    }),
                     created_at: *created_at,
                 }
+                // } => SubscribeUpdateMessageLimited {
+                //     filters: &self.filters,
+                //     update: UpdateOneofLimited::Transaction(buffer.as_slice()),
+                //     created_at: *created_at,
+                // }
                 .encode_to_vec(),
                 MessageTransaction::Prost {
                     transaction,

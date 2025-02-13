@@ -176,6 +176,8 @@ pub struct MessageParserLimited;
 
 impl MessageParserLimited {
     pub fn parse(data: Vec<u8>) -> Result<Message, MessageParseError> {
+        //
+
         let update = SubscribeUpdate::decode(data.as_slice())?;
         let encoded_len = data.len();
 

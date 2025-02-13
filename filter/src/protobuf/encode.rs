@@ -3,13 +3,62 @@ use {
     prost::{
         bytes::{Buf, BufMut},
         encoding::{
-            self, encode_key, encode_varint, encoded_len_varint, key_len, DecodeContext, WireType,
+            self, encode_key, encode_varint, encoded_len_varint, key_len, message, DecodeContext,
+            WireType,
         },
-        Message,
+        DecodeError, Message,
     },
+    prost_types::Timestamp,
+    richat_proto::geyser::subscribe_update::UpdateOneof,
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::borrow::Cow,
 };
+
+#[derive(Debug)]
+pub struct SubscribeUpdateMessageLimited<'a> {
+    pub filters: &'a [&'a str],
+    pub update: UpdateOneofLimited<'a>,
+    pub created_at: Timestamp,
+}
+
+impl<'a> Message for SubscribeUpdateMessageLimited<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        for filter in self.filters {
+            bytes_encode(1, filter.as_bytes(), buf);
+        }
+        self.update.encode(buf);
+        message::encode(11, &self.created_at, buf);
+    }
+
+    fn encoded_len(&self) -> usize {
+        self.filters
+            .iter()
+            .map(|filter| bytes_encoded_len(1, filter.as_bytes()))
+            .sum::<usize>()
+            + self.update.encoded_len()
+            + message::encoded_len(11, &self.created_at)
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+}
 
 #[derive(Debug)]
 pub enum UpdateOneofLimited<'a> {
@@ -64,17 +113,7 @@ impl<'a> UpdateOneofLimited<'a> {
     }
 
     pub fn encoded_len(&self) -> usize {
-        let len = match self {
-            Self::Account(account) => account.encoded_len(),
-            Self::Slot(slice) => slice.len(),
-            Self::Transaction(slice) => slice.len(),
-            // Self::TransactionStatus(_) => 10u32,
-            // Self::Block(_) => 5u32,
-            // Self::Ping(_) => 6u32,
-            // Self::Pong(_) => 9u32,
-            // Self::BlockMeta(_) => 7u32,
-            // Self::Entry(_) => 8u32,
-        };
+        let len = self.len();
         key_len(self.tag()) + encoded_len_varint(len as u64) + len
     }
 }
@@ -196,6 +235,52 @@ impl<'a> Message for UpdateOneofLimitedAccount<'a> {
     }
 
     fn clear(&mut self) {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
+pub struct SubscribeUpdateMessageProst<'a> {
+    pub filters: &'a [&'a str],
+    pub update: UpdateOneof,
+    pub created_at: Timestamp,
+}
+
+impl<'a> Message for SubscribeUpdateMessageProst<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        for filter in self.filters {
+            bytes_encode(1, filter.as_bytes(), buf);
+        }
+        self.update.encode(buf);
+        message::encode(11, &self.created_at, buf);
+    }
+
+    fn encoded_len(&self) -> usize {
+        self.filters
+            .iter()
+            .map(|filter| bytes_encoded_len(1, filter.as_bytes()))
+            .sum::<usize>()
+            + self.update.encoded_len()
+            + message::encoded_len(11, &self.created_at)
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
+    where
+        Self: Sized,
+    {
         unimplemented!()
     }
 }
