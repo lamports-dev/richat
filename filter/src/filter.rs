@@ -824,18 +824,11 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::Transaction { message } => match message {
-                // TODO
                 MessageTransaction::Limited {
-                    transaction,
-                    slot,
-                    created_at,
-                    ..
-                } => SubscribeUpdateMessageProst {
+                    created_at, buffer, ..
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Transaction(SubscribeUpdateTransaction {
-                        transaction: Some(transaction.clone()),
-                        slot: *slot,
-                    }),
+                    update: UpdateOneofLimited::Transaction(buffer.as_slice()),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),

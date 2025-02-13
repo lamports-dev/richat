@@ -15,6 +15,7 @@ use {
 pub enum UpdateOneofLimited<'a> {
     Account(UpdateOneofLimitedAccount<'a>),
     Slot(&'a [u8]),
+    Transaction(&'a [u8]),
 }
 
 impl<'a> UpdateOneofLimited<'a> {
@@ -22,7 +23,7 @@ impl<'a> UpdateOneofLimited<'a> {
         match self {
             Self::Account(_) => 2u32,
             Self::Slot(_) => 3u32,
-            // Self::Transaction(_) => 4u32,
+            Self::Transaction(_) => 4u32,
             // Self::TransactionStatus(_) => 10u32,
             // Self::Block(_) => 5u32,
             // Self::Ping(_) => 6u32,
@@ -36,7 +37,7 @@ impl<'a> UpdateOneofLimited<'a> {
         match self {
             Self::Account(account) => account.encoded_len(),
             Self::Slot(slice) => slice.len(),
-            // Self::Transaction(_) => 4u32,
+            Self::Transaction(slice) => slice.len(),
             // Self::TransactionStatus(_) => 10u32,
             // Self::Block(_) => 5u32,
             // Self::Ping(_) => 6u32,
@@ -52,7 +53,7 @@ impl<'a> UpdateOneofLimited<'a> {
         match self {
             Self::Account(account) => account.encode_raw(buf),
             Self::Slot(slice) => buf.put_slice(slice),
-            // Self::Transaction(_) => 4u32,
+            Self::Transaction(slice) => buf.put_slice(slice),
             // Self::TransactionStatus(_) => 10u32,
             // Self::Block(_) => 5u32,
             // Self::Ping(_) => 6u32,
@@ -63,7 +64,18 @@ impl<'a> UpdateOneofLimited<'a> {
     }
 
     pub fn encoded_len(&self) -> usize {
-        todo!()
+        let len = match self {
+            Self::Account(account) => account.encoded_len(),
+            Self::Slot(slice) => slice.len(),
+            Self::Transaction(slice) => slice.len(),
+            // Self::TransactionStatus(_) => 10u32,
+            // Self::Block(_) => 5u32,
+            // Self::Ping(_) => 6u32,
+            // Self::Pong(_) => 9u32,
+            // Self::BlockMeta(_) => 7u32,
+            // Self::Entry(_) => 8u32,
+        };
+        key_len(self.tag()) + encoded_len_varint(len as u64) + len
     }
 }
 

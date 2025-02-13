@@ -230,7 +230,6 @@ impl MessageParserLimited {
 
                     let account_keys =
                         MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
-                    let account_keys_capacity = account_keys.capacity();
 
                     Message::Transaction(MessageTransaction::Limited {
                         signature: transaction
@@ -243,7 +242,7 @@ impl MessageParserLimited {
                         transaction,
                         slot: message.slot,
                         created_at,
-                        size: encoded_len + SIGNATURE_BYTES + account_keys_capacity * PUBKEY_BYTES,
+                        buffer: data,
                     })
                 }
                 UpdateOneof::TransactionStatus(_) => {
@@ -307,7 +306,6 @@ impl MessageParserLimited {
 
                             let account_keys =
                                 MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
-                            let account_keys_capacity = account_keys.capacity();
 
                             Ok(Arc::new(MessageTransaction::Limited {
                                 signature: transaction
@@ -320,9 +318,7 @@ impl MessageParserLimited {
                                 transaction,
                                 slot: message.slot,
                                 created_at,
-                                size: encoded_len
-                                    + SIGNATURE_BYTES
-                                    + account_keys_capacity * PUBKEY_BYTES,
+                                buffer: vec![],
                             }))
                         })
                         .collect::<Result<_, MessageParseError>>()?;
@@ -597,7 +593,6 @@ impl MessageParserProst {
 
 #[derive(Debug, Clone)]
 pub enum MessageSlot {
-    // TODO
     Limited {
         slot: Slot,
         parent: Option<Slot>,
@@ -672,7 +667,6 @@ impl MessageSlot {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum MessageAccount {
-    // TODO
     Limited {
         pubkey: Pubkey,
         owner: Pubkey,
@@ -784,7 +778,6 @@ impl ReadableAccount for MessageAccount {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum MessageTransaction {
-    // TODO
     Limited {
         signature: Signature,
         error: Option<TransactionError>,
@@ -792,7 +785,7 @@ pub enum MessageTransaction {
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
         created_at: Timestamp,
-        size: usize,
+        buffer: Vec<u8>,
     },
     Prost {
         signature: Signature,
@@ -827,9 +820,13 @@ impl MessageTransaction {
         }
     }
 
-    pub const fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
-            Self::Limited { size, .. } => *size,
+            Self::Limited {
+                account_keys,
+                buffer,
+                ..
+            } => buffer.len() + SIGNATURE_BYTES + account_keys.capacity() * PUBKEY_BYTES,
             Self::Prost { size, .. } => *size,
         }
     }
