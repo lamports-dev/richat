@@ -10,7 +10,7 @@ use {
             Message, MessageAccount, MessageBlock, MessageBlockCreatedAt, MessageBlockMeta,
             MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
-        protobuf::SubscribeUpdateMessage,
+        protobuf::SubscribeUpdateMessageProst,
     },
     arrayvec::ArrayVec,
     prost::Message as _,
@@ -730,7 +730,25 @@ impl<'a> FilteredUpdate<'a> {
     pub fn encode(&self) -> Vec<u8> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
-                MessageSlot::Limited => todo!(),
+                // TODO
+                MessageSlot::Limited {
+                    slot,
+                    parent,
+                    status,
+                    dead_error,
+                    created_at,
+                    ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::Slot(SubscribeUpdateSlot {
+                        slot: *slot,
+                        parent: *parent,
+                        status: *status as i32,
+                        dead_error: dead_error.clone(),
+                    }),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageSlot::Prost {
                     slot,
                     parent,
@@ -738,7 +756,7 @@ impl<'a> FilteredUpdate<'a> {
                     dead_error,
                     created_at,
                     ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::Slot(SubscribeUpdateSlot {
                         slot: *slot,
@@ -754,14 +772,39 @@ impl<'a> FilteredUpdate<'a> {
                 message,
                 data_slices,
             } => match message {
-                MessageAccount::Limited => todo!(),
+                // TODO
+                MessageAccount::Limited {
+                    account,
+                    slot,
+                    is_startup,
+                    created_at,
+                    ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::Account(SubscribeUpdateAccount {
+                        account: Some(SubscribeUpdateAccountInfo {
+                            pubkey: account.pubkey.clone(),
+                            lamports: account.lamports,
+                            owner: account.owner.clone(),
+                            executable: account.executable,
+                            rent_epoch: account.rent_epoch,
+                            data: data_slices.get_slice(&account.data),
+                            write_version: account.write_version,
+                            txn_signature: account.txn_signature.clone(),
+                        }),
+                        slot: *slot,
+                        is_startup: *is_startup,
+                    }),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageAccount::Prost {
                     account,
                     slot,
                     is_startup,
                     created_at,
                     ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::Account(SubscribeUpdateAccount {
                         account: Some(SubscribeUpdateAccountInfo {
@@ -782,13 +825,27 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::Transaction { message } => match message {
-                MessageTransaction::Limited => todo!(),
+                // TODO
+                MessageTransaction::Limited {
+                    transaction,
+                    slot,
+                    created_at,
+                    ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::Transaction(SubscribeUpdateTransaction {
+                        transaction: Some(transaction.clone()),
+                        slot: *slot,
+                    }),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageTransaction::Prost {
                     transaction,
                     slot,
                     created_at,
                     ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::Transaction(SubscribeUpdateTransaction {
                         transaction: Some(transaction.clone()),
@@ -799,7 +856,26 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::TransactionStatus { message } => match message {
-                MessageTransaction::Limited => todo!(),
+                // TODO
+                MessageTransaction::Limited {
+                    signature,
+                    error,
+                    transaction,
+                    slot,
+                    created_at,
+                    ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::TransactionStatus(SubscribeUpdateTransactionStatus {
+                        slot: *slot,
+                        signature: signature.as_ref().to_vec(),
+                        is_vote: transaction.is_vote,
+                        index: transaction.index,
+                        err: error.clone(),
+                    }),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageTransaction::Prost {
                     signature,
                     error,
@@ -807,7 +883,7 @@ impl<'a> FilteredUpdate<'a> {
                     slot,
                     created_at,
                     ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::TransactionStatus(SubscribeUpdateTransactionStatus {
                         slot: *slot,
@@ -821,10 +897,18 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::Entry { message } => match message {
-                MessageEntry::Limited => todo!(),
+                // TODO
+                MessageEntry::Limited {
+                    entry, created_at, ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::Entry(entry.clone()),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageEntry::Prost {
                     entry, created_at, ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::Entry(entry.clone()),
                     created_at: *created_at,
@@ -832,12 +916,22 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::BlockMeta { message } => match message {
-                MessageBlockMeta::Limited => todo!(),
+                // TODO
+                MessageBlockMeta::Limited {
+                    block_meta,
+                    created_at,
+                    ..
+                } => SubscribeUpdateMessageProst {
+                    filters: &self.filters,
+                    update: UpdateOneof::BlockMeta(block_meta.clone()),
+                    created_at: *created_at,
+                }
+                .encode_to_vec(),
                 MessageBlockMeta::Prost {
                     block_meta,
                     created_at,
                     ..
-                } => SubscribeUpdateMessage {
+                } => SubscribeUpdateMessageProst {
                     filters: &self.filters,
                     update: UpdateOneof::BlockMeta(block_meta.clone()),
                     created_at: *created_at,
@@ -851,14 +945,14 @@ impl<'a> FilteredUpdate<'a> {
                 entries,
                 data_slices,
             } => match message.created_at {
-                MessageBlockCreatedAt::Limited => todo!(),
-                MessageBlockCreatedAt::Prost(created_at) => {
+                // TODO
+                MessageBlockCreatedAt::Limited(created_at) => {
                     let block_meta = match message.block_meta.as_ref() {
-                        MessageBlockMeta::Limited => unreachable!(),
-                        MessageBlockMeta::Prost { block_meta, .. } => block_meta,
+                        MessageBlockMeta::Limited { block_meta, .. } => block_meta,
+                        MessageBlockMeta::Prost { .. } => unreachable!(),
                     };
 
-                    SubscribeUpdateMessage {
+                    SubscribeUpdateMessageProst {
                         filters: &self.filters,
                         update: UpdateOneof::Block(SubscribeUpdateBlock {
                             slot: block_meta.slot,
@@ -872,7 +966,70 @@ impl<'a> FilteredUpdate<'a> {
                             transactions: transactions
                                 .iter()
                                 .map(|idx| match message.transactions[*idx].as_ref() {
-                                    MessageTransaction::Limited => unreachable!(),
+                                    MessageTransaction::Limited { transaction, .. } => {
+                                        transaction.clone()
+                                    }
+                                    MessageTransaction::Prost { .. } => unreachable!(),
+                                })
+                                .collect(),
+                            updated_account_count: message.accounts.len() as u64,
+                            accounts: accounts
+                                .iter()
+                                .map(|idx| match message.accounts[*idx].as_ref() {
+                                    MessageAccount::Limited { account, .. } => {
+                                        SubscribeUpdateAccountInfo {
+                                            pubkey: account.pubkey.clone(),
+                                            lamports: account.lamports,
+                                            owner: account.owner.clone(),
+                                            executable: account.executable,
+                                            rent_epoch: account.rent_epoch,
+                                            data: data_slices.get_slice(&account.data),
+                                            write_version: account.write_version,
+                                            txn_signature: account.txn_signature.clone(),
+                                        }
+                                    }
+                                    MessageAccount::Prost { .. } => unreachable!(),
+                                })
+                                .collect(),
+                            entries_count: block_meta.entries_count,
+                            entries: if *entries {
+                                message
+                                    .entries
+                                    .iter()
+                                    .map(|entry| match entry.as_ref() {
+                                        MessageEntry::Limited { entry, .. } => entry.clone(),
+                                        MessageEntry::Prost { .. } => unreachable!(),
+                                    })
+                                    .collect()
+                            } else {
+                                vec![]
+                            },
+                        }),
+                        created_at,
+                    }
+                    .encode_to_vec()
+                }
+                MessageBlockCreatedAt::Prost(created_at) => {
+                    let block_meta = match message.block_meta.as_ref() {
+                        MessageBlockMeta::Limited { .. } => unreachable!(),
+                        MessageBlockMeta::Prost { block_meta, .. } => block_meta,
+                    };
+
+                    SubscribeUpdateMessageProst {
+                        filters: &self.filters,
+                        update: UpdateOneof::Block(SubscribeUpdateBlock {
+                            slot: block_meta.slot,
+                            blockhash: block_meta.blockhash.clone(),
+                            rewards: block_meta.rewards.clone(),
+                            block_time: block_meta.block_time,
+                            block_height: block_meta.block_height,
+                            parent_slot: block_meta.parent_slot,
+                            parent_blockhash: block_meta.parent_blockhash.clone(),
+                            executed_transaction_count: block_meta.executed_transaction_count,
+                            transactions: transactions
+                                .iter()
+                                .map(|idx| match message.transactions[*idx].as_ref() {
+                                    MessageTransaction::Limited { .. } => unreachable!(),
                                     MessageTransaction::Prost { transaction, .. } => {
                                         transaction.clone()
                                     }
@@ -882,7 +1039,7 @@ impl<'a> FilteredUpdate<'a> {
                             accounts: accounts
                                 .iter()
                                 .map(|idx| match message.accounts[*idx].as_ref() {
-                                    MessageAccount::Limited => unreachable!(),
+                                    MessageAccount::Limited { .. } => unreachable!(),
                                     MessageAccount::Prost { account, .. } => {
                                         SubscribeUpdateAccountInfo {
                                             pubkey: account.pubkey.clone(),
@@ -903,7 +1060,7 @@ impl<'a> FilteredUpdate<'a> {
                                     .entries
                                     .iter()
                                     .map(|entry| match entry.as_ref() {
-                                        MessageEntry::Limited => unreachable!(),
+                                        MessageEntry::Limited { .. } => unreachable!(),
                                         MessageEntry::Prost { entry, .. } => entry.clone(),
                                     })
                                     .collect()

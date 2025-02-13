@@ -12,13 +12,13 @@ use {
 };
 
 #[derive(Debug, Clone)]
-pub struct SubscribeUpdateMessage<'a> {
+pub struct SubscribeUpdateMessageProst<'a> {
     pub filters: &'a [&'a str],
     pub update: UpdateOneof,
     pub created_at: Timestamp,
 }
 
-impl<'a> Message for SubscribeUpdateMessage<'a> {
+impl<'a> Message for SubscribeUpdateMessageProst<'a> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
