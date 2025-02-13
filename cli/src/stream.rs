@@ -18,7 +18,7 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SlotStatus, SubscribeUpdate,
+            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate,
             SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateEntry,
             SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
         },
@@ -208,7 +208,7 @@ impl ArgsAppStream {
                             print_update("account", created_at, &filters, value);
                         }
                         Some(UpdateOneof::Slot(msg)) => {
-                            let status = CommitmentLevel::try_from(msg.status)
+                            let status = SlotStatus::try_from(msg.status)
                                 .context("failed to decode commitment")?;
                             print_update(
                                 "slot",
