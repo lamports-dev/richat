@@ -1,17 +1,26 @@
-use prost::{
-    bytes::BufMut,
-    encoding::{encode_key, encode_varint, WireType},
+use {
+    crate::protobuf::{bytes_encode, bytes_encoded_len},
+    prost::{
+        bytes::{Buf, BufMut},
+        encoding::{
+            self, encode_key, encode_varint, encoded_len_varint, key_len, DecodeContext, WireType,
+        },
+        Message,
+    },
+    solana_sdk::{clock::Slot, pubkey::Pubkey},
+    std::borrow::Cow,
 };
 
 #[derive(Debug)]
 pub enum UpdateOneofLimited<'a> {
+    Account(UpdateOneofLimitedAccount<'a>),
     Slot(&'a [u8]),
 }
 
 impl<'a> UpdateOneofLimited<'a> {
     const fn tag(&self) -> u32 {
         match self {
-            // Self::Account(_) => 2u32,
+            Self::Account(_) => 2u32,
             Self::Slot(_) => 3u32,
             // Self::Transaction(_) => 4u32,
             // Self::TransactionStatus(_) => 10u32,
@@ -23,9 +32,9 @@ impl<'a> UpdateOneofLimited<'a> {
         }
     }
 
-    const fn len(&self) -> usize {
+    fn len(&self) -> usize {
         match self {
-            // Self::Account(_) => 2u32,
+            Self::Account(account) => account.encoded_len(),
             Self::Slot(slice) => slice.len(),
             // Self::Transaction(_) => 4u32,
             // Self::TransactionStatus(_) => 10u32,
@@ -41,7 +50,7 @@ impl<'a> UpdateOneofLimited<'a> {
         encode_key(self.tag(), WireType::LengthDelimited, buf);
         encode_varint(self.len() as u64, buf);
         match self {
-            // Self::Account(_) => 2u32,
+            Self::Account(account) => account.encode_raw(buf),
             Self::Slot(slice) => buf.put_slice(slice),
             // Self::Transaction(_) => 4u32,
             // Self::TransactionStatus(_) => 10u32,
@@ -55,5 +64,126 @@ impl<'a> UpdateOneofLimited<'a> {
 
     pub fn encoded_len(&self) -> usize {
         todo!()
+    }
+}
+
+#[derive(Debug)]
+pub struct UpdateOneofLimitedAccount<'a> {
+    pub pubkey: &'a Pubkey,
+    pub lamports: u64,
+    pub owner: &'a Pubkey,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    pub data: Cow<'a, [u8]>,
+    pub write_version: u64,
+    pub txn_signature: Option<&'a [u8]>,
+    pub slot: Slot,
+    pub is_startup: bool,
+}
+
+impl<'a> UpdateOneofLimitedAccount<'a> {
+    fn account_encode_raw(&self, buf: &mut impl BufMut) {
+        bytes_encode(1u32, self.pubkey.as_ref(), buf);
+        if self.lamports != 0u64 {
+            encoding::uint64::encode(2u32, &self.lamports, buf);
+        }
+        bytes_encode(3u32, self.owner.as_ref(), buf);
+        if !self.executable {
+            encoding::bool::encode(4u32, &self.executable, buf);
+        }
+        if self.rent_epoch != 0u64 {
+            encoding::uint64::encode(5u32, &self.rent_epoch, buf);
+        }
+        if !self.data.is_empty() {
+            bytes_encode(6u32, &self.data, buf);
+        }
+        if self.write_version != 0u64 {
+            encoding::uint64::encode(7u32, &self.write_version, buf);
+        }
+        if let Some(value) = self.txn_signature {
+            bytes_encode(8u32, value, buf);
+        }
+    }
+
+    fn account_encoded_len(&self) -> usize {
+        bytes_encoded_len(1u32, self.pubkey.as_ref())
+            + if self.lamports != 0u64 {
+                encoding::uint64::encoded_len(2u32, &self.lamports)
+            } else {
+                0
+            }
+            + bytes_encoded_len(3u32, self.owner.as_ref())
+            + if !self.executable {
+                encoding::bool::encoded_len(4u32, &self.executable)
+            } else {
+                0
+            }
+            + if self.rent_epoch != 0u64 {
+                encoding::uint64::encoded_len(5u32, &self.rent_epoch)
+            } else {
+                0
+            }
+            + if !self.data.is_empty() {
+                bytes_encoded_len(6u32, &self.data)
+            } else {
+                0
+            }
+            + if self.write_version != 0u64 {
+                encoding::uint64::encoded_len(7u32, &self.write_version)
+            } else {
+                0
+            }
+            + self
+                .txn_signature
+                .as_ref()
+                .map_or(0, |value| bytes_encoded_len(8u32, value))
+    }
+}
+
+impl<'a> Message for UpdateOneofLimitedAccount<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
+        encode_key(1u32, WireType::LengthDelimited, buf);
+        encode_varint(self.account_encoded_len() as u64, buf);
+        self.account_encode_raw(buf);
+        if self.slot != 0u64 {
+            encoding::uint64::encode(2u32, &self.slot, buf);
+        }
+        if !self.is_startup {
+            encoding::bool::encode(3u32, &self.is_startup, buf);
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        let account_len = self.account_encoded_len();
+        key_len(1u32)
+            + encoded_len_varint(account_len as u64)
+            + account_len
+            + if self.slot != 0u64 {
+                encoding::uint64::encoded_len(2u32, &self.slot)
+            } else {
+                0
+            }
+            + if !self.is_startup {
+                encoding::bool::encoded_len(3u32, &self.is_startup)
+            } else {
+                0
+            }
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
     }
 }

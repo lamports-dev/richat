@@ -11,7 +11,8 @@ use {
             MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
         protobuf::{
-            limited::UpdateOneofLimited, SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst,
+            limited::{UpdateOneofLimited, UpdateOneofLimitedAccount},
+            SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst,
         },
     },
     arrayvec::ArrayVec,
@@ -26,7 +27,7 @@ use {
     solana_sdk::{commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature},
     spl_token_2022::{generic_token_account::GenericTokenAccount, state::Account as TokenAccount},
     std::{
-        borrow::Borrow,
+        borrow::{Borrow, Cow},
         collections::{HashMap, HashSet},
         ops::{Not, Range},
         sync::Arc,
@@ -445,9 +446,17 @@ impl FilterAccountDataSlices {
         Self(vec)
     }
 
-    pub fn get_slice(&self, source: &[u8]) -> Vec<u8> {
+    pub fn get_slice<'a>(&self, source: &'a [u8]) -> Cow<'a, [u8]> {
         if self.0.is_empty() {
-            source.to_vec()
+            Cow::Borrowed(source)
+        } else if self.0.is_empty() {
+            Cow::Borrowed(&[])
+        } else if self.0.len() == 1 {
+            if source.len() >= self.0[0].end {
+                Cow::Borrowed(&source[self.0[0].start..self.0[0].end])
+            } else {
+                Cow::Borrowed(&[])
+            }
         } else {
             let mut data = Vec::with_capacity(self.0.iter().map(|ds| ds.end - ds.start).sum());
             for data_slice in self.0.iter() {
@@ -455,7 +464,7 @@ impl FilterAccountDataSlices {
                     data.extend_from_slice(&source[data_slice.start..data_slice.end]);
                 }
             }
-            data
+            Cow::Owned(data)
         }
     }
 }
@@ -733,10 +742,10 @@ impl<'a> FilteredUpdate<'a> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
                 MessageSlot::Limited {
-                    created_at, data, ..
+                    created_at, buffer, ..
                 } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneofLimited::Slot(data.as_slice()),
+                    update: UpdateOneofLimited::Slot(buffer.as_slice()),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),
@@ -763,26 +772,25 @@ impl<'a> FilteredUpdate<'a> {
                 message,
                 data_slices,
             } => match message {
-                // TODO
                 MessageAccount::Limited {
+                    pubkey,
+                    owner,
                     account,
                     slot,
                     is_startup,
                     created_at,
                     ..
-                } => SubscribeUpdateMessageProst {
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Account(SubscribeUpdateAccount {
-                        account: Some(SubscribeUpdateAccountInfo {
-                            pubkey: account.pubkey.clone(),
-                            lamports: account.lamports,
-                            owner: account.owner.clone(),
-                            executable: account.executable,
-                            rent_epoch: account.rent_epoch,
-                            data: data_slices.get_slice(&account.data),
-                            write_version: account.write_version,
-                            txn_signature: account.txn_signature.clone(),
-                        }),
+                    update: UpdateOneofLimited::Account(UpdateOneofLimitedAccount {
+                        pubkey,
+                        lamports: account.lamports,
+                        owner,
+                        executable: account.executable,
+                        rent_epoch: account.rent_epoch,
+                        data: data_slices.get_slice(&account.data),
+                        write_version: account.write_version,
+                        txn_signature: account.txn_signature.as_deref(),
                         slot: *slot,
                         is_startup: *is_startup,
                     }),
@@ -804,7 +812,7 @@ impl<'a> FilteredUpdate<'a> {
                             owner: account.owner.clone(),
                             executable: account.executable,
                             rent_epoch: account.rent_epoch,
-                            data: data_slices.get_slice(&account.data),
+                            data: data_slices.get_slice(&account.data).into_owned(),
                             write_version: account.write_version,
                             txn_signature: account.txn_signature.clone(),
                         }),
@@ -974,7 +982,7 @@ impl<'a> FilteredUpdate<'a> {
                                             owner: account.owner.clone(),
                                             executable: account.executable,
                                             rent_epoch: account.rent_epoch,
-                                            data: data_slices.get_slice(&account.data),
+                                            data: data_slices.get_slice(&account.data).into_owned(),
                                             write_version: account.write_version,
                                             txn_signature: account.txn_signature.clone(),
                                         }
@@ -1038,7 +1046,7 @@ impl<'a> FilteredUpdate<'a> {
                                             owner: account.owner.clone(),
                                             executable: account.executable,
                                             rent_epoch: account.rent_epoch,
-                                            data: data_slices.get_slice(&account.data),
+                                            data: data_slices.get_slice(&account.data).into_owned(),
                                             write_version: account.write_version,
                                             txn_signature: account.txn_signature.clone(),
                                         }

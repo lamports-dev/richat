@@ -195,7 +195,7 @@ impl MessageParserLimited {
                         .map_err(|_| MessageParseError::InvalidEnumValue(message.status))?,
                     dead_error: message.dead_error,
                     created_at,
-                    data,
+                    buffer: data,
                 }),
                 UpdateOneof::Account(message) => {
                     let account = message
@@ -212,12 +212,11 @@ impl MessageParserLimited {
                             .as_slice()
                             .try_into()
                             .map_err(|_| MessageParseError::InvalidPubkey)?,
-                        nonempty_txn_signature: account.txn_signature.is_some(),
                         account,
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
-                        size: encoded_len + PUBKEY_BYTES + PUBKEY_BYTES + SIGNATURE_BYTES,
+                        size: PUBKEY_BYTES + PUBKEY_BYTES + data.len() + 32,
                     })
                 }
                 UpdateOneof::Transaction(message) => {
@@ -288,16 +287,11 @@ impl MessageParserLimited {
                                     .as_slice()
                                     .try_into()
                                     .map_err(|_| MessageParseError::InvalidPubkey)?,
-                                nonempty_txn_signature: account.txn_signature.is_some(),
                                 account,
                                 slot: message.slot,
                                 is_startup: false,
                                 created_at,
-                                size: PUBKEY_BYTES
-                                    + PUBKEY_BYTES
-                                    + SIGNATURE_BYTES
-                                    + encoded_len
-                                    + 8,
+                                size: PUBKEY_BYTES + PUBKEY_BYTES + encoded_len + 32,
                             }))
                         })
                         .collect::<Result<_, MessageParseError>>()?;
@@ -430,12 +424,11 @@ impl MessageParserProst {
                             .as_slice()
                             .try_into()
                             .map_err(|_| MessageParseError::InvalidPubkey)?,
-                        nonempty_txn_signature: account.txn_signature.is_some(),
                         account,
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
-                        size: encoded_len + PUBKEY_BYTES + PUBKEY_BYTES + SIGNATURE_BYTES,
+                        size: PUBKEY_BYTES + PUBKEY_BYTES + encoded_len + 32,
                     })
                 }
                 UpdateOneof::Transaction(message) => {
@@ -506,16 +499,11 @@ impl MessageParserProst {
                                     .as_slice()
                                     .try_into()
                                     .map_err(|_| MessageParseError::InvalidPubkey)?,
-                                nonempty_txn_signature: account.txn_signature.is_some(),
                                 account,
                                 slot: message.slot,
                                 is_startup: false,
                                 created_at,
-                                size: PUBKEY_BYTES
-                                    + PUBKEY_BYTES
-                                    + SIGNATURE_BYTES
-                                    + encoded_len
-                                    + 8,
+                                size: PUBKEY_BYTES + PUBKEY_BYTES + encoded_len + 32,
                             }))
                         })
                         .collect::<Result<_, MessageParseError>>()?;
@@ -616,7 +604,7 @@ pub enum MessageSlot {
         status: SlotStatus,
         dead_error: Option<String>,
         created_at: Timestamp,
-        data: Vec<u8>,
+        buffer: Vec<u8>,
     },
     Prost {
         slot: Slot,
@@ -653,8 +641,8 @@ impl MessageSlot {
     pub fn size(&self) -> usize {
         match self {
             Self::Limited {
-                dead_error, data, ..
-            } => data.len() + 37 + dead_error.as_ref().map(|e| e.len()).unwrap_or_default(),
+                dead_error, buffer, ..
+            } => buffer.len() + 37 + dead_error.as_ref().map(|e| e.len()).unwrap_or_default(),
             Self::Prost { size, .. } => *size,
         }
     }
@@ -688,7 +676,6 @@ pub enum MessageAccount {
     Limited {
         pubkey: Pubkey,
         owner: Pubkey,
-        nonempty_txn_signature: bool,
         account: SubscribeUpdateAccountInfo,
         slot: Slot,
         is_startup: bool,
@@ -698,7 +685,6 @@ pub enum MessageAccount {
     Prost {
         pubkey: Pubkey,
         owner: Pubkey,
-        nonempty_txn_signature: bool,
         account: SubscribeUpdateAccountInfo,
         slot: Slot,
         is_startup: bool,
@@ -752,14 +738,8 @@ impl MessageAccount {
 
     pub const fn nonempty_txn_signature(&self) -> bool {
         match self {
-            Self::Limited {
-                nonempty_txn_signature,
-                ..
-            } => *nonempty_txn_signature,
-            Self::Prost {
-                nonempty_txn_signature,
-                ..
-            } => *nonempty_txn_signature,
+            Self::Limited { account, .. } => account.txn_signature.is_some(),
+            Self::Prost { account, .. } => account.txn_signature.is_some(),
         }
     }
 }
