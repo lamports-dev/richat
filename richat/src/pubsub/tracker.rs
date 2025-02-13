@@ -569,7 +569,10 @@ pub fn subscriptions_worker(
                                     SlotStatus::SlotDead => SlotUpdate::Dead {
                                         slot: message.slot(),
                                         timestamp: message.created_at().as_millis(),
-                                        err: message.dead_error().map(|de| de.to_owned()).unwrap_or_default(),
+                                        err: message
+                                            .dead_error()
+                                            .map(|de| de.to_owned())
+                                            .unwrap_or_default(),
                                     },
                                     SlotStatus::SlotConfirmed => {
                                         SlotUpdate::OptimisticConfirmation {

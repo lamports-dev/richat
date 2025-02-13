@@ -10,7 +10,9 @@ use {
             Message, MessageAccount, MessageBlock, MessageBlockCreatedAt, MessageBlockMeta,
             MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
-        protobuf::SubscribeUpdateMessageProst,
+        protobuf::{
+            limited::UpdateOneofLimited, SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst,
+        },
     },
     arrayvec::ArrayVec,
     prost::Message as _,
@@ -730,22 +732,11 @@ impl<'a> FilteredUpdate<'a> {
     pub fn encode(&self) -> Vec<u8> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
-                // TODO
                 MessageSlot::Limited {
-                    slot,
-                    parent,
-                    status,
-                    dead_error,
-                    created_at,
-                    ..
-                } => SubscribeUpdateMessageProst {
+                    created_at, data, ..
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Slot(SubscribeUpdateSlot {
-                        slot: *slot,
-                        parent: *parent,
-                        status: *status as i32,
-                        dead_error: dead_error.clone(),
-                    }),
+                    update: UpdateOneofLimited::Slot(data.as_slice()),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),

@@ -1,4 +1,5 @@
 use {
+    crate::protobuf::limited::UpdateOneofLimited,
     prost::{
         bytes::{Buf, BufMut},
         encoding::{
@@ -11,7 +12,55 @@ use {
     richat_proto::geyser::subscribe_update::UpdateOneof,
 };
 
-#[derive(Debug, Clone)]
+pub mod limited;
+
+#[derive(Debug)]
+pub struct SubscribeUpdateMessageLimited<'a> {
+    pub filters: &'a [&'a str],
+    pub update: UpdateOneofLimited<'a>,
+    pub created_at: Timestamp,
+}
+
+impl<'a> Message for SubscribeUpdateMessageLimited<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        for filter in self.filters {
+            bytes_encode(1, filter.as_bytes(), buf);
+        }
+        self.update.encode(buf);
+        message::encode(11, &self.created_at, buf);
+    }
+
+    fn encoded_len(&self) -> usize {
+        self.filters
+            .iter()
+            .map(|filter| bytes_encoded_len(1, filter.as_bytes()))
+            .sum::<usize>()
+            + self.update.encoded_len()
+            + message::encoded_len(11, &self.created_at)
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
 pub struct SubscribeUpdateMessageProst<'a> {
     pub filters: &'a [&'a str],
     pub update: UpdateOneof,

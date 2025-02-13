@@ -148,7 +148,7 @@ impl Message {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Slot(msg) => msg.created_at(),
             Self::Account(msg) => msg.created_at(),
@@ -636,7 +636,7 @@ impl MessageSlot {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Limited { created_at, .. } => MessageBlockCreatedAt::Limited(*created_at),
             Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
@@ -659,7 +659,7 @@ impl MessageSlot {
         }
     }
 
-    pub fn status(&self) -> SlotStatus {
+    pub const fn status(&self) -> SlotStatus {
         match self {
             Self::Limited { status, .. } => *status,
             Self::Prost { status, .. } => *status,
@@ -722,35 +722,35 @@ impl MessageAccount {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Limited { created_at, .. } => MessageBlockCreatedAt::Limited(*created_at),
             Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { size, .. } => *size,
             Self::Prost { size, .. } => *size,
         }
     }
 
-    pub fn pubkey(&self) -> &Pubkey {
+    pub const fn pubkey(&self) -> &Pubkey {
         match self {
             Self::Limited { pubkey, .. } => pubkey,
             Self::Prost { pubkey, .. } => pubkey,
         }
     }
 
-    pub fn write_version(&self) -> u64 {
+    pub const fn write_version(&self) -> u64 {
         match self {
             Self::Limited { account, .. } => account.write_version,
             Self::Prost { account, .. } => account.write_version,
         }
     }
 
-    pub fn nonempty_txn_signature(&self) -> bool {
+    pub const fn nonempty_txn_signature(&self) -> bool {
         match self {
             Self::Limited {
                 nonempty_txn_signature,
@@ -840,14 +840,14 @@ impl MessageTransaction {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Limited { created_at, .. } => MessageBlockCreatedAt::Limited(*created_at),
             Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { size, .. } => *size,
             Self::Prost { size, .. } => *size,
@@ -893,28 +893,28 @@ impl MessageTransaction {
         Ok(account_keys)
     }
 
-    pub fn signature(&self) -> &Signature {
+    pub const fn signature(&self) -> &Signature {
         match self {
             Self::Limited { signature, .. } => signature,
             Self::Prost { signature, .. } => signature,
         }
     }
 
-    pub fn vote(&self) -> bool {
+    pub const fn vote(&self) -> bool {
         match self {
             Self::Limited { transaction, .. } => transaction.is_vote,
             Self::Prost { transaction, .. } => transaction.is_vote,
         }
     }
 
-    pub fn failed(&self) -> bool {
+    pub const fn failed(&self) -> bool {
         match self {
             Self::Limited { error, .. } => error.is_some(),
             Self::Prost { error, .. } => error.is_some(),
         }
     }
 
-    pub fn error(&self) -> &Option<TransactionError> {
+    pub const fn error(&self) -> &Option<TransactionError> {
         match self {
             Self::Limited { error, .. } => error,
             Self::Prost { error, .. } => error,
@@ -948,7 +948,7 @@ impl MessageTransaction {
         })
     }
 
-    pub fn account_keys(&self) -> &HashSet<Pubkey> {
+    pub const fn account_keys(&self) -> &HashSet<Pubkey> {
         match self {
             Self::Limited { account_keys, .. } => account_keys,
             Self::Prost { account_keys, .. } => account_keys,
@@ -988,21 +988,21 @@ impl MessageEntry {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Limited { created_at, .. } => MessageBlockCreatedAt::Limited(*created_at),
             Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { size, .. } => *size,
             Self::Prost { size, .. } => *size,
         }
     }
 
-    pub fn executed_transaction_count(&self) -> u64 {
+    pub const fn executed_transaction_count(&self) -> u64 {
         match self {
             Self::Limited {
                 executed_transaction_count,
@@ -1048,14 +1048,14 @@ impl MessageBlockMeta {
         }
     }
 
-    pub fn created_at(&self) -> MessageBlockCreatedAt {
+    pub const fn created_at(&self) -> MessageBlockCreatedAt {
         match self {
             Self::Limited { created_at, .. } => MessageBlockCreatedAt::Limited(*created_at),
             Self::Prost { created_at, .. } => MessageBlockCreatedAt::Prost(*created_at),
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { size, .. } => *size,
             Self::Prost { size, .. } => *size,
@@ -1069,7 +1069,7 @@ impl MessageBlockMeta {
         }
     }
 
-    pub fn block_height(&self) -> Slot {
+    pub const fn block_height(&self) -> Slot {
         match self {
             Self::Limited { block_height, .. } => *block_height,
             Self::Prost { block_height, .. } => *block_height,
@@ -1216,7 +1216,7 @@ impl MessageBlockCreatedAt {
         }
     }
 
-    pub fn as_millis(&self) -> u64 {
+    pub const fn as_millis(&self) -> u64 {
         match self {
             Self::Limited(ts) => ts.seconds as u64 * 1_000 + (ts.nanos / 1_000_000) as u64,
             Self::Prost(ts) => ts.seconds as u64 * 1_000 + (ts.nanos / 1_000_000) as u64,
