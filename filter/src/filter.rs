@@ -13,7 +13,7 @@ use {
         protobuf::encode::{
             SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst, UpdateOneofLimitedEncode,
             UpdateOneofLimitedEncodeAccount, UpdateOneofLimitedEncodeAccountInner,
-            UpdateOneofLimitedEncodeBlock,
+            UpdateOneofLimitedEncodeBlock, UpdateOneofLimitedEncodeTransactionStatus,
         },
     },
     arrayvec::ArrayVec,
@@ -879,7 +879,6 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::TransactionStatus { message } => match message {
-                // TODO
                 MessageTransaction::Limited {
                     signature,
                     error,
@@ -887,15 +886,17 @@ impl<'a> FilteredUpdate<'a> {
                     slot,
                     created_at,
                     ..
-                } => SubscribeUpdateMessageProst {
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::TransactionStatus(SubscribeUpdateTransactionStatus {
-                        slot: *slot,
-                        signature: signature.as_ref().to_vec(),
-                        is_vote: transaction.is_vote,
-                        index: transaction.index,
-                        err: error.clone(),
-                    }),
+                    update: UpdateOneofLimitedEncode::TransactionStatus(
+                        UpdateOneofLimitedEncodeTransactionStatus {
+                            slot: *slot,
+                            signature: signature.as_ref(),
+                            is_vote: transaction.is_vote,
+                            index: transaction.index,
+                            err: error.clone(),
+                        },
+                    ),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),

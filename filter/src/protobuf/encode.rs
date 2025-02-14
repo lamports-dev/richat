@@ -68,6 +68,7 @@ pub enum UpdateOneofLimitedEncode<'a> {
     Account(UpdateOneofLimitedEncodeAccount<'a>),
     Slot(&'a [u8]),
     Transaction(&'a [u8]),
+    TransactionStatus(UpdateOneofLimitedEncodeTransactionStatus<'a>),
     Block(UpdateOneofLimitedEncodeBlock<'a>),
     BlockMeta(&'a [u8]),
     Entry(&'a [u8]),
@@ -79,10 +80,8 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             Self::Account(_) => 2u32,
             Self::Slot(_) => 3u32,
             Self::Transaction(_) => 4u32,
-            // Self::TransactionStatus(_) => 10u32,
+            Self::TransactionStatus(_) => 10u32,
             Self::Block(_) => 5u32,
-            // Self::Ping(_) => 6u32,
-            // Self::Pong(_) => 9u32,
             Self::BlockMeta(_) => 7u32,
             Self::Entry(_) => 8u32,
         }
@@ -93,10 +92,8 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             Self::Account(account) => account.encoded_len(),
             Self::Slot(slice) => slice.len(),
             Self::Transaction(slice) => slice.len(),
-            // Self::TransactionStatus(_) => 10u32,
+            Self::TransactionStatus(tx_status) => tx_status.encoded_len(),
             Self::Block(block) => block.encoded_len(),
-            // Self::Ping(_) => 6u32,
-            // Self::Pong(_) => 9u32,
             Self::BlockMeta(slice) => slice.len(),
             Self::Entry(slice) => slice.len(),
         }
@@ -109,10 +106,8 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             Self::Account(account) => account.encode_raw(buf),
             Self::Slot(slice) => buf.put_slice(slice),
             Self::Transaction(slice) => buf.put_slice(slice),
-            // Self::TransactionStatus(_) => 10u32,
+            Self::TransactionStatus(tx_status) => tx_status.encode_raw(buf),
             Self::Block(block) => block.encode_raw(buf),
-            // Self::Ping(_) => 6u32,
-            // Self::Pong(_) => 9u32,
             Self::BlockMeta(slice) => buf.put_slice(slice),
             Self::Entry(slice) => buf.put_slice(slice),
         }
@@ -268,6 +263,75 @@ impl<'a> Message for UpdateOneofLimitedEncodeAccountInner<'a> {
                 .txn_signature
                 .as_ref()
                 .map_or(0, |value| bytes_encoded_len(8u32, value))
+    }
+
+    fn merge_field(
+        &mut self,
+        _tag: u32,
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
+    fn clear(&mut self) {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
+pub struct UpdateOneofLimitedEncodeTransactionStatus<'a> {
+    pub slot: u64,
+    pub signature: &'a [u8],
+    pub is_vote: bool,
+    pub index: u64,
+    pub err: Option<confirmed_block::TransactionError>,
+}
+
+impl<'a> Message for UpdateOneofLimitedEncodeTransactionStatus<'a> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
+        if self.slot != 0u64 {
+            encoding::uint64::encode(1u32, &self.slot, buf);
+        }
+        if !self.signature.is_empty() {
+            bytes_encode(2u32, self.signature, buf);
+        }
+        if self.is_vote {
+            encoding::bool::encode(3u32, &self.is_vote, buf);
+        }
+        if self.index != 0u64 {
+            encoding::uint64::encode(4u32, &self.index, buf);
+        }
+        if let Some(msg) = &self.err {
+            encoding::message::encode(5u32, msg, buf);
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        (if self.slot != 0u64 {
+            encoding::uint64::encoded_len(1u32, &self.slot)
+        } else {
+            0
+        }) + if !self.signature.is_empty() {
+            bytes_encoded_len(2u32, self.signature)
+        } else {
+            0
+        } + if self.is_vote {
+            encoding::bool::encoded_len(3u32, &self.is_vote)
+        } else {
+            0
+        } + if self.index != 0u64 {
+            encoding::uint64::encoded_len(4u32, &self.index)
+        } else {
+            0
+        } + self
+            .err
+            .as_ref()
+            .map_or(0, |msg| encoding::message::encoded_len(5u32, msg))
     }
 
     fn merge_field(
