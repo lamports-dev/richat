@@ -452,7 +452,4 @@ impl LimitedDecode for UpdateOneofLimitedDecodeSlot {
 }
 
 // #[derive(Debug, Default)]
-// pub struct UpdateOneofLimitedDecodeBlockMeta;
-
-// #[derive(Debug, Default)]
 // pub struct UpdateOneofLimitedDecodeEntry;

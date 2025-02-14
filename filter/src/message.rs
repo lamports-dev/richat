@@ -272,8 +272,7 @@ impl MessageParserLimited {
                 }
                 UpdateOneofLimitedDecode::Entry(range) => {
                     let entry =
-                        SubscribeUpdateEntry::decode(&data.as_slice()[range.start..range.end])
-                            .unwrap();
+                        SubscribeUpdateEntry::decode(&data.as_slice()[range.start..range.end])?;
                     let executed_transaction_count = entry.executed_transaction_count;
                     Message::Entry(MessageEntry::Limited {
                         entry,
@@ -284,17 +283,19 @@ impl MessageParserLimited {
                 }
                 UpdateOneofLimitedDecode::BlockMeta(range) => {
                     let block_meta =
-                        SubscribeUpdateBlockMeta::decode(&data.as_slice()[range.start..range.end])
-                            .unwrap();
+                        SubscribeUpdateBlockMeta::decode(&data.as_slice()[range.start..range.end])?;
+
                     let block_height = block_meta
                         .block_height
                         .map(|v| v.block_height)
                         .ok_or(MessageParseError::FieldNotDefined("block_height"))?;
+
                     Message::BlockMeta(MessageBlockMeta::Limited {
                         block_meta,
                         block_height,
                         created_at,
-                        size: encoded_len,
+                        buffer: data,
+                        range,
                     })
                 }
                 UpdateOneofLimitedDecode::Block(_) => {
@@ -940,12 +941,12 @@ impl MessageEntry {
 
 #[derive(Debug, Clone)]
 pub enum MessageBlockMeta {
-    // TODO
     Limited {
         block_meta: SubscribeUpdateBlockMeta,
         block_height: Slot,
         created_at: Timestamp,
-        size: usize,
+        buffer: Vec<u8>,
+        range: Range<usize>,
     },
     Prost {
         block_meta: SubscribeUpdateBlockMeta,
@@ -977,9 +978,9 @@ impl MessageBlockMeta {
         }
     }
 
-    pub const fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
-            Self::Limited { size, .. } => *size,
+            Self::Limited { buffer, .. } => buffer.len() * 2,
             Self::Prost { size, .. } => *size,
         }
     }

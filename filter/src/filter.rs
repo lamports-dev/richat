@@ -12,7 +12,8 @@ use {
         },
         protobuf::encode::{
             SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst, UpdateOneofLimitedEncode,
-            UpdateOneofLimitedEncodeAccount,
+            UpdateOneofLimitedEncodeAccount, UpdateOneofLimitedEncodeAccountInner,
+            UpdateOneofLimitedEncodeBlock,
         },
     },
     arrayvec::ArrayVec,
@@ -803,15 +804,18 @@ impl<'a> FilteredUpdate<'a> {
                         )
                     } else {
                         UpdateOneofLimitedEncodeAccount::Fields {
-                            pubkey,
-                            lamports: *lamports,
-                            owner,
-                            executable: *executable,
-                            rent_epoch: *rent_epoch,
-                            data: data_slices.get_slice(&buffer.as_slice()[data.start..data.end]),
-                            write_version: *write_version,
-                            txn_signature: txn_signature_offset
-                                .map(|offset| &buffer.as_slice()[offset..offset + 64]),
+                            account: UpdateOneofLimitedEncodeAccountInner {
+                                pubkey,
+                                lamports: *lamports,
+                                owner,
+                                executable: *executable,
+                                rent_epoch: *rent_epoch,
+                                data: data_slices
+                                    .get_slice(&buffer.as_slice()[data.start..data.end]),
+                                write_version: *write_version,
+                                txn_signature: txn_signature_offset
+                                    .map(|offset| &buffer.as_slice()[offset..offset + 64]),
+                            },
                             slot: *slot,
                             is_startup: *is_startup,
                         }
@@ -935,14 +939,16 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::BlockMeta { message } => match message {
-                // TODO
                 MessageBlockMeta::Limited {
-                    block_meta,
                     created_at,
+                    buffer,
+                    range,
                     ..
-                } => SubscribeUpdateMessageProst {
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::BlockMeta(block_meta.clone()),
+                    update: UpdateOneofLimitedEncode::BlockMeta(
+                        &buffer.as_slice()[range.start..range.end],
+                    ),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),
@@ -971,9 +977,9 @@ impl<'a> FilteredUpdate<'a> {
                         MessageBlockMeta::Prost { .. } => unreachable!(),
                     };
 
-                    SubscribeUpdateMessageProst {
+                    SubscribeUpdateMessageLimited {
                         filters: &self.filters,
-                        update: UpdateOneof::Block(SubscribeUpdateBlock {
+                        update: UpdateOneofLimitedEncode::Block(UpdateOneofLimitedEncodeBlock {
                             slot: block_meta.slot,
                             blockhash: block_meta.blockhash.clone(),
                             rewards: block_meta.rewards.clone(),
@@ -1006,19 +1012,17 @@ impl<'a> FilteredUpdate<'a> {
                                         write_version,
                                         buffer,
                                         ..
-                                    } => SubscribeUpdateAccountInfo {
-                                        pubkey: pubkey.to_bytes().to_vec(),
+                                    } => UpdateOneofLimitedEncodeAccountInner {
+                                        pubkey,
                                         lamports: *lamports,
-                                        owner: owner.to_bytes().to_vec(),
+                                        owner,
                                         executable: *executable,
                                         rent_epoch: *rent_epoch,
                                         data: data_slices
-                                            .get_slice(&buffer.as_slice()[data.start..data.end])
-                                            .into_owned(),
+                                            .get_slice(&buffer.as_slice()[data.start..data.end]),
                                         write_version: *write_version,
-                                        txn_signature: txn_signature_offset.map(|offset| {
-                                            buffer.as_slice()[offset..offset + 64].to_vec()
-                                        }),
+                                        txn_signature: txn_signature_offset
+                                            .map(|offset| &buffer.as_slice()[offset..offset + 64]),
                                     },
                                     MessageAccount::Prost { .. } => unreachable!(),
                                 })
