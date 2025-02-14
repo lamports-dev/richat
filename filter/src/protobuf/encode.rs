@@ -291,12 +291,12 @@ impl<'a> Message for UpdateOneofLimitedEncodeAccountInner<'a> {
 #[derive(Debug)]
 pub struct UpdateOneofLimitedEncodeBlock<'a> {
     pub slot: u64,
-    pub blockhash: String,
+    pub blockhash: &'a str,
     pub rewards: Option<confirmed_block::Rewards>,
     pub block_time: Option<confirmed_block::UnixTimestamp>,
     pub block_height: Option<confirmed_block::BlockHeight>,
     pub parent_slot: u64,
-    pub parent_blockhash: String,
+    pub parent_blockhash: &'a str,
     pub executed_transaction_count: u64,
     pub transactions: Vec<SubscribeUpdateTransactionInfo>,
     pub updated_account_count: u64,
@@ -311,7 +311,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
             encoding::uint64::encode(1u32, &self.slot, buf);
         }
         if !self.blockhash.is_empty() {
-            encoding::string::encode(2u32, &self.blockhash, buf);
+            bytes_encode(2u32, self.blockhash.as_ref(), buf);
         }
         if let Some(msg) = &self.rewards {
             encoding::message::encode(3u32, msg, buf);
@@ -329,7 +329,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
             encoding::uint64::encode(7u32, &self.parent_slot, buf);
         }
         if !self.parent_blockhash.is_empty() {
-            encoding::string::encode(8u32, &self.parent_blockhash, buf);
+            bytes_encode(8u32, self.parent_blockhash.as_ref(), buf);
         }
         if self.executed_transaction_count != 0u64 {
             encoding::uint64::encode(9u32, &self.executed_transaction_count, buf);
@@ -356,7 +356,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
         } else {
             0
         }) + if !self.blockhash.is_empty() {
-            encoding::string::encoded_len(2u32, &self.blockhash)
+            bytes_encoded_len(2u32, self.blockhash.as_ref())
         } else {
             0
         } + self
@@ -378,7 +378,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
                 0
             }
             + if !self.parent_blockhash.is_empty() {
-                encoding::string::encoded_len(8u32, &self.parent_blockhash)
+                bytes_encoded_len(8u32, self.parent_blockhash.as_ref())
             } else {
                 0
             }

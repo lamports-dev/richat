@@ -974,7 +974,6 @@ impl<'a> FilteredUpdate<'a> {
                 entries,
                 data_slices,
             } => match message.created_at {
-                // TODO
                 MessageBlockCreatedAt::Limited(created_at) => {
                     let block_meta = match message.block_meta.as_ref() {
                         MessageBlockMeta::Limited { block_meta, .. } => block_meta,
@@ -985,12 +984,12 @@ impl<'a> FilteredUpdate<'a> {
                         filters: &self.filters,
                         update: UpdateOneofLimitedEncode::Block(UpdateOneofLimitedEncodeBlock {
                             slot: block_meta.slot,
-                            blockhash: block_meta.blockhash.clone(),
+                            blockhash: block_meta.blockhash.as_str(),
                             rewards: block_meta.rewards.clone(),
                             block_time: block_meta.block_time,
                             block_height: block_meta.block_height,
                             parent_slot: block_meta.parent_slot,
-                            parent_blockhash: block_meta.parent_blockhash.clone(),
+                            parent_blockhash: block_meta.parent_blockhash.as_str(),
                             executed_transaction_count: block_meta.executed_transaction_count,
                             transactions: transactions
                                 .iter()
