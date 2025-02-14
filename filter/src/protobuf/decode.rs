@@ -451,5 +451,64 @@ impl LimitedDecode for UpdateOneofLimitedDecodeSlot {
     }
 }
 
-// #[derive(Debug, Default)]
-// pub struct UpdateOneofLimitedDecodeEntry;
+#[derive(Debug, Default)]
+pub struct UpdateOneofLimitedDecodeEntry {
+    pub slot: Slot,
+    pub executed_transaction_count: u64,
+}
+
+impl LimitedDecode for UpdateOneofLimitedDecodeEntry {
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        _buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeEntry";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                let value = &mut self.slot;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "slot");
+                    error
+                })
+            }
+            2u32 => encoding::uint64::merge(wire_type, &mut 0, buf, ctx).map_err(|mut error| {
+                error.push(STRUCT_NAME, "index");
+                error
+            }),
+            3u32 => encoding::uint64::merge(wire_type, &mut 0, buf, ctx).map_err(|mut error| {
+                error.push(STRUCT_NAME, "num_hashes");
+                error
+            }),
+            4u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    Err(DecodeError::new("buffer underflow"))
+                } else {
+                    buf.advance(len);
+                    Ok(())
+                }
+            }
+            .map_err(|mut error| {
+                error.push(STRUCT_NAME, "hash");
+                error
+            }),
+            5u32 => {
+                let value = &mut self.executed_transaction_count;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "executed_transaction_count");
+                    error
+                })
+            }
+            6u32 => encoding::uint64::merge(wire_type, &mut 0, buf, ctx).map_err(|mut error| {
+                error.push(STRUCT_NAME, "starting_transaction_index");
+                error
+            }),
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}

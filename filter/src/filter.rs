@@ -920,12 +920,16 @@ impl<'a> FilteredUpdate<'a> {
                 .encode_to_vec(),
             },
             FilteredUpdateType::Entry { message } => match message {
-                // TODO
                 MessageEntry::Limited {
-                    entry, created_at, ..
-                } => SubscribeUpdateMessageProst {
+                    created_at,
+                    buffer,
+                    range,
+                    ..
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Entry(entry.clone()),
+                    update: UpdateOneofLimitedEncode::Entry(
+                        &buffer.as_slice()[range.start..range.end],
+                    ),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),
@@ -1033,7 +1037,9 @@ impl<'a> FilteredUpdate<'a> {
                                     .entries
                                     .iter()
                                     .map(|entry| match entry.as_ref() {
-                                        MessageEntry::Limited { entry, .. } => entry.clone(),
+                                        MessageEntry::Limited { buffer, range, .. } => {
+                                            &buffer.as_slice()[range.start..range.end]
+                                        }
                                         MessageEntry::Prost { .. } => unreachable!(),
                                     })
                                     .collect()

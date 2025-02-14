@@ -1,7 +1,8 @@
 use {
     crate::protobuf::decode::{
         LimitedDecode, SubscribeUpdateLimitedDecode, UpdateOneofLimitedDecode,
-        UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeSlot,
+        UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
+        UpdateOneofLimitedDecodeSlot,
     },
     prost::Message as _,
     prost_types::Timestamp,
@@ -181,8 +182,6 @@ pub struct MessageParserLimited;
 
 impl MessageParserLimited {
     pub fn parse(data: Vec<u8>) -> Result<Message, MessageParseError> {
-        let encoded_len = data.len();
-
         let update = SubscribeUpdateLimitedDecode::decode(data.as_slice())?;
         let created_at = update
             .created_at
@@ -271,14 +270,15 @@ impl MessageParserLimited {
                     return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
                 }
                 UpdateOneofLimitedDecode::Entry(range) => {
-                    let entry =
-                        SubscribeUpdateEntry::decode(&data.as_slice()[range.start..range.end])?;
-                    let executed_transaction_count = entry.executed_transaction_count;
+                    let entry = UpdateOneofLimitedDecodeEntry::decode(
+                        &data.as_slice()[range.start..range.end],
+                    )?;
                     Message::Entry(MessageEntry::Limited {
-                        entry,
-                        executed_transaction_count,
+                        slot: entry.slot,
+                        executed_transaction_count: entry.executed_transaction_count,
                         created_at,
-                        size: encoded_len,
+                        buffer: data,
+                        range,
                     })
                 }
                 UpdateOneofLimitedDecode::BlockMeta(range) => {
@@ -881,12 +881,12 @@ impl MessageTransaction {
 
 #[derive(Debug, Clone)]
 pub enum MessageEntry {
-    // TODO
     Limited {
-        entry: SubscribeUpdateEntry,
+        slot: Slot,
         executed_transaction_count: u64,
         created_at: Timestamp,
-        size: usize,
+        buffer: Vec<u8>,
+        range: Range<usize>,
     },
     Prost {
         entry: SubscribeUpdateEntry,
@@ -906,7 +906,7 @@ impl MessageEntry {
 
     pub const fn slot(&self) -> Slot {
         match self {
-            Self::Limited { entry, .. } => entry.slot,
+            Self::Limited { slot, .. } => *slot,
             Self::Prost { entry, .. } => entry.slot,
         }
     }
@@ -918,9 +918,9 @@ impl MessageEntry {
         }
     }
 
-    pub const fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
-            Self::Limited { size, .. } => *size,
+            Self::Limited { buffer, .. } => buffer.len() + 44,
             Self::Prost { size, .. } => *size,
         }
     }

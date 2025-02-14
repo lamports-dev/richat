@@ -10,9 +10,7 @@ use {
     },
     prost_types::Timestamp,
     richat_proto::{
-        geyser::{
-            subscribe_update::UpdateOneof, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
-        },
+        geyser::{subscribe_update::UpdateOneof, SubscribeUpdateTransactionInfo},
         solana::storage::confirmed_block,
     },
     solana_sdk::{clock::Slot, pubkey::Pubkey},
@@ -71,7 +69,8 @@ pub enum UpdateOneofLimitedEncode<'a> {
     Slot(&'a [u8]),
     Transaction(&'a [u8]),
     Block(UpdateOneofLimitedEncodeBlock<'a>),
-    BlockMeta(&'a [u8])
+    BlockMeta(&'a [u8]),
+    Entry(&'a [u8]),
 }
 
 impl<'a> UpdateOneofLimitedEncode<'a> {
@@ -85,7 +84,7 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             // Self::Ping(_) => 6u32,
             // Self::Pong(_) => 9u32,
             Self::BlockMeta(_) => 7u32,
-            // Self::Entry(_) => 8u32,
+            Self::Entry(_) => 8u32,
         }
     }
 
@@ -99,7 +98,7 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             // Self::Ping(_) => 6u32,
             // Self::Pong(_) => 9u32,
             Self::BlockMeta(slice) => slice.len(),
-            // Self::Entry(_) => 8u32,
+            Self::Entry(slice) => slice.len(),
         }
     }
 
@@ -115,7 +114,7 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
             // Self::Ping(_) => 6u32,
             // Self::Pong(_) => 9u32,
             Self::BlockMeta(slice) => buf.put_slice(slice),
-            // Self::Entry(_) => 8u32,
+            Self::Entry(slice) => buf.put_slice(slice),
         }
     }
 
@@ -303,7 +302,7 @@ pub struct UpdateOneofLimitedEncodeBlock<'a> {
     pub updated_account_count: u64,
     pub accounts: Vec<UpdateOneofLimitedEncodeAccountInner<'a>>,
     pub entries_count: u64,
-    pub entries: Vec<SubscribeUpdateEntry>,
+    pub entries: Vec<&'a [u8]>,
 }
 
 impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
@@ -344,8 +343,10 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
         if self.entries_count != 0u64 {
             encoding::uint64::encode(12u32, &self.entries_count, buf);
         }
-        for msg in &self.entries {
-            encoding::message::encode(13u32, msg, buf);
+        for slice in &self.entries {
+            encode_key(13u32, WireType::LengthDelimited, buf);
+            encode_varint(slice.len() as u64, buf);
+            buf.put_slice(slice);
         }
     }
 
@@ -397,7 +398,13 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
             } else {
                 0
             }
-            + encoding::message::encoded_len_repeated(13u32, &self.entries)
+            + (key_len(13u32) * self.entries.len()
+                + self
+                    .entries
+                    .iter()
+                    .map(|slice| slice.len())
+                    .map(|len| len + encoded_len_varint(len as u64))
+                    .sum::<usize>())
     }
 
     fn merge_field(
