@@ -446,6 +446,10 @@ impl FilterAccountDataSlices {
         Self(vec)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn get_slice<'a>(&self, source: &'a [u8]) -> Cow<'a, [u8]> {
         if self.0.is_empty() {
             Cow::Borrowed(source)
@@ -742,10 +746,15 @@ impl<'a> FilteredUpdate<'a> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
                 MessageSlot::Limited {
-                    created_at, buffer, range, ..
+                    created_at,
+                    buffer,
+                    range,
+                    ..
                 } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneofLimitedEncode::Slot(&buffer.as_slice()[range.start..range.end]),
+                    update: UpdateOneofLimitedEncode::Slot(
+                        &buffer.as_slice()[range.start..range.end],
+                    ),
                     created_at: *created_at,
                 }
                 .encode_to_vec(),
@@ -775,24 +784,37 @@ impl<'a> FilteredUpdate<'a> {
                 MessageAccount::Limited {
                     pubkey,
                     owner,
-                    account,
+                    lamports,
+                    executable,
+                    rent_epoch,
+                    data,
+                    txn_signature_offset,
+                    write_version,
                     slot,
                     is_startup,
                     created_at,
-                    ..
+                    buffer,
+                    range,
                 } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneofLimitedEncode::Account(UpdateOneofLimitedEncodeAccount {
-                        pubkey,
-                        lamports: account.lamports,
-                        owner,
-                        executable: account.executable,
-                        rent_epoch: account.rent_epoch,
-                        data: data_slices.get_slice(&account.data),
-                        write_version: account.write_version,
-                        txn_signature: account.txn_signature.as_deref(),
-                        slot: *slot,
-                        is_startup: *is_startup,
+                    update: UpdateOneofLimitedEncode::Account(if data_slices.is_empty() {
+                        UpdateOneofLimitedEncodeAccount::Slice(
+                            &buffer.as_slice()[range.start..range.end],
+                        )
+                    } else {
+                        UpdateOneofLimitedEncodeAccount::Fields {
+                            pubkey,
+                            lamports: *lamports,
+                            owner,
+                            executable: *executable,
+                            rent_epoch: *rent_epoch,
+                            data: data_slices.get_slice(&buffer.as_slice()[data.start..data.end]),
+                            write_version: *write_version,
+                            txn_signature: txn_signature_offset
+                                .map(|offset| &buffer.as_slice()[offset..offset + 64]),
+                            slot: *slot,
+                            is_startup: *is_startup,
+                        }
                     }),
                     created_at: *created_at,
                 }
@@ -825,24 +847,17 @@ impl<'a> FilteredUpdate<'a> {
             },
             FilteredUpdateType::Transaction { message } => match message {
                 MessageTransaction::Limited {
-                    transaction,
-                    slot,
                     created_at,
                     buffer,
+                    range,
                     ..
-                } => SubscribeUpdateMessageProst {
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Transaction(SubscribeUpdateTransaction {
-                        transaction: Some(transaction.clone()),
-                        slot: *slot,
-                    }),
+                    update: UpdateOneofLimitedEncode::Transaction(
+                        &buffer.as_slice()[range.start..range.end],
+                    ),
                     created_at: *created_at,
                 }
-                // } => SubscribeUpdateMessageLimited {
-                //     filters: &self.filters,
-                //     update: UpdateOneofLimited::Transaction(buffer.as_slice()),
-                //     created_at: *created_at,
-                // }
                 .encode_to_vec(),
                 MessageTransaction::Prost {
                     transaction,
@@ -980,18 +995,31 @@ impl<'a> FilteredUpdate<'a> {
                             accounts: accounts
                                 .iter()
                                 .map(|idx| match message.accounts[*idx].as_ref() {
-                                    MessageAccount::Limited { account, .. } => {
-                                        SubscribeUpdateAccountInfo {
-                                            pubkey: account.pubkey.clone(),
-                                            lamports: account.lamports,
-                                            owner: account.owner.clone(),
-                                            executable: account.executable,
-                                            rent_epoch: account.rent_epoch,
-                                            data: data_slices.get_slice(&account.data).into_owned(),
-                                            write_version: account.write_version,
-                                            txn_signature: account.txn_signature.clone(),
-                                        }
-                                    }
+                                    MessageAccount::Limited {
+                                        pubkey,
+                                        owner,
+                                        lamports,
+                                        executable,
+                                        rent_epoch,
+                                        data,
+                                        txn_signature_offset,
+                                        write_version,
+                                        buffer,
+                                        ..
+                                    } => SubscribeUpdateAccountInfo {
+                                        pubkey: pubkey.to_bytes().to_vec(),
+                                        lamports: *lamports,
+                                        owner: owner.to_bytes().to_vec(),
+                                        executable: *executable,
+                                        rent_epoch: *rent_epoch,
+                                        data: data_slices
+                                            .get_slice(&buffer.as_slice()[data.start..data.end])
+                                            .into_owned(),
+                                        write_version: *write_version,
+                                        txn_signature: txn_signature_offset.map(|offset| {
+                                            buffer.as_slice()[offset..offset + 64].to_vec()
+                                        }),
+                                    },
                                     MessageAccount::Prost { .. } => unreachable!(),
                                 })
                                 .collect(),

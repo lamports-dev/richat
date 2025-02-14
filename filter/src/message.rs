@@ -1,15 +1,16 @@
 use {
     crate::protobuf::decode::{
-        SubscribeUpdateLimitedDecode, LimitedDecode, UpdateOneofLimitedDecode, UpdateOneofLimitedDecodeSlot,
+        LimitedDecode, SubscribeUpdateLimitedDecode, UpdateOneofLimitedDecode,
+        UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeSlot,
     },
     prost::Message as _,
     prost_types::Timestamp,
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccount,
-            SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta, SubscribeUpdateEntry,
-            SubscribeUpdateSlot, SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
+            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo,
+            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransaction,
+            SubscribeUpdateTransactionInfo,
         },
         solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
     },
@@ -208,35 +209,38 @@ impl MessageParserLimited {
                     })
                 }
                 UpdateOneofLimitedDecode::Account(range) => {
-                    let message =
-                        SubscribeUpdateAccount::decode(&data.as_slice()[range.start..range.end])
-                            .unwrap();
-                    let account = message
-                        .account
-                        .ok_or(MessageParseError::FieldNotDefined("account"))?;
+                    let message = UpdateOneofLimitedDecodeAccount::decode(
+                        &data.as_slice()[range.start..range.end],
+                    )?;
+
+                    if !message.account {
+                        return Err(MessageParseError::FieldNotDefined("account"));
+                    }
+
+                    let mut data_range = message.data;
+                    data_range.start += range.start;
+                    data_range.end += range.start;
+
                     Message::Account(MessageAccount::Limited {
-                        pubkey: account
-                            .pubkey
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidPubkey)?,
-                        owner: account
-                            .owner
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidPubkey)?,
-                        account,
+                        pubkey: message.pubkey,
+                        owner: message.owner,
+                        lamports: message.lamports,
+                        executable: message.executable,
+                        rent_epoch: message.rent_epoch,
+                        data: data_range,
+                        txn_signature_offset: message.txn_signature_offset,
+                        write_version: message.write_version,
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
-                        size: PUBKEY_BYTES + PUBKEY_BYTES + data.len() + 32,
+                        buffer: data,
+                        range,
                     })
                 }
                 UpdateOneofLimitedDecode::Transaction(range) => {
                     let message = SubscribeUpdateTransaction::decode(
                         &data.as_slice()[range.start..range.end],
-                    )
-                    .unwrap();
+                    )?;
                     let transaction = message
                         .transaction
                         .ok_or(MessageParseError::FieldNotDefined("transaction"))?;
@@ -260,6 +264,7 @@ impl MessageParserLimited {
                         slot: message.slot,
                         created_at,
                         buffer: data,
+                        range,
                     })
                 }
                 UpdateOneofLimitedDecode::TransactionStatus(_) => {
@@ -527,7 +532,7 @@ pub enum MessageSlot {
         dead_error: Option<Range<usize>>,
         created_at: Timestamp,
         buffer: Vec<u8>,
-        range: Range<usize>
+        range: Range<usize>,
     },
     Prost {
         slot: Slot,
@@ -563,9 +568,7 @@ impl MessageSlot {
 
     pub fn size(&self) -> usize {
         match self {
-            Self::Limited {
-                dead_error, buffer, ..
-            } => buffer.len() + 37 + dead_error.as_ref().map(|e| e.len()).unwrap_or_default(),
+            Self::Limited { buffer, .. } => buffer.len() + 64,
             Self::Prost { size, .. } => *size,
         }
     }
@@ -602,11 +605,17 @@ pub enum MessageAccount {
     Limited {
         pubkey: Pubkey,
         owner: Pubkey,
-        account: SubscribeUpdateAccountInfo,
+        lamports: u64,
+        executable: bool,
+        rent_epoch: Epoch,
+        data: Range<usize>,
+        txn_signature_offset: Option<usize>,
+        write_version: u64,
         slot: Slot,
         is_startup: bool,
         created_at: Timestamp,
-        size: usize,
+        buffer: Vec<u8>,
+        range: Range<usize>,
     },
     Prost {
         pubkey: Pubkey,
@@ -641,9 +650,9 @@ impl MessageAccount {
         }
     }
 
-    pub const fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
-            Self::Limited { size, .. } => *size,
+            Self::Limited { buffer, .. } => buffer.len() + PUBKEY_BYTES * 2 + 86,
             Self::Prost { size, .. } => *size,
         }
     }
@@ -657,14 +666,17 @@ impl MessageAccount {
 
     pub const fn write_version(&self) -> u64 {
         match self {
-            Self::Limited { account, .. } => account.write_version,
+            Self::Limited { write_version, .. } => *write_version,
             Self::Prost { account, .. } => account.write_version,
         }
     }
 
     pub const fn nonempty_txn_signature(&self) -> bool {
         match self {
-            Self::Limited { account, .. } => account.txn_signature.is_some(),
+            Self::Limited {
+                txn_signature_offset,
+                ..
+            } => txn_signature_offset.is_some(),
             Self::Prost { account, .. } => account.txn_signature.is_some(),
         }
     }
@@ -673,14 +685,14 @@ impl MessageAccount {
 impl ReadableAccount for MessageAccount {
     fn lamports(&self) -> u64 {
         match self {
-            Self::Limited { account, .. } => account.lamports,
+            Self::Limited { lamports, .. } => *lamports,
             Self::Prost { account, .. } => account.lamports,
         }
     }
 
     fn data(&self) -> &[u8] {
         match self {
-            Self::Limited { account, .. } => &account.data,
+            Self::Limited { data, buffer, .. } => &buffer.as_slice()[data.start..data.end],
             Self::Prost { account, .. } => &account.data,
         }
     }
@@ -694,14 +706,14 @@ impl ReadableAccount for MessageAccount {
 
     fn executable(&self) -> bool {
         match self {
-            Self::Limited { account, .. } => account.executable,
+            Self::Limited { executable, .. } => *executable,
             Self::Prost { account, .. } => account.executable,
         }
     }
 
     fn rent_epoch(&self) -> Epoch {
         match self {
-            Self::Limited { account, .. } => account.rent_epoch,
+            Self::Limited { rent_epoch, .. } => *rent_epoch,
             Self::Prost { account, .. } => account.rent_epoch,
         }
     }
@@ -718,6 +730,7 @@ pub enum MessageTransaction {
         slot: Slot,
         created_at: Timestamp,
         buffer: Vec<u8>,
+        range: Range<usize>,
     },
     Prost {
         signature: Signature,
@@ -758,7 +771,7 @@ impl MessageTransaction {
                 account_keys,
                 buffer,
                 ..
-            } => buffer.len() + SIGNATURE_BYTES + account_keys.capacity() * PUBKEY_BYTES,
+            } => buffer.len() * 2 + account_keys.capacity() * PUBKEY_BYTES,
             Self::Prost { size, .. } => *size,
         }
     }

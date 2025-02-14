@@ -119,106 +119,152 @@ impl<'a> UpdateOneofLimitedEncode<'a> {
 }
 
 #[derive(Debug)]
-pub struct UpdateOneofLimitedEncodeAccount<'a> {
-    pub pubkey: &'a Pubkey,
-    pub lamports: u64,
-    pub owner: &'a Pubkey,
-    pub executable: bool,
-    pub rent_epoch: u64,
-    pub data: Cow<'a, [u8]>,
-    pub write_version: u64,
-    pub txn_signature: Option<&'a [u8]>,
-    pub slot: Slot,
-    pub is_startup: bool,
+pub enum UpdateOneofLimitedEncodeAccount<'a> {
+    Slice(&'a [u8]),
+    Fields {
+        pubkey: &'a Pubkey,
+        lamports: u64,
+        owner: &'a Pubkey,
+        executable: bool,
+        rent_epoch: u64,
+        data: Cow<'a, [u8]>,
+        write_version: u64,
+        txn_signature: Option<&'a [u8]>,
+        slot: Slot,
+        is_startup: bool,
+    },
 }
 
 impl<'a> UpdateOneofLimitedEncodeAccount<'a> {
     fn account_encode_raw(&self, buf: &mut impl BufMut) {
-        bytes_encode(1u32, self.pubkey.as_ref(), buf);
-        if self.lamports != 0u64 {
-            encoding::uint64::encode(2u32, &self.lamports, buf);
-        }
-        bytes_encode(3u32, self.owner.as_ref(), buf);
-        if !self.executable {
-            encoding::bool::encode(4u32, &self.executable, buf);
-        }
-        if self.rent_epoch != 0u64 {
-            encoding::uint64::encode(5u32, &self.rent_epoch, buf);
-        }
-        if !self.data.is_empty() {
-            bytes_encode(6u32, &self.data, buf);
-        }
-        if self.write_version != 0u64 {
-            encoding::uint64::encode(7u32, &self.write_version, buf);
-        }
-        if let Some(value) = self.txn_signature {
-            bytes_encode(8u32, value, buf);
+        match self {
+            Self::Slice(_) => unreachable!(),
+            Self::Fields {
+                pubkey,
+                lamports,
+                owner,
+                executable,
+                rent_epoch,
+                data,
+                write_version,
+                txn_signature,
+                ..
+            } => {
+                bytes_encode(1u32, pubkey.as_ref(), buf);
+                if *lamports != 0u64 {
+                    encoding::uint64::encode(2u32, lamports, buf);
+                }
+                bytes_encode(3u32, owner.as_ref(), buf);
+                if !executable {
+                    encoding::bool::encode(4u32, executable, buf);
+                }
+                if *rent_epoch != 0u64 {
+                    encoding::uint64::encode(5u32, rent_epoch, buf);
+                }
+                if !data.is_empty() {
+                    bytes_encode(6u32, data, buf);
+                }
+                if *write_version != 0u64 {
+                    encoding::uint64::encode(7u32, write_version, buf);
+                }
+                if let Some(value) = txn_signature {
+                    bytes_encode(8u32, value, buf);
+                }
+            }
         }
     }
 
     fn account_encoded_len(&self) -> usize {
-        bytes_encoded_len(1u32, self.pubkey.as_ref())
-            + if self.lamports != 0u64 {
-                encoding::uint64::encoded_len(2u32, &self.lamports)
-            } else {
-                0
+        match self {
+            Self::Slice(_) => unreachable!(),
+            Self::Fields {
+                pubkey,
+                lamports,
+                owner,
+                executable,
+                rent_epoch,
+                data,
+                write_version,
+                txn_signature,
+                ..
+            } => {
+                bytes_encoded_len(1u32, pubkey.as_ref())
+                    + if *lamports != 0u64 {
+                        encoding::uint64::encoded_len(2u32, lamports)
+                    } else {
+                        0
+                    }
+                    + bytes_encoded_len(3u32, owner.as_ref())
+                    + if !executable {
+                        encoding::bool::encoded_len(4u32, executable)
+                    } else {
+                        0
+                    }
+                    + if *rent_epoch != 0u64 {
+                        encoding::uint64::encoded_len(5u32, rent_epoch)
+                    } else {
+                        0
+                    }
+                    + if !data.is_empty() {
+                        bytes_encoded_len(6u32, data)
+                    } else {
+                        0
+                    }
+                    + if *write_version != 0u64 {
+                        encoding::uint64::encoded_len(7u32, write_version)
+                    } else {
+                        0
+                    }
+                    + txn_signature
+                        .as_ref()
+                        .map_or(0, |value| bytes_encoded_len(8u32, value))
             }
-            + bytes_encoded_len(3u32, self.owner.as_ref())
-            + if !self.executable {
-                encoding::bool::encoded_len(4u32, &self.executable)
-            } else {
-                0
-            }
-            + if self.rent_epoch != 0u64 {
-                encoding::uint64::encoded_len(5u32, &self.rent_epoch)
-            } else {
-                0
-            }
-            + if !self.data.is_empty() {
-                bytes_encoded_len(6u32, &self.data)
-            } else {
-                0
-            }
-            + if self.write_version != 0u64 {
-                encoding::uint64::encoded_len(7u32, &self.write_version)
-            } else {
-                0
-            }
-            + self
-                .txn_signature
-                .as_ref()
-                .map_or(0, |value| bytes_encoded_len(8u32, value))
+        }
     }
 }
 
 impl<'a> Message for UpdateOneofLimitedEncodeAccount<'a> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
-        encode_key(1u32, WireType::LengthDelimited, buf);
-        encode_varint(self.account_encoded_len() as u64, buf);
-        self.account_encode_raw(buf);
-        if self.slot != 0u64 {
-            encoding::uint64::encode(2u32, &self.slot, buf);
-        }
-        if !self.is_startup {
-            encoding::bool::encode(3u32, &self.is_startup, buf);
+        match self {
+            Self::Slice(slice) => buf.put_slice(slice),
+            Self::Fields {
+                slot, is_startup, ..
+            } => {
+                encode_key(1u32, WireType::LengthDelimited, buf);
+                encode_varint(self.account_encoded_len() as u64, buf);
+                self.account_encode_raw(buf);
+                if *slot != 0u64 {
+                    encoding::uint64::encode(2u32, slot, buf);
+                }
+                if !is_startup {
+                    encoding::bool::encode(3u32, is_startup, buf);
+                }
+            }
         }
     }
 
     fn encoded_len(&self) -> usize {
-        let account_len = self.account_encoded_len();
-        key_len(1u32)
-            + encoded_len_varint(account_len as u64)
-            + account_len
-            + if self.slot != 0u64 {
-                encoding::uint64::encoded_len(2u32, &self.slot)
-            } else {
-                0
+        match self {
+            Self::Slice(slice) => slice.len(),
+            Self::Fields {
+                slot, is_startup, ..
+            } => {
+                let account_len = self.account_encoded_len();
+                key_len(1u32)
+                    + encoded_len_varint(account_len as u64)
+                    + account_len
+                    + if *slot != 0u64 {
+                        encoding::uint64::encoded_len(2u32, slot)
+                    } else {
+                        0
+                    }
+                    + if !is_startup {
+                        encoding::bool::encoded_len(3u32, is_startup)
+                    } else {
+                        0
+                    }
             }
-            + if !self.is_startup {
-                encoding::bool::encoded_len(3u32, &self.is_startup)
-            } else {
-                0
-            }
+        }
     }
 
     fn merge_field(

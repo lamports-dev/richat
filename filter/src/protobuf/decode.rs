@@ -5,7 +5,11 @@ use {
         DecodeError,
     },
     prost_types::Timestamp,
-    solana_sdk::clock::Slot,
+    solana_sdk::{
+        clock::{Epoch, Slot},
+        pubkey::{Pubkey, PUBKEY_BYTES},
+        signature::SIGNATURE_BYTES,
+    },
     std::{borrow::Cow, ops::Range},
 };
 
@@ -54,7 +58,7 @@ impl LimitedDecode for SubscribeUpdateLimitedDecode {
         buf: &mut impl Buf,
         buf_len: usize,
     ) -> Result<(), DecodeError> {
-        const STRUCT_NAME: &'static str = "SubscribeUpdateLimitedDecode";
+        const STRUCT_NAME: &str = "SubscribeUpdateLimitedDecode";
         check_wire_type(WireType::LengthDelimited, wire_type)?;
         match tag {
             1u32 => {
@@ -68,6 +72,7 @@ impl LimitedDecode for SubscribeUpdateLimitedDecode {
                 buf.advance(len);
                 Ok(())
             }
+            #[allow(clippy::manual_range_patterns)]
             2u32 | 3u32 | 4u32 | 10u32 | 5u32 | 6u32 | 9u32 | 7u32 | 8u32 => {
                 let value = &mut self.update_oneof;
                 UpdateOneofLimitedDecode::merge(value, tag, buf, buf_len).map_err(|mut error| {
@@ -197,8 +202,187 @@ impl UpdateOneofLimitedDecode {
     }
 }
 
-// #[derive(Debug, Default)]
-// pub struct UpdateOneofLimitedDecodeAccount;
+#[derive(Debug, Default)]
+pub struct UpdateOneofLimitedDecodeAccount {
+    pub account: bool,
+    pub pubkey: Pubkey,
+    pub owner: Pubkey,
+    pub lamports: u64,
+    pub executable: bool,
+    pub rent_epoch: Epoch,
+    pub data: Range<usize>,
+    pub txn_signature_offset: Option<usize>,
+    pub write_version: u64,
+    pub slot: Slot,
+    pub is_startup: bool,
+}
+
+impl LimitedDecode for UpdateOneofLimitedDecodeAccount {
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeAccount";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.account = true;
+                self.account_merge(buf, buf_len).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "account");
+                    error
+                })
+            }
+            2u32 => {
+                let value = &mut self.slot;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "slot");
+                    error
+                })
+            }
+            3u32 => {
+                let value = &mut self.is_startup;
+                encoding::bool::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "is_startup");
+                    error
+                })
+            }
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}
+
+impl UpdateOneofLimitedDecodeAccount {
+    fn account_merge(&mut self, buf: &mut impl Buf, buf_len: usize) -> Result<(), DecodeError> {
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            self.account_merge_field(tag, wire_type, buf, buf_len)?;
+        }
+
+        if buf.remaining() != limit {
+            return Err(DecodeError::new("delimited length exceeded"));
+        }
+        Ok(())
+    }
+
+    fn account_merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeAccount";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error("buffer underflow", &[(STRUCT_NAME, "pubkey")]));
+                }
+                if len != PUBKEY_BYTES {
+                    return Err(decode_error(
+                        "invalid pubkey length",
+                        &[(STRUCT_NAME, "pubkey")],
+                    ));
+                }
+                let mut pubkey = [0; PUBKEY_BYTES];
+                buf.copy_to_slice(&mut pubkey);
+                self.pubkey = pubkey.into();
+                Ok(())
+            }
+            2u32 => {
+                let value = &mut self.lamports;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "lamports");
+                    error
+                })
+            }
+            3u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error("buffer underflow", &[(STRUCT_NAME, "pubkey")]));
+                }
+                if len != PUBKEY_BYTES {
+                    return Err(decode_error(
+                        "invalid pubkey length",
+                        &[(STRUCT_NAME, "pubkey")],
+                    ));
+                }
+                let mut owner = [0; PUBKEY_BYTES];
+                buf.copy_to_slice(&mut owner);
+                self.owner = owner.into();
+                Ok(())
+            }
+            4u32 => {
+                let value = &mut self.executable;
+                encoding::bool::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "executable");
+                    error
+                })
+            }
+            5u32 => {
+                let value = &mut self.rent_epoch;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "rent_epoch");
+                    error
+                })
+            }
+            6u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error("buffer underflow", &[(STRUCT_NAME, "data")]));
+                }
+
+                let start = buf_len - buf.remaining();
+                buf.advance(len);
+                let end = buf_len - buf.remaining();
+                self.data = Range { start, end };
+                Ok(())
+            }
+            7u32 => {
+                let value = &mut self.write_version;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "write_version");
+                    error
+                })
+            }
+            8u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error(
+                        "buffer underflow",
+                        &[(STRUCT_NAME, "txn_signature")],
+                    ));
+                }
+                if len != SIGNATURE_BYTES {
+                    return Err(decode_error(
+                        "invalid signature length",
+                        &[(STRUCT_NAME, "txn_signature")],
+                    ));
+                }
+                self.txn_signature_offset = Some(buf_len - buf.remaining());
+                buf.advance(len);
+                Ok(())
+            }
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct UpdateOneofLimitedDecodeSlot {
@@ -216,7 +400,7 @@ impl LimitedDecode for UpdateOneofLimitedDecodeSlot {
         buf: &mut impl Buf,
         buf_len: usize,
     ) -> Result<(), DecodeError> {
-        const STRUCT_NAME: &'static str = "UpdateOneofLimitedDecodeSlot";
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeSlot";
         let ctx = DecodeContext::default();
         match tag {
             1u32 => {
@@ -264,23 +448,6 @@ impl LimitedDecode for UpdateOneofLimitedDecodeSlot {
             }
             _ => encoding::skip_field(wire_type, tag, buf, ctx),
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct UpdateOneofLimitedDecodeTransaction;
-
-impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
-    fn merge_field(
-        &mut self,
-        tag: u32,
-        wire_type: WireType,
-        buf: &mut impl Buf,
-        buf_len: usize,
-    ) -> Result<(), DecodeError> {
-        const STRUCT_NAME: &'static str = "UpdateOneofLimitedDecodeTransaction";
-        let ctx = DecodeContext::default();
-        todo!()
     }
 }
 
