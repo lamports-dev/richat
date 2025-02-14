@@ -11,8 +11,8 @@ use {
             MessageEntry, MessageRef, MessageSlot, MessageTransaction,
         },
         protobuf::encode::{
-            SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst, UpdateOneofLimited,
-            UpdateOneofLimitedAccount,
+            SubscribeUpdateMessageLimited, SubscribeUpdateMessageProst, UpdateOneofLimitedEncode,
+            UpdateOneofLimitedEncodeAccount,
         },
     },
     arrayvec::ArrayVec,
@@ -742,28 +742,12 @@ impl<'a> FilteredUpdate<'a> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
                 MessageSlot::Limited {
-                    slot,
-                    parent,
-                    status,
-                    dead_error,
-                    created_at,
-                    buffer,
-                    ..
-                } => SubscribeUpdateMessageProst {
+                    created_at, buffer, range, ..
+                } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneof::Slot(SubscribeUpdateSlot {
-                        slot: *slot,
-                        parent: *parent,
-                        status: *status as i32,
-                        dead_error: dead_error.clone(),
-                    }),
+                    update: UpdateOneofLimitedEncode::Slot(&buffer.as_slice()[range.start..range.end]),
                     created_at: *created_at,
                 }
-                // } => SubscribeUpdateMessageLimited {
-                //     filters: &self.filters,
-                //     update: UpdateOneofLimited::Slot(buffer.as_slice()),
-                //     created_at: *created_at,
-                // }
                 .encode_to_vec(),
                 MessageSlot::Prost {
                     slot,
@@ -798,7 +782,7 @@ impl<'a> FilteredUpdate<'a> {
                     ..
                 } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,
-                    update: UpdateOneofLimited::Account(UpdateOneofLimitedAccount {
+                    update: UpdateOneofLimitedEncode::Account(UpdateOneofLimitedEncodeAccount {
                         pubkey,
                         lamports: account.lamports,
                         owner,

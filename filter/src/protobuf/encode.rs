@@ -17,7 +17,7 @@ use {
 #[derive(Debug)]
 pub struct SubscribeUpdateMessageLimited<'a> {
     pub filters: &'a [&'a str],
-    pub update: UpdateOneofLimited<'a>,
+    pub update: UpdateOneofLimitedEncode<'a>,
     pub created_at: Timestamp,
 }
 
@@ -61,13 +61,13 @@ impl<'a> Message for SubscribeUpdateMessageLimited<'a> {
 }
 
 #[derive(Debug)]
-pub enum UpdateOneofLimited<'a> {
-    Account(UpdateOneofLimitedAccount<'a>),
+pub enum UpdateOneofLimitedEncode<'a> {
+    Account(UpdateOneofLimitedEncodeAccount<'a>),
     Slot(&'a [u8]),
     Transaction(&'a [u8]),
 }
 
-impl<'a> UpdateOneofLimited<'a> {
+impl<'a> UpdateOneofLimitedEncode<'a> {
     const fn tag(&self) -> u32 {
         match self {
             Self::Account(_) => 2u32,
@@ -119,7 +119,7 @@ impl<'a> UpdateOneofLimited<'a> {
 }
 
 #[derive(Debug)]
-pub struct UpdateOneofLimitedAccount<'a> {
+pub struct UpdateOneofLimitedEncodeAccount<'a> {
     pub pubkey: &'a Pubkey,
     pub lamports: u64,
     pub owner: &'a Pubkey,
@@ -132,7 +132,7 @@ pub struct UpdateOneofLimitedAccount<'a> {
     pub is_startup: bool,
 }
 
-impl<'a> UpdateOneofLimitedAccount<'a> {
+impl<'a> UpdateOneofLimitedEncodeAccount<'a> {
     fn account_encode_raw(&self, buf: &mut impl BufMut) {
         bytes_encode(1u32, self.pubkey.as_ref(), buf);
         if self.lamports != 0u64 {
@@ -191,7 +191,7 @@ impl<'a> UpdateOneofLimitedAccount<'a> {
     }
 }
 
-impl<'a> Message for UpdateOneofLimitedAccount<'a> {
+impl<'a> Message for UpdateOneofLimitedEncodeAccount<'a> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         encode_key(1u32, WireType::LengthDelimited, buf);
         encode_varint(self.account_encoded_len() as u64, buf);
