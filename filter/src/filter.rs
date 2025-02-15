@@ -995,9 +995,12 @@ impl<'a> FilteredUpdate<'a> {
                             transactions: transactions
                                 .iter()
                                 .map(|idx| match message.transactions[*idx].as_ref() {
-                                    MessageTransaction::Limited { transaction, .. } => {
-                                        transaction.clone()
-                                    }
+                                    MessageTransaction::Limited {
+                                        transaction_range,
+                                        buffer,
+                                        ..
+                                    } => &buffer.as_slice()
+                                        [transaction_range.start..transaction_range.end],
                                     MessageTransaction::Prost { .. } => unreachable!(),
                                 })
                                 .collect(),

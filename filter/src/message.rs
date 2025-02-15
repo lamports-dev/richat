@@ -2,7 +2,7 @@ use {
     crate::protobuf::decode::{
         LimitedDecode, SubscribeUpdateLimitedDecode, UpdateOneofLimitedDecode,
         UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
-        UpdateOneofLimitedDecodeSlot,
+        UpdateOneofLimitedDecodeSlot, UpdateOneofLimitedDecodeTransaction,
     },
     prost::Message as _,
     prost_types::Timestamp,
@@ -10,8 +10,7 @@ use {
         convert_from,
         geyser::{
             subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo,
-            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransaction,
-            SubscribeUpdateTransactionInfo,
+            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
         },
         solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
     },
@@ -237,12 +236,19 @@ impl MessageParserLimited {
                     })
                 }
                 UpdateOneofLimitedDecode::Transaction(range) => {
-                    let message = SubscribeUpdateTransaction::decode(
+                    let message = UpdateOneofLimitedDecodeTransaction::decode(
                         &data.as_slice()[range.start..range.end],
                     )?;
-                    let transaction = message
+                    let mut transaction_range = message
                         .transaction
                         .ok_or(MessageParseError::FieldNotDefined("transaction"))?;
+                    transaction_range.start += range.start;
+                    transaction_range.end += range.start;
+
+                    let transaction = SubscribeUpdateTransactionInfo::decode(
+                        &data.as_slice()[transaction_range.start..transaction_range.end],
+                    )?;
+
                     let meta = transaction
                         .meta
                         .as_ref()
@@ -259,6 +265,7 @@ impl MessageParserLimited {
                             .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
                         account_keys,
+                        transaction_range,
                         transaction,
                         slot: message.slot,
                         created_at,
@@ -727,6 +734,7 @@ pub enum MessageTransaction {
         signature: Signature,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
+        transaction_range: Range<usize>,
         transaction: SubscribeUpdateTransactionInfo,
         slot: Slot,
         created_at: Timestamp,

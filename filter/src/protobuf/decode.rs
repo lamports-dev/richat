@@ -452,6 +452,51 @@ impl LimitedDecode for UpdateOneofLimitedDecodeSlot {
 }
 
 #[derive(Debug, Default)]
+pub struct UpdateOneofLimitedDecodeTransaction {
+    pub transaction: Option<Range<usize>>,
+    pub slot: Slot,
+}
+
+impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeTransaction";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error(
+                        "buffer underflow",
+                        &[(STRUCT_NAME, "transaction")],
+                    ));
+                }
+
+                let start = buf_len - buf.remaining();
+                buf.advance(len);
+                let end = buf_len - buf.remaining();
+                self.transaction = Some(Range { start, end });
+                Ok(())
+            }
+            2u32 => {
+                let value = &mut self.slot;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "slot");
+                    error
+                })
+            }
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct UpdateOneofLimitedDecodeEntry {
     pub slot: Slot,
     pub executed_transaction_count: u64,

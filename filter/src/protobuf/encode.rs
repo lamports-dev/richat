@@ -9,10 +9,7 @@ use {
         DecodeError, Message,
     },
     prost_types::Timestamp,
-    richat_proto::{
-        geyser::{subscribe_update::UpdateOneof, SubscribeUpdateTransactionInfo},
-        solana::storage::confirmed_block,
-    },
+    richat_proto::{geyser::subscribe_update::UpdateOneof, solana::storage::confirmed_block},
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::borrow::Cow,
 };
@@ -362,7 +359,7 @@ pub struct UpdateOneofLimitedEncodeBlock<'a> {
     pub parent_slot: u64,
     pub parent_blockhash: &'a str,
     pub executed_transaction_count: u64,
-    pub transactions: Vec<SubscribeUpdateTransactionInfo>,
+    pub transactions: Vec<&'a [u8]>,
     pub updated_account_count: u64,
     pub accounts: Vec<UpdateOneofLimitedEncodeAccountInner<'a>>,
     pub entries_count: u64,
@@ -386,8 +383,10 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
         if let Some(msg) = &self.block_height {
             encoding::message::encode(5u32, msg, buf);
         }
-        for msg in &self.transactions {
-            encoding::message::encode(6u32, msg, buf);
+        for slice in &self.transactions {
+            encode_key(6u32, WireType::LengthDelimited, buf);
+            encode_varint(slice.len() as u64, buf);
+            buf.put_slice(slice);
         }
         if self.parent_slot != 0u64 {
             encoding::uint64::encode(7u32, &self.parent_slot, buf);
@@ -435,7 +434,13 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
                 .block_height
                 .as_ref()
                 .map_or(0, |msg| encoding::message::encoded_len(5u32, msg))
-            + encoding::message::encoded_len_repeated(6u32, &self.transactions)
+            + (key_len(6u32) * self.transactions.len()
+                + self
+                    .transactions
+                    .iter()
+                    .map(|slice| slice.len())
+                    .map(|len| len + encoded_len_varint(len as u64))
+                    .sum::<usize>())
             + if self.parent_slot != 0u64 {
                 encoding::uint64::encoded_len(7u32, &self.parent_slot)
             } else {
