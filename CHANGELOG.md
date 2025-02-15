@@ -18,6 +18,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+- filter: encode with slices ([#73](https://github.com/lamports-dev/richat/pull/73))
+
 ## 2025-02-11
 
 - richat-cli-v2.2.0
