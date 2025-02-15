@@ -14,6 +14,16 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+### Breaking
+
+## 2025-02-15
+
+- richat-cli-v2.2.1
+- richat-filter-v2.4.0
+- richat-v2.3.0
+
+### Features
+
 - shared: use `five8` to encode/decode ([#70](https://github.com/lamports-dev/richat/pull/70))
 
 ### Breaking
