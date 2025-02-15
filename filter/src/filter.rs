@@ -454,8 +454,6 @@ impl FilterAccountDataSlices {
     pub fn get_slice<'a>(&self, source: &'a [u8]) -> Cow<'a, [u8]> {
         if self.0.is_empty() {
             Cow::Borrowed(source)
-        } else if self.0.is_empty() {
-            Cow::Borrowed(&[])
         } else if self.0.len() == 1 {
             if source.len() >= self.0[0].end {
                 Cow::Borrowed(&source[self.0[0].start..self.0[0].end])

@@ -364,7 +364,7 @@ impl MessageParserProst {
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
-                        size: PUBKEY_BYTES + PUBKEY_BYTES + encoded_len + 32,
+                        size: PUBKEY_BYTES + PUBKEY_BYTES + encoded_len + 20,
                     })
                 }
                 UpdateOneof::Transaction(message) => {
@@ -602,7 +602,7 @@ impl MessageSlot {
             } => dead_error.as_ref().map(|range| unsafe {
                 std::str::from_utf8_unchecked(&buffer.as_slice()[range.start..range.end])
             }),
-            Self::Prost { dead_error, .. } => dead_error.as_ref().map(|e| e.as_str()),
+            Self::Prost { dead_error, .. } => dead_error.as_deref(),
         }
     }
 }

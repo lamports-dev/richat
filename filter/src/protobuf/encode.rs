@@ -180,7 +180,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeAccount<'a> {
         _wire_type: WireType,
         _buf: &mut impl Buf,
         _ctx: DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -268,7 +268,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeAccountInner<'a> {
         _wire_type: WireType,
         _buf: &mut impl Buf,
         _ctx: DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -337,7 +337,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeTransactionStatus<'a> {
         _wire_type: WireType,
         _buf: &mut impl Buf,
         _ctx: DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -482,7 +482,7 @@ impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
         _wire_type: WireType,
         _buf: &mut impl Buf,
         _ctx: DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
