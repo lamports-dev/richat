@@ -20,16 +20,15 @@ sources:
     endpoint: http://127.0.0.1:10102
     connect_timeout: 3s
     timeout: 3s
-    max_decoding_message_size: 1_073_741_824
+    max_decoding_message_size: 134_217_728
   # richat-grpc:
   #   source: richat-grpc
   #   endpoint: http://127.0.0.1:10202
-  #   connect_timeout: 3s
-  #   timeout: 3s
-  #   max_decoding_message_size: 1_073_741_824
+  #   max_decoding_message_size: 134_217_728
   # yellowstone-grpc:
   #   source: yellowstone-grpc
   #   endpoint: http://127.0.0.1:10000
+  #   max_decoding_message_size: 134_217_728
 tracks:
   - event: BlockMeta
   - event: Transaction

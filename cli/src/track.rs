@@ -21,6 +21,7 @@ use {
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },
+    richat_shared::config::deserialize_num_str,
     serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
@@ -202,6 +203,8 @@ impl ConfigSourceRichatPluginAgave {
 #[serde(deny_unknown_fields)]
 struct ConfigYellowstoneGrpc {
     endpoint: String,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    max_decoding_message_size: usize,
 }
 
 impl ConfigYellowstoneGrpc {
@@ -258,7 +261,7 @@ impl ConfigYellowstoneGrpc {
         let mut client = GrpcClient::build_from_shared(self.endpoint)?
             .tls_config_native_roots(None)
             .await?
-            .max_decoding_message_size(1024 * 1024 * 1024) // 1GB
+            .max_decoding_message_size(self.max_decoding_message_size)
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(3))
             .connect()
