@@ -8,6 +8,7 @@ channel:
     worker_threads: 2
     affinity: 0-1
   source:
+    # parser: prost
     # transport: quic
     # source: richat # valid: richat, dragons_mouth
     # endpoint: 127.0.0.1:10100
@@ -22,6 +23,7 @@ channel:
     # cert: null
     # x_token: null
     # ---
+    parser: prost # valid: prost, limited
     transport: tcp
     source: richat # valid: richat, dragons_mouth
     endpoint: 127.0.0.1:10101
@@ -30,8 +32,9 @@ channel:
     recv_buffer_size: null
     x_token: null
     # ---
-    # transport: grpc
+    # parser: prost
     # source: richat # valid: richat, dragons_mouth
+    # transport: grpc
     # endpoint: http://127.0.0.1:10102
     # ca_certificate: null
     # connect_timeout: null
@@ -53,8 +56,6 @@ channel:
   config:
     max_messages: 2_097_152
     max_bytes: 16_106_127_360
-    parser: prost
-    parser_affinity: 0-1
 apps:
   tokio:
     worker_threads: 2

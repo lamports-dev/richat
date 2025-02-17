@@ -59,15 +59,32 @@ pub struct ConfigChannel {
 #[serde(deny_unknown_fields, tag = "transport")]
 pub enum ConfigChannelSource {
     #[serde(rename = "quic")]
-    Quic(ConfigQuicClient),
+    Quic {
+        #[serde(flatten)]
+        general: ConfigChannelSourceShared,
+        #[serde(flatten)]
+        config: ConfigQuicClient,
+    },
     #[serde(rename = "tcp")]
-    Tcp(ConfigTcpClient),
+    Tcp {
+        #[serde(flatten)]
+        general: ConfigChannelSourceShared,
+        #[serde(flatten)]
+        config: ConfigTcpClient,
+    },
     #[serde(rename = "grpc")]
     Grpc {
+        #[serde(flatten)]
+        general: ConfigChannelSourceShared,
         source: ConfigGrpcClientSource,
         #[serde(flatten)]
         config: ConfigGrpcClient,
     },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfigChannelSourceShared {
+    pub parser: MessageParserEncoding,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -85,11 +102,6 @@ pub struct ConfigChannelInner {
     pub max_messages: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
-    pub parser: MessageParserEncoding,
-    #[serde(deserialize_with = "deserialize_num_str")]
-    pub parser_channel_size: usize,
-    #[serde(deserialize_with = "deserialize_affinity")]
-    pub parser_affinity: Option<Vec<usize>>,
 }
 
 impl Default for ConfigChannelInner {
@@ -97,9 +109,6 @@ impl Default for ConfigChannelInner {
         Self {
             max_messages: 2_097_152, // aligned to power of 2, ~20k/slot should give us ~100 slots
             max_bytes: 15 * 1024 * 1024 * 1024, // 15GiB with ~150MiB/slot should give us ~100 slots
-            parser: MessageParserEncoding::Prost,
-            parser_channel_size: 65_536,
-            parser_affinity: None,
         }
     }
 }

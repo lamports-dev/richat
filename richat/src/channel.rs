@@ -1,24 +1,10 @@
 use {
-    crate::{
-        config::{ConfigChannelInner, ConfigChannelSource, ConfigGrpcClientSource},
-        metrics,
-    },
-    futures::stream::{BoxStream, StreamExt},
-    maplit::hashmap,
-    richat_client::error::ReceiveError,
+    crate::{config::ConfigChannelInner, metrics},
     richat_filter::message::{
-        Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageParseError,
-        MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
+        Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
+        MessageSlot, MessageTransaction,
     },
-    richat_proto::{
-        geyser::{
-            CommitmentLevel as CommitmentLevelProto, SlotStatus, SubscribeRequest,
-            SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
-            SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
-            SubscribeRequestFilterTransactions,
-        },
-        richat::GrpcSubscribeRequest,
-    },
+    richat_proto::geyser::SlotStatus,
     richat_shared::transports::RecvError,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
@@ -122,7 +108,6 @@ pub struct Messages {
     shared_finalized: Option<Arc<Shared>>,
     max_messages: usize,
     max_bytes: usize,
-    parser: MessageParserEncoding,
 }
 
 impl Messages {
@@ -134,13 +119,11 @@ impl Messages {
             shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages))),
             max_messages,
             max_bytes: config.max_bytes,
-            parser: config.parser,
         }
     }
 
     pub fn to_sender(&self) -> Sender {
         Sender {
-            parser: self.parser,
             slots: BTreeMap::new(),
             processed: SenderShared::new(&self.shared_processed, self.max_messages, self.max_bytes),
             confirmed: self
@@ -182,55 +165,10 @@ impl Messages {
             Some(shared.tail.load(Ordering::Relaxed))
         }
     }
-
-    pub async fn subscribe_source(
-        config: ConfigChannelSource,
-    ) -> anyhow::Result<BoxStream<'static, Result<Vec<u8>, ReceiveError>>> {
-        Ok(match config {
-            ConfigChannelSource::Quic(config) => {
-                config.connect().await?.subscribe(None, None).await?.boxed()
-            }
-            ConfigChannelSource::Tcp(config) => {
-                config.connect().await?.subscribe(None, None).await?.boxed()
-            }
-            ConfigChannelSource::Grpc { source, config } => {
-                let mut connection = config.connect().await?;
-                match source {
-                    ConfigGrpcClientSource::DragonsMouth => connection
-                        .subscribe_dragons_mouth_once(SubscribeRequest {
-                            accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() },
-                            slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
-                                filter_by_commitment: Some(false),
-                                interslot_updates: Some(true),
-                            } },
-                            transactions: hashmap! { "".to_owned() => SubscribeRequestFilterTransactions::default() },
-                            transactions_status: HashMap::new(),
-                            blocks: HashMap::new(),
-                            blocks_meta: hashmap! { "".to_owned() => SubscribeRequestFilterBlocksMeta::default() },
-                            entry: hashmap! { "".to_owned() => SubscribeRequestFilterEntry::default() },
-                            commitment: Some(CommitmentLevelProto::Processed as i32),
-                            accounts_data_slice: vec![],
-                            ping: None,
-                            from_slot: None,
-                        })
-                        .await?
-                        .boxed(),
-                    ConfigGrpcClientSource::Richat => connection
-                        .subscribe_richat(GrpcSubscribeRequest {
-                            replay_from_slot: None,
-                            filter: None,
-                        })
-                        .await?
-                        .boxed(),
-                }
-            }
-        })
-    }
 }
 
 #[derive(Debug)]
 pub struct Sender {
-    parser: MessageParserEncoding,
     slots: BTreeMap<Slot, SlotInfo>,
     processed: SenderShared,
     confirmed: Option<SenderShared>,
@@ -238,13 +176,7 @@ pub struct Sender {
 }
 
 impl Sender {
-    pub fn push(&mut self, buffer: Vec<u8>) -> Result<(), MessageParseError> {
-        let message: ParsedMessage = (match Message::parse(buffer, self.parser) {
-            Ok(message) => message,
-            Err(MessageParseError::InvalidUpdateMessage("Ping")) => return Ok(()),
-            Err(error) => return Err(error),
-        })
-        .into();
+    pub fn push(&mut self, message: ParsedMessage) {
         let slot = message.slot();
 
         // get or create slot info
@@ -296,8 +228,6 @@ impl Sender {
             // push to processed
             self.processed.push(slot, message);
         }
-
-        Ok(())
     }
 }
 
@@ -676,93 +606,4 @@ struct Item {
     pos: u64,
     slot: Slot,
     data: Option<ParsedMessage>,
-}
-
-pub mod binary {
-    use std::{
-        fmt,
-        sync::{Arc, Mutex, MutexGuard},
-    };
-
-    pub fn channel(max_messages: usize) -> (Sender, Receiver) {
-        let shared = Arc::new(Shared::new(max_messages));
-        (
-            Sender {
-                shared: Arc::clone(&shared),
-                tail: 0,
-            },
-            Receiver { shared, head: 0 },
-        )
-    }
-
-    #[derive(Debug)]
-    pub struct Sender {
-        shared: Arc<Shared>,
-        tail: u64,
-    }
-
-    impl Sender {
-        pub fn send(&mut self, item: Vec<u8>) -> Option<Vec<u8>> {
-            let mut locked = self.shared.get_locked(self.tail);
-            if locked.is_some() {
-                Some(item)
-            } else {
-                *locked = Some(item);
-                self.tail += 1;
-                None
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct Receiver {
-        shared: Arc<Shared>,
-        head: u64,
-    }
-
-    impl Receiver {
-        pub fn recv(&mut self) -> Option<Vec<u8>> {
-            let item = self.shared.get_locked(self.head).take();
-            if item.is_some() {
-                self.head += 1;
-            }
-            item
-        }
-    }
-
-    struct Shared {
-        mask: u64,
-        buffer: Box<[Mutex<Option<Vec<u8>>>]>,
-    }
-
-    impl fmt::Debug for Shared {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("Shared").field("mask", &self.mask).finish()
-        }
-    }
-
-    impl Shared {
-        fn new(max_messages: usize) -> Self {
-            Self {
-                mask: (max_messages - 1) as u64,
-                buffer: (0..max_messages)
-                    .map(|_| Mutex::new(None))
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            }
-        }
-
-        #[inline]
-        const fn get_idx(&self, pos: u64) -> usize {
-            (pos & self.mask) as usize
-        }
-
-        #[inline]
-        fn get_locked(&self, pos: u64) -> MutexGuard<'_, Option<Vec<u8>>> {
-            match self.buffer[self.get_idx(pos)].lock() {
-                Ok(lock) => lock,
-                Err(p_err) => p_err.into_inner(),
-            }
-        }
-    }
 }

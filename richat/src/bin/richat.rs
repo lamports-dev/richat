@@ -5,7 +5,10 @@ use {
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::StreamExt,
     },
-    richat::{channel, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer},
+    richat::{
+        channel, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
+        source::subscribe,
+    },
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
@@ -43,35 +46,29 @@ fn main() -> anyhow::Result<()> {
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let (mut msg_tx, mut msg_rx) =
-        channel::binary::channel(config.channel.config.parser_channel_size);
+    let messages = channel::Messages::new(
+        config.channel.config,
+        config.apps.grpc.is_some(),
+        config.apps.pubsub.is_some(),
+    );
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
+            let mut messages = messages.to_sender();
             || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let mut stream = channel::Messages::subscribe_source(config.channel.source)
+                    let mut stream = subscribe(config.channel.source)
                         .await
                         .context("failed to subscribe")?;
                     tokio::pin!(shutdown);
 
                     loop {
                         tokio::select! {
+                            biased;
                             message = stream.next() => match message {
-                                Some(Ok(message)) => {
-                                    let mut maybe_message = Some(message);
-                                    loop {
-                                        let Some(message) = maybe_message.take() else {
-                                            break;
-                                        };
-                                        maybe_message = msg_tx.send(message);
-                                        if maybe_message.is_some() && shutdown.is_set() {
-                                            break;
-                                        }
-                                    }
-                                },
+                                Some(Ok(message)) => messages.push(message),
                                 Some(Err(error)) => return Err(anyhow::Error::new(error)),
                                 None => anyhow::bail!("source stream finished"),
                             },
@@ -79,45 +76,6 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                 })
-            }
-        })?;
-
-    // Create parser channel
-    let parser_cpus = config.channel.config.parser_affinity.clone();
-    let messages = channel::Messages::new(
-        config.channel.config,
-        config.apps.grpc.is_some(),
-        config.apps.pubsub.is_some(),
-    );
-    let parser_jh = thread::Builder::new()
-        .name("richatParser".to_owned())
-        .spawn({
-            let shutdown = shutdown.clone();
-            let mut messages = messages.to_sender();
-            move || {
-                if let Some(cpus) = parser_cpus {
-                    affinity::set_thread_affinity(&cpus).expect("failed to set affinity")
-                }
-
-                const COUNTER_LIMIT: i32 = 10_000;
-                let mut counter = 0;
-                loop {
-                    counter += 1;
-                    if counter > COUNTER_LIMIT {
-                        counter = 0;
-                        if shutdown.is_set() {
-                            break;
-                        }
-                    }
-
-                    if let Some(message) = msg_rx.recv() {
-                        messages.push(message)?;
-                    } else {
-                        counter += 9;
-                        sleep(Duration::from_micros(1));
-                    }
-                }
-                Ok::<(), anyhow::Error>(())
             }
         })?;
 
@@ -156,11 +114,7 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     let mut signals = Signals::new([SIGINT])?;
-    let mut threads = [
-        ("source", Some(source_jh)),
-        ("parser", Some(parser_jh)),
-        ("apps", Some(apps_jh)),
-    ];
+    let mut threads = [("source", Some(source_jh)), ("apps", Some(apps_jh))];
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {

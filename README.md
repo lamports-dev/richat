@@ -125,6 +125,7 @@ flowchart LR
     subgraph richat1 [**richat**]
         subgraph tokio1 [Tokio Runtime]
             richat1_tokio1_receiver(receiver)
+            richat1_channel[(messages<br/>storage)]
         end
 
         subgraph tokio2 [Tokio Runtime]
@@ -138,25 +139,23 @@ flowchart LR
 
             subgraph pubsub1 [Solana PubSub]
                 richat1_pubsub1_server(server)
-                richat1_pubsub1_subscriptions[(clients<br/>subscriptions)]
             end
 
-            subgraph richat_server1 [Tcp/gRPC/Quic]
+            subgraph richat_server1 [Richat]
                 richat_server1_sender(server)
             end
         end
 
-        subgraph pubsub1_pool [Filter Thread Pool]
+        subgraph pubsub1_pool [Filters Thread Pool]
             richat1_pubsub1_pool_worker1(worker 1)
             richat1_pubsub1_pool_worker2(worker N)
         end
 
-        subgraph messages [Messages Thread]
-            richat1_parser(message parser)
-            richat1_channel[(messages<br/>storage)]
+        subgraph pubsub1_main [Subscriptions Thread]
+            richat1_pubsub1_subscriptions[(clients<br/>subscriptions)]
         end
 
-        subgraph blockmeta_recv [Thread]
+        subgraph blockmeta_recv [BlockMeta Thread]
             richat1_blockmeta_recv_thread(blockmeta receiver)
         end
 
@@ -171,8 +170,7 @@ flowchart LR
     client3(client)
 
     geyser1 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
-    richat1_tokio1_receiver --> richat1_parser
-    richat1_parser --> richat1_channel
+    richat1_tokio1_receiver --> richat1_channel
     richat1_channel --> richat1_blockmeta_recv_thread
     richat1_channel --> richat1_grpc_worker1
     richat1_channel --> richat1_grpc_worker2
