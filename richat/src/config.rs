@@ -85,6 +85,8 @@ pub enum ConfigChannelSource {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigChannelSourceShared {
     pub parser: MessageParserEncoding,
+    #[serde(default)]
+    pub disable_accounts: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]

@@ -9,6 +9,7 @@ channel:
     affinity: 0-1
   source:
     # parser: prost
+    # disable_accounts: false
     # transport: quic
     # source: richat # valid: richat, dragons_mouth
     # endpoint: 127.0.0.1:10100
@@ -24,6 +25,7 @@ channel:
     # x_token: null
     # ---
     parser: prost # valid: prost, limited
+    disable_accounts: false
     transport: tcp
     source: richat # valid: richat, dragons_mouth
     endpoint: 127.0.0.1:10101
@@ -33,6 +35,7 @@ channel:
     x_token: null
     # ---
     # parser: prost
+    # disable_accounts: false
     # source: richat # valid: richat, dragons_mouth
     # transport: grpc
     # endpoint: http://127.0.0.1:10102

@@ -14,7 +14,7 @@ use {
             SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
             SubscribeRequestFilterTransactions,
         },
-        richat::GrpcSubscribeRequest,
+        richat::{GrpcSubscribeRequest, RichatFilter},
     },
     std::{collections::HashMap, io},
     thiserror::Error,
@@ -49,14 +49,24 @@ async fn subscribe_plain(
     ),
     SubscribePlainError,
 > {
+    let create_filter = |disable_accounts: bool| {
+        Some(RichatFilter {
+            disable_accounts,
+            disable_transactions: false,
+            disable_entries: false,
+        })
+    };
+
     Ok(match config {
         ConfigChannelSource::Quic { general, config } => {
             let connection = config.connect().await.map_err(ConnectError::Quic)?;
-            (general, connection.subscribe(None, None).await?.boxed())
+            let filter = create_filter(general.disable_accounts);
+            (general, connection.subscribe(None, filter).await?.boxed())
         }
         ConfigChannelSource::Tcp { general, config } => {
             let connection = config.connect().await.map_err(ConnectError::Tcp)?;
-            (general, connection.subscribe(None, None).await?.boxed())
+            let filter = create_filter(general.disable_accounts);
+            (general, connection.subscribe(None, filter).await?.boxed())
         }
         ConfigChannelSource::Grpc {
             general,
@@ -67,7 +77,11 @@ async fn subscribe_plain(
             let stream = match source {
                 ConfigGrpcClientSource::DragonsMouth => connection
                     .subscribe_dragons_mouth_once(SubscribeRequest {
-                        accounts: hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() },
+                        accounts: if general.disable_accounts {
+                            HashMap::new()
+                        } else {
+                            hashmap! { "".to_owned() => SubscribeRequestFilterAccounts::default() }
+                        },
                         slots: hashmap! { "".to_owned() => SubscribeRequestFilterSlots {
                             filter_by_commitment: Some(false),
                             interslot_updates: Some(true),
@@ -87,7 +101,7 @@ async fn subscribe_plain(
                 ConfigGrpcClientSource::Richat => connection
                     .subscribe_richat(GrpcSubscribeRequest {
                         replay_from_slot: None,
-                        filter: None,
+                        filter: create_filter(general.disable_accounts),
                     })
                     .await?
                     .boxed(),
