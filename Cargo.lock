@@ -4851,6 +4851,7 @@ dependencies = [
  "jsonrpsee-types",
  "lazy_static",
  "maplit",
+ "pin-project-lite",
  "prometheus",
  "prost 0.13.4",
  "prost-types 0.13.4",

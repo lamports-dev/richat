@@ -8,54 +8,64 @@ channel:
     worker_threads: 2
     affinity: 0-1
   source:
-    # parser: prost
-    # disable_accounts: false
-    # transport: quic
-    # source: richat # valid: richat, dragons_mouth
-    # endpoint: 127.0.0.1:10100
-    # local_addr: "[::]:0"
-    # expected_rtt: 100
-    # max_stream_bandwidth: 12_500_000 # 100Mbits with 100ms latency
-    # max_idle_timeout: 30ms
-    # server_name: null # localhost
-    # recv_streams: 1
-    # max_backlog: null
-    # insecure: false
-    # cert: null
-    # x_token: null
-    # ---
-    parser: prost # valid: prost, limited
-    disable_accounts: false
-    transport: tcp
-    source: richat # valid: richat, dragons_mouth
-    endpoint: 127.0.0.1:10101
-    keepalive: null
-    nodelay: true
-    recv_buffer_size: null
-    x_token: null
-    # ---
-    # parser: prost
-    # disable_accounts: false
-    # source: richat # valid: richat, dragons_mouth
-    # transport: grpc
-    # endpoint: http://127.0.0.1:10102
-    # ca_certificate: null
-    # connect_timeout: null
-    # buffer_size: null
-    # http2_adaptive_window: null
-    # http2_keep_alive_interval: null
-    # initial_connection_window_size: null
-    # initial_stream_window_size: null
-    # keep_alive_timeout: null
-    # keep_alive_while_idle: false
-    # tcp_keepalive: 15s
-    # tcp_nodelay: true
-    # timeout: null
-    # max_decoding_message_size: 16_777_216 # 16MiB
-    # compression:
-    #   accept: ["gzip", "zstd"]
-    #   send: ["gzip", "zstd"]
-    # x_token: null
+    # - name: plugin-quic
+    #   parser: prost
+    #   disable_accounts: false
+    #   reconnect:
+    #     initial_interval: 1s
+    #     max_interval: 30s
+    #     multiplier: 2
+    #   transport: quic
+    #   source: richat # valid: richat, dragons_mouth
+    #   endpoint: 127.0.0.1:10100
+    #   local_addr: "[::]:0"
+    #   expected_rtt: 100
+    #   max_stream_bandwidth: 12_500_000 # 100Mbits with 100ms latency
+    #   max_idle_timeout: 30ms
+    #   server_name: null # localhost
+    #   recv_streams: 1
+    #   max_backlog: null
+    #   insecure: false
+    #   cert: null
+    #   x_token: null
+    - name: plugin-tcp
+      parser: prost # valid: prost, limited
+      disable_accounts: false
+      reconnect:
+        initial_interval: 1s
+        max_interval: 30s
+        multiplier: 2
+      transport: tcp
+      source: richat # valid: richat, dragons_mouth
+      endpoint: 127.0.0.1:10101
+      keepalive: null
+      nodelay: true
+      recv_buffer_size: null
+      x_token: null
+    # - name: plugin-grpc
+    #   parser: prost
+    #   disable_accounts: false
+    #   reconnect: null
+    #   source: richat # valid: richat, dragons_mouth
+    #   transport: grpc
+    #   endpoint: http://127.0.0.1:10102
+    #   ca_certificate: null
+    #   connect_timeout: null
+    #   buffer_size: null
+    #   http2_adaptive_window: null
+    #   http2_keep_alive_interval: null
+    #   initial_connection_window_size: null
+    #   initial_stream_window_size: null
+    #   keep_alive_timeout: null
+    #   keep_alive_while_idle: false
+    #   tcp_keepalive: 15s
+    #   tcp_nodelay: true
+    #   timeout: null
+    #   max_decoding_message_size: 16_777_216 # 16MiB
+    #   compression:
+    #     accept: ["gzip", "zstd"]
+    #     send: ["gzip", "zstd"]
+    #   x_token: null
   config:
     max_messages: 2_097_152
     max_bytes: 16_106_127_360

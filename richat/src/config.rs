@@ -50,7 +50,7 @@ pub struct ConfigChannel {
     /// Runtime for receiving plugin messages
     #[serde(default)]
     pub tokio: ConfigTokio,
-    pub source: ConfigChannelSource,
+    pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
     pub config: ConfigChannelInner,
 }
@@ -61,21 +61,21 @@ pub enum ConfigChannelSource {
     #[serde(rename = "quic")]
     Quic {
         #[serde(flatten)]
-        general: ConfigChannelSourceShared,
+        general: ConfigChannelSourceGeneral,
         #[serde(flatten)]
         config: ConfigQuicClient,
     },
     #[serde(rename = "tcp")]
     Tcp {
         #[serde(flatten)]
-        general: ConfigChannelSourceShared,
+        general: ConfigChannelSourceGeneral,
         #[serde(flatten)]
         config: ConfigTcpClient,
     },
     #[serde(rename = "grpc")]
     Grpc {
         #[serde(flatten)]
-        general: ConfigChannelSourceShared,
+        general: ConfigChannelSourceGeneral,
         source: ConfigGrpcClientSource,
         #[serde(flatten)]
         config: ConfigGrpcClient,
@@ -83,10 +83,44 @@ pub enum ConfigChannelSource {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ConfigChannelSourceShared {
+pub struct ConfigChannelSourceGeneral {
+    pub name: String,
+    /// Messages parser: `prost` or `limited`
     pub parser: MessageParserEncoding,
     #[serde(default)]
     pub disable_accounts: bool,
+    #[serde(default)]
+    pub reconnect: Option<ConfigChannelSourceReconnect>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfigChannelSourceReconnect {
+    #[serde(
+        with = "humantime_serde",
+        default = "ConfigChannelSourceReconnect::default_initial_interval"
+    )]
+    pub initial_interval: Duration,
+    #[serde(
+        with = "humantime_serde",
+        default = "ConfigChannelSourceReconnect::default_max_interval"
+    )]
+    pub max_interval: Duration,
+    #[serde(default = "ConfigChannelSourceReconnect::default_multiplier")]
+    pub multiplier: f64,
+}
+
+impl ConfigChannelSourceReconnect {
+    const fn default_initial_interval() -> Duration {
+        Duration::from_secs(1)
+    }
+
+    const fn default_max_interval() -> Duration {
+        Duration::from_secs(15)
+    }
+
+    const fn default_multiplier() -> f64 {
+        2.0
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]

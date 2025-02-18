@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
             || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let mut stream = subscribe(config.channel.source)
+                    let mut stream = subscribe(config.channel.sources[0].clone())
                         .await
                         .context("failed to subscribe")?;
                     tokio::pin!(shutdown);
