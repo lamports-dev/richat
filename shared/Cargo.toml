@@ -31,6 +31,7 @@ rustls = { workspace = true, features = ["std", "tls12", "ring"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+slab = { workspace = true }
 socket2 = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
