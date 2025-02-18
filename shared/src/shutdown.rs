@@ -1,29 +1,30 @@
-use std::{
-    collections::BTreeMap,
-    future::Future,
-    pin::Pin,
-    sync::{Arc, Mutex, MutexGuard},
-    task::{Context, Poll, Waker},
+use {
+    slab::Slab,
+    std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex, MutexGuard},
+        task::{Context, Poll, Waker},
+    },
 };
 
 #[derive(Debug)]
 pub struct Shutdown {
     state: Arc<Mutex<State>>,
-    id: u64,
+    index: usize,
 }
 
 impl Shutdown {
     pub fn new() -> Self {
         let mut state = State {
             shutdown: false,
-            map: BTreeMap::new(),
+            wakers: Slab::with_capacity(64),
         };
-        let id = state.get_next_id();
-        state.map.insert(id, None);
+        let index = state.wakers.insert(None);
 
         Self {
             state: Arc::new(Mutex::new(state)),
-            id,
+            index,
         }
     }
 
@@ -37,7 +38,7 @@ impl Shutdown {
     pub fn shutdown(&self) {
         let mut state = self.state_lock();
         state.shutdown = true;
-        for value in state.map.values_mut() {
+        for (_index, value) in state.wakers.iter_mut() {
             if let Some(waker) = value.take() {
                 waker.wake();
             }
@@ -58,12 +59,11 @@ impl Default for Shutdown {
 impl Clone for Shutdown {
     fn clone(&self) -> Self {
         let mut state = self.state_lock();
-        let id = state.get_next_id();
-        state.map.insert(id, None);
+        let index = state.wakers.insert(None);
 
         Self {
             state: Arc::clone(&self.state),
-            id,
+            index,
         }
     }
 }
@@ -71,7 +71,7 @@ impl Clone for Shutdown {
 impl Drop for Shutdown {
     fn drop(&mut self) {
         let mut state = self.state_lock();
-        state.map.remove(&self.id);
+        state.wakers.remove(self.index);
     }
 }
 
@@ -86,7 +86,7 @@ impl Future for Shutdown {
             return Poll::Ready(());
         }
 
-        state.map.insert(self.id, Some(cx.waker().clone()));
+        state.wakers[self.index] = Some(cx.waker().clone());
         Poll::Pending
     }
 }
@@ -94,21 +94,5 @@ impl Future for Shutdown {
 #[derive(Debug)]
 struct State {
     shutdown: bool,
-    map: BTreeMap<u64, Option<Waker>>,
-}
-
-impl State {
-    fn get_next_id(&self) -> u64 {
-        let next_id = self.map.len() as u64;
-        if self.map.is_empty() || self.map.last_key_value().map(|(k, _v)| *k + 1) == Some(next_id) {
-            next_id
-        } else {
-            for (index, key) in (0..u64::MAX).zip(self.map.keys()) {
-                if index != *key {
-                    return index;
-                }
-            }
-            unreachable!()
-        }
-    }
+    wakers: Slab<Option<Waker>>,
 }
