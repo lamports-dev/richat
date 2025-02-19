@@ -234,7 +234,7 @@ impl Sender {
                     if dedup.transactions.len() <= index {
                         dedup
                             .transactions
-                            .resize(dedup.transactions.capacity() * 2, false);
+                            .resize(dedup.transactions.len() * 2, false);
                     }
                     if dedup.transactions[index] {
                         return;
@@ -245,7 +245,7 @@ impl Sender {
                 ParsedMessage::Entry(msg) => {
                     let index = msg.index() as usize;
                     if dedup.entries.len() <= index {
-                        dedup.entries.resize(dedup.entries.capacity() * 2, false);
+                        dedup.entries.resize(dedup.entries.len() * 2, false);
                     }
                     if dedup.entries[index] {
                         return;
@@ -267,10 +267,7 @@ impl Sender {
                 .slots
                 .entry(slot)
                 .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(
-                    &message,
-                    Some(std::mem::take(&mut dedup.accounts[index])),
-                );
+                .get_messages_with_block(&message, Some(&mut dedup.accounts[index]));
             if messages.is_some() {
                 dedup.block_index = Some(index);
             }
@@ -585,7 +582,7 @@ impl SlotInfo {
     fn get_messages_with_block(
         &mut self,
         message: &ParsedMessage,
-        deduped_accounts: Option<Vec<ParsedMessage>>,
+        deduped_accounts: Option<&mut Vec<ParsedMessage>>,
     ) -> Option<MessagesWithBlock> {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
@@ -669,7 +666,7 @@ impl SlotInfo {
                 self.block_created = true;
 
                 if let Some(messages) = &deduped_accounts {
-                    for message in messages {
+                    for message in messages.iter() {
                         self.messages.push(Some(message.clone()));
                     }
                 }
@@ -699,7 +696,7 @@ impl SlotInfo {
                 self.messages.push(Some(block.clone()));
 
                 return Some(MessagesWithBlock {
-                    accounts: deduped_accounts.unwrap_or_default(),
+                    accounts: deduped_accounts.map(std::mem::take).unwrap_or_default(),
                     block,
                 });
             }
