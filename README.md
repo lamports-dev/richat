@@ -122,6 +122,16 @@ flowchart LR
         end
     end
 
+    subgraph agave2 [**agave**]
+        subgraph geyser2 [richat-plugin-agave]
+        end
+    end
+
+    subgraph richat0 [**richat**]
+        subgraph richat0_server [richat-server]
+        end
+    end
+
     subgraph richat1 [**richat**]
         subgraph tokio1 [Tokio Runtime]
             richat1_tokio1_receiver(receiver)
@@ -170,6 +180,8 @@ flowchart LR
     client3(client)
 
     geyser1 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    geyser2 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    richat0_server -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
     richat1_tokio1_receiver --> richat1_channel
     richat1_channel --> richat1_blockmeta_recv_thread
     richat1_channel --> richat1_grpc_worker1
