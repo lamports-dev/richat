@@ -98,6 +98,7 @@ pin_project! {
     struct Subscription {
         stream: BoxStream<'static, Result<Vec<u8>, richat_client::error::ReceiveError>>,
         parser: MessageParserEncoding,
+        index: usize,
     }
 }
 
@@ -108,14 +109,14 @@ impl fmt::Debug for Subscription {
 }
 
 impl Stream for Subscription {
-    type Item = Result<ParsedMessage, ReceiveError>;
+    type Item = Result<(usize, ParsedMessage), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             let value = ready!(self.stream.poll_next_unpin(cx));
             return Poll::Ready(match value {
                 Some(Ok(data)) => match Message::parse(data, self.parser) {
-                    Ok(message) => Some(Ok(message.into())),
+                    Ok(message) => Some(Ok((self.index, message.into()))),
                     Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
                     Err(error) => Some(Err(error.into())),
                 },
@@ -131,6 +132,7 @@ impl Subscription {
         config: SubscriptionConfig,
         disable_accounts: bool,
         parser: MessageParserEncoding,
+        index: usize,
     ) -> Result<Self, SubscribeError> {
         let stream = match config {
             SubscriptionConfig::Quic { config } => {
@@ -163,7 +165,11 @@ impl Subscription {
             }
         };
 
-        Ok(Self { stream, parser })
+        Ok(Self {
+            stream,
+            parser,
+            index,
+        })
     }
 
     const fn create_richat_filter(disable_accounts: bool) -> Option<RichatFilter> {
@@ -231,12 +237,18 @@ impl Backoff {
 
 pub async fn subscribe(
     config: ConfigChannelSource,
-) -> anyhow::Result<BoxStream<'static, Result<ParsedMessage, ReceiveError>>> {
+    index: usize,
+) -> anyhow::Result<BoxStream<'static, Result<(usize, ParsedMessage), ReceiveError>>> {
     let (subscription_config, mut config) = SubscriptionConfig::new(config);
 
     let Some(reconnect) = config.reconnect.take() else {
-        let stream =
-            Subscription::new(subscription_config, config.disable_accounts, config.parser).await?;
+        let stream = Subscription::new(
+            subscription_config,
+            config.disable_accounts,
+            config.parser,
+            index,
+        )
+        .await?;
         info!(name = config.name, "connected");
         return Ok(stream.boxed());
     };
@@ -244,7 +256,7 @@ pub async fn subscribe(
     let backoff = Backoff::new(reconnect);
     let stream = try_unfold(
         (backoff, subscription_config, config, None),
-        |mut state: (
+        move |mut state: (
             Backoff,
             SubscriptionConfig,
             ConfigChannelSourceGeneral,
@@ -268,6 +280,7 @@ pub async fn subscribe(
                         state.1.clone(),
                         state.2.disable_accounts,
                         state.2.parser,
+                        index,
                     )
                     .await
                     {

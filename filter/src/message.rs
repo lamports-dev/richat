@@ -282,6 +282,7 @@ impl MessageParserLimited {
                     )?;
                     Message::Entry(MessageEntry::Limited {
                         slot: entry.slot,
+                        index: entry.index,
                         executed_transaction_count: entry.executed_transaction_count,
                         created_at,
                         buffer: data,
@@ -397,15 +398,11 @@ impl MessageParserProst {
                 UpdateOneof::TransactionStatus(_) => {
                     return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
                 }
-                UpdateOneof::Entry(entry) => {
-                    let executed_transaction_count = entry.executed_transaction_count;
-                    Message::Entry(MessageEntry::Prost {
-                        entry,
-                        executed_transaction_count,
-                        created_at,
-                        size: encoded_len,
-                    })
-                }
+                UpdateOneof::Entry(entry) => Message::Entry(MessageEntry::Prost {
+                    entry,
+                    created_at,
+                    size: encoded_len,
+                }),
                 UpdateOneof::BlockMeta(block_meta) => {
                     let block_height = block_meta
                         .block_height
@@ -479,11 +476,9 @@ impl MessageParserProst {
                         .entries
                         .into_iter()
                         .map(|entry| {
-                            let executed_transaction_count = entry.executed_transaction_count;
                             let encoded_len = entry.encoded_len();
                             Arc::new(MessageEntry::Prost {
                                 entry,
-                                executed_transaction_count,
                                 created_at,
                                 size: encoded_len,
                             })
@@ -838,6 +833,13 @@ impl MessageTransaction {
         }
     }
 
+    pub const fn index(&self) -> u64 {
+        match self {
+            Self::Limited { transaction, .. } => transaction.index,
+            Self::Prost { transaction, .. } => transaction.index,
+        }
+    }
+
     pub const fn failed(&self) -> bool {
         match self {
             Self::Limited { error, .. } => error.is_some(),
@@ -891,6 +893,7 @@ impl MessageTransaction {
 pub enum MessageEntry {
     Limited {
         slot: Slot,
+        index: u64,
         executed_transaction_count: u64,
         created_at: Timestamp,
         buffer: Vec<u8>,
@@ -898,7 +901,6 @@ pub enum MessageEntry {
     },
     Prost {
         entry: SubscribeUpdateEntry,
-        executed_transaction_count: u64,
         created_at: Timestamp,
         size: usize,
     },
@@ -928,8 +930,15 @@ impl MessageEntry {
 
     pub fn size(&self) -> usize {
         match self {
-            Self::Limited { buffer, .. } => buffer.len() + 44,
+            Self::Limited { buffer, .. } => buffer.len() + 52,
             Self::Prost { size, .. } => *size,
+        }
+    }
+
+    pub const fn index(&self) -> u64 {
+        match self {
+            Self::Limited { index, .. } => *index,
+            Self::Prost { entry, .. } => entry.index,
         }
     }
 
@@ -939,10 +948,7 @@ impl MessageEntry {
                 executed_transaction_count,
                 ..
             } => *executed_transaction_count,
-            Self::Prost {
-                executed_transaction_count,
-                ..
-            } => *executed_transaction_count,
+            Self::Prost { entry, .. } => entry.executed_transaction_count,
         }
     }
 }

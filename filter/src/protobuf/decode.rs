@@ -499,6 +499,7 @@ impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
 #[derive(Debug, Default)]
 pub struct UpdateOneofLimitedDecodeEntry {
     pub slot: Slot,
+    pub index: u64,
     pub executed_transaction_count: u64,
 }
 
@@ -520,10 +521,13 @@ impl LimitedDecode for UpdateOneofLimitedDecodeEntry {
                     error
                 })
             }
-            2u32 => encoding::uint64::merge(wire_type, &mut 0, buf, ctx).map_err(|mut error| {
-                error.push(STRUCT_NAME, "index");
-                error
-            }),
+            2u32 => {
+                let value = &mut self.index;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "index");
+                    error
+                })
+            }
             3u32 => encoding::uint64::merge(wire_type, &mut 0, buf, ctx).map_err(|mut error| {
                 error.push(STRUCT_NAME, "num_hashes");
                 error

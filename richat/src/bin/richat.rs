@@ -6,7 +6,7 @@ use {
         stream::StreamExt,
     },
     richat::{
-        channel, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
+        channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
         source::subscribe,
     },
     richat_shared::shutdown::Shutdown,
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages = channel::Messages::new(
+    let messages = Messages::new(
         config.channel.config,
         config.apps.grpc.is_some(),
         config.apps.pubsub.is_some(),
@@ -59,21 +59,37 @@ fn main() -> anyhow::Result<()> {
             || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let mut stream = subscribe(config.channel.sources[0].clone())
-                        .await
-                        .context("failed to subscribe")?;
                     tokio::pin!(shutdown);
 
+                    let mut current = 0;
+                    let mut streams =
+                        try_join_all(config.channel.sources.into_iter().enumerate().map(
+                            |(index, config)| async move {
+                                subscribe(config, index)
+                                    .await
+                                    .context("failed to subscribe")
+                            },
+                        ))
+                        .await?;
+
                     loop {
-                        tokio::select! {
+                        let (index, message) = tokio::select! {
                             biased;
-                            message = stream.next() => match message {
-                                Some(Ok(message)) => messages.push(message),
+                            message = streams[current].next() => match message {
+                                Some(Ok(value)) => value,
                                 Some(Err(error)) => return Err(anyhow::Error::new(error)),
                                 None => anyhow::bail!("source stream finished"),
                             },
                             () = &mut shutdown => return Ok(()),
-                        }
+                        };
+                        current = (current + 1) % streams.len();
+
+                        let index_info = if streams.len() == 1 {
+                            None
+                        } else {
+                            Some((index, streams.len()))
+                        };
+                        messages.push(message, index_info);
                     }
                 })
             }

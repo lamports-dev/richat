@@ -125,6 +125,8 @@ impl Messages {
     pub fn to_sender(&self) -> Sender {
         Sender {
             slots: BTreeMap::new(),
+            dedup: BTreeMap::new(),
+            finalized_slot: 0,
             processed: SenderShared::new(&self.shared_processed, self.max_messages, self.max_bytes),
             confirmed: self
                 .shared_confirmed
@@ -170,24 +172,120 @@ impl Messages {
 #[derive(Debug)]
 pub struct Sender {
     slots: BTreeMap<Slot, SlotInfo>,
+    dedup: BTreeMap<Slot, DedupInfo>,
+    finalized_slot: Slot,
     processed: SenderShared,
     confirmed: Option<SenderShared>,
     finalized: Option<SenderShared>,
 }
 
 impl Sender {
-    pub fn push(&mut self, message: ParsedMessage) {
+    pub fn push(&mut self, message: ParsedMessage, index_info: Option<(usize, usize)>) {
         let slot = message.slot();
 
         // get or create slot info
-        let message_block = self
-            .slots
-            .entry(slot)
-            .or_insert_with(|| SlotInfo::new(slot))
-            .get_block_message(&message);
+        let messages = if let Some((index, streams)) = index_info {
+            // return if we already processed and removed dedup for finalized slots
+            if slot <= self.finalized_slot {
+                return;
+            }
+
+            // remove outdated info
+            if let ParsedMessage::Slot(msg) = &message {
+                if msg.status() == SlotStatus::SlotFinalized {
+                    self.finalized_slot = slot;
+                    loop {
+                        match self.dedup.keys().next().copied() {
+                            Some(slot_min) if slot_min < self.finalized_slot => {
+                                self.dedup.remove(&slot_min);
+                            }
+                            _ => break,
+                        }
+                    }
+                }
+            }
+
+            // dedup info
+            let dedup = self
+                .dedup
+                .entry(slot)
+                .or_insert_with(|| DedupInfo::new(streams));
+
+            let message = match message {
+                ParsedMessage::Slot(msg) => {
+                    let index = msg.status() as i32 as usize;
+                    if dedup.slots[index] {
+                        return;
+                    }
+                    dedup.slots[index] = true;
+                    ParsedMessage::Slot(msg)
+                }
+                ParsedMessage::Account(msg) => {
+                    let msg = ParsedMessage::Account(msg);
+                    if dedup.block_index == Some(index) {
+                        msg // send to SlotInfo to generate error
+                    } else {
+                        dedup.accounts[index].push(msg);
+                        return;
+                    }
+                }
+                ParsedMessage::Transaction(msg) => {
+                    let index = msg.index() as usize;
+                    if dedup.transactions.len() <= index {
+                        dedup
+                            .transactions
+                            .resize(dedup.transactions.capacity() * 2, false);
+                    }
+                    if dedup.transactions[index] {
+                        return;
+                    }
+                    dedup.transactions[index] = true;
+                    ParsedMessage::Transaction(msg)
+                }
+                ParsedMessage::Entry(msg) => {
+                    let index = msg.index() as usize;
+                    if dedup.entries.len() <= index {
+                        dedup.entries.resize(dedup.entries.capacity() * 2, false);
+                    }
+                    if dedup.entries[index] {
+                        return;
+                    }
+                    dedup.entries[index] = true;
+                    ParsedMessage::Entry(msg)
+                }
+                ParsedMessage::BlockMeta(msg) => {
+                    if dedup.block_meta {
+                        return;
+                    }
+                    dedup.block_meta = true;
+                    ParsedMessage::BlockMeta(msg)
+                }
+                ParsedMessage::Block(_) => unreachable!(),
+            };
+
+            let messages = self
+                .slots
+                .entry(slot)
+                .or_insert_with(|| SlotInfo::new(slot))
+                .get_messages_with_block(
+                    &message,
+                    Some(std::mem::take(&mut dedup.accounts[index])),
+                );
+            if messages.is_some() {
+                dedup.block_index = Some(index);
+            }
+            MessagesWithBlockIter::new(message, messages)
+        } else {
+            let messages = self
+                .slots
+                .entry(slot)
+                .or_insert_with(|| SlotInfo::new(slot))
+                .get_messages_with_block(&message, None);
+            MessagesWithBlockIter::new(message, messages)
+        };
 
         // push messages
-        for message in [Some(message), message_block].into_iter().flatten() {
+        for message in messages {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
                 if let Some(shared) = self.confirmed.as_mut() {
@@ -424,6 +522,13 @@ impl Shared {
     }
 }
 
+#[derive(Debug)]
+struct Item {
+    pos: u64,
+    slot: Slot,
+    data: Option<ParsedMessage>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SlotHead {
     head: u64,
@@ -477,7 +582,11 @@ impl SlotInfo {
         }
     }
 
-    fn get_block_message(&mut self, message: &ParsedMessage) -> Option<ParsedMessage> {
+    fn get_messages_with_block(
+        &mut self,
+        message: &ParsedMessage,
+        deduped_accounts: Option<Vec<ParsedMessage>>,
+    ) -> Option<MessagesWithBlock> {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
             if matches!(
@@ -559,6 +668,12 @@ impl SlotInfo {
             {
                 self.block_created = true;
 
+                if let Some(messages) = &deduped_accounts {
+                    for message in messages {
+                        self.messages.push(Some(message.clone()));
+                    }
+                }
+
                 let accounts = self
                     .messages
                     .iter()
@@ -574,16 +689,19 @@ impl SlotInfo {
                     .iter()
                     .filter_map(|item| item.as_ref().and_then(|item| item.get_entry()))
                     .collect();
-                let message = ParsedMessage::Block(Arc::new(Message::unchecked_create_block(
+                let block = ParsedMessage::Block(Arc::new(Message::unchecked_create_block(
                     accounts,
                     transactions,
                     entries,
                     Arc::clone(block_meta),
                     block_meta.created_at(),
                 )));
-                self.messages.push(Some(message.clone()));
+                self.messages.push(Some(block.clone()));
 
-                return Some(message);
+                return Some(MessagesWithBlock {
+                    accounts: deduped_accounts.unwrap_or_default(),
+                    block,
+                });
             }
         }
 
@@ -602,8 +720,65 @@ impl SlotInfo {
 }
 
 #[derive(Debug)]
-struct Item {
-    pos: u64,
-    slot: Slot,
-    data: Option<ParsedMessage>,
+struct MessagesWithBlock {
+    accounts: Vec<ParsedMessage>,
+    block: ParsedMessage,
+}
+
+#[derive(Debug)]
+struct MessagesWithBlockIter {
+    accounts: std::vec::IntoIter<ParsedMessage>,
+    message: Option<ParsedMessage>,
+    block: Option<ParsedMessage>,
+}
+
+impl Iterator for MessagesWithBlockIter {
+    type Item = ParsedMessage;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.accounts
+            .next()
+            .or_else(|| self.message.take())
+            .or_else(|| self.block.take())
+    }
+}
+
+impl MessagesWithBlockIter {
+    fn new(message: ParsedMessage, messages: Option<MessagesWithBlock>) -> Self {
+        let (accounts, block) = match messages {
+            Some(MessagesWithBlock { accounts, block }) => (accounts.into_iter(), Some(block)),
+            None => (Vec::new().into_iter(), None),
+        };
+
+        Self {
+            accounts,
+            message: Some(message),
+            block,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DedupInfo {
+    slots: [bool; 7],
+    accounts: Vec<Vec<ParsedMessage>>,
+    transactions: Vec<bool>,
+    entries: Vec<bool>,
+    block_meta: bool,
+    block_index: Option<usize>,
+}
+
+impl DedupInfo {
+    fn new(streams: usize) -> Self {
+        Self {
+            slots: [false; 7],
+            accounts: std::iter::repeat_with(|| Vec::with_capacity(8_192))
+                .take(streams)
+                .collect(),
+            transactions: std::iter::repeat(false).take(8_192).collect(),
+            entries: std::iter::repeat(false).take(256).collect(),
+            block_meta: false,
+            block_index: None,
+        }
+    }
 }
