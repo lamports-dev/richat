@@ -16,7 +16,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2025-02-19
+## 2025-02-20
 
 - richat-cli-v2.2.1
 - richat-filter-v2.4.0

@@ -8,7 +8,7 @@ In addition to `Yellowstone Drangon's Mouth / Geyser gRPC` richat includes Solan
 
 ## Licensing
 
-The project is dual-licensed: the open-source uses the `Apache-2.0` license (`client`, `richat`, and `shared`), while everything else is licensed under the `AGPL-3.0-only`. The private version is licensed under a commercial license.
+The project is dual-licensed: the open-source uses the `Apache-2.0` license (`client`, `richat`, and `shared`), while everything else is licensed under the `AGPL-3.0-only`. The private version is licensed under a [commercial license](https://gist.github.com/fanatid/13f3d557c89efbf3b0c32a2d07345444#file-commercial-license-md).
 
 ## Richat support and enterprise version
 
