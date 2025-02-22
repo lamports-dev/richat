@@ -780,7 +780,7 @@ impl MessageTransaction {
         }
     }
 
-    fn gen_account_keys_prost(
+    pub fn gen_account_keys_prost(
         transaction: &SubscribeUpdateTransactionInfo,
         meta: &TransactionStatusMeta,
     ) -> Result<HashSet<Pubkey>, MessageParseError> {
