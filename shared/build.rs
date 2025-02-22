@@ -1,12 +1,17 @@
-use tonic_build::manual::{Builder, Method, Service};
+#[cfg(not(feature = "transports"))]
+fn main() {}
 
+#[cfg(feature = "transports")]
 fn main() -> anyhow::Result<()> {
     // build protos
     std::env::set_var("PROTOC", protobuf_src::protoc());
     generate_grpc_geyser()
 }
 
+#[cfg(feature = "transports")]
 fn generate_grpc_geyser() -> anyhow::Result<()> {
+    use tonic_build::manual::{Builder, Method, Service};
+
     let geyser_service = Service::builder()
         .name("Geyser")
         .package("geyser")

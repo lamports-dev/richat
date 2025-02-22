@@ -1,6 +1,12 @@
+#[cfg(feature = "config")]
 pub mod config;
+#[cfg(feature = "five8")]
 pub mod five8;
+#[cfg(feature = "metrics")]
 pub mod metrics;
+#[cfg(feature = "shutdown")]
 pub mod shutdown;
+#[cfg(feature = "transports")]
 pub mod transports;
+#[cfg(feature = "version")]
 pub mod version;
