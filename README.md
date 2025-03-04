@@ -244,5 +244,6 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `Shyft` — https://shyft.to/
 - `Solana Tracker` — https://www.solanatracker.io/solana-rpc
 - `Triton One` — https://triton.one/
+- `Urban Node` — https://urbannode.io/
 
 If your RPC provider not in the list, please open Issue / PR!
