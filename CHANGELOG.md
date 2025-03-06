@@ -24,7 +24,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
-- rustls: install CryptoProvider ([#81](https://github.com/lamports-dev/richat/pull/81))
+- rustls: install CryptoProvider ([#82](https://github.com/lamports-dev/richat/pull/82))
 
 ## 2025-02-22
 
