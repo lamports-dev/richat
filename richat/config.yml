@@ -16,7 +16,6 @@ channel:
     #     max_interval: 30s
     #     multiplier: 2
     #   transport: quic
-    #   source: richat # valid: richat, dragons_mouth
     #   endpoint: 127.0.0.1:10100
     #   local_addr: "[::]:0"
     #   expected_rtt: 100
@@ -36,7 +35,6 @@ channel:
         max_interval: 30s
         multiplier: 2
       transport: tcp
-      source: richat # valid: richat, dragons_mouth
       endpoint: 127.0.0.1:10101
       keepalive: null
       nodelay: true

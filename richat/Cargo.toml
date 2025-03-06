@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "2.3.0"
+version = "2.3.1"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -34,7 +34,7 @@ richat-client = { workspace = true }
 richat-filter = { workspace = true }
 richat-proto = { workspace = true }
 richat-shared = { workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 serde_yaml = { workspace = true }

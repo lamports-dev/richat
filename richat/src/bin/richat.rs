@@ -31,6 +31,13 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
+    anyhow::ensure!(
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .is_ok(),
+        "failed to call CryptoProvider::install_default()"
+    );
+
     let args = Args::parse();
     let config = Config::load_from_file(&args.config)
         .with_context(|| format!("failed to load config from {}", args.config))?;

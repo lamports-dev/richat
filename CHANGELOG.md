@@ -16,6 +16,16 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-03-06
+
+- richat-cli-v2.2.2
+- richat-plugin-agave-v2.1.1
+- richat-v2.3.1
+
+### Fixes
+
+- rustls: install CryptoProvider ([#81](https://github.com/lamports-dev/richat/pull/81))
+
 ## 2025-02-22
 
 - richat-shared-v2.5.0

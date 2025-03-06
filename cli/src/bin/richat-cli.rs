@@ -27,6 +27,13 @@ enum ArgsAppSelect {
 }
 
 async fn main2() -> anyhow::Result<()> {
+    anyhow::ensure!(
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .is_ok(),
+        "failed to call CryptoProvider::install_default()"
+    );
+
     env::set_var(
         env_logger::DEFAULT_FILTER_ENV,
         env::var_os(env_logger::DEFAULT_FILTER_ENV).unwrap_or_else(|| "info".into()),
