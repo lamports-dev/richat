@@ -1,6 +1,9 @@
 use {
     clap::{Parser, Subcommand},
-    richat_cli::{pubsub::ArgsAppPubSub, stream::ArgsAppStream, track::ArgsAppTrack},
+    richat_cli::{
+        pubsub::ArgsAppPubSub, stream_grpc::ArgsAppStreamGrpc, stream_richat::ArgsAppStreamRichat,
+        track::ArgsAppTrack,
+    },
     std::{
         env,
         sync::atomic::{AtomicU64, Ordering},
@@ -19,8 +22,11 @@ enum ArgsAppSelect {
     /// Subscribe on updates over WebSocket (Solana PubSub)
     Pubsub(ArgsAppPubSub),
 
+    /// Stream data from Yellowstone gRPC / Dragon's Mouth
+    StreamGrpc(ArgsAppStreamGrpc),
+
     /// Stream data directly from the richat-plugin
-    Stream(ArgsAppStream),
+    StreamRichat(ArgsAppStreamRichat),
 
     /// Events tracker
     Track(ArgsAppTrack),
@@ -43,7 +49,8 @@ async fn main2() -> anyhow::Result<()> {
     let args = Args::parse();
     match args.action {
         ArgsAppSelect::Pubsub(action) => action.run().await,
-        ArgsAppSelect::Stream(action) => action.run().await,
+        ArgsAppSelect::StreamGrpc(action) => action.run().await,
+        ArgsAppSelect::StreamRichat(action) => action.run().await,
         ArgsAppSelect::Track(action) => action.run().await,
     }
 }

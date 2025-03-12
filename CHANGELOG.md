@@ -16,6 +16,15 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-03-12
+
+- richat-cli-v3.0.0
+- richat-filter-v2.4.1
+
+### Breaking
+
+- cli: add dragon's mouth support ([#83](https://github.com/lamports-dev/richat/pull/83))
+
 ## 2025-03-06
 
 - richat-cli-v2.2.2
