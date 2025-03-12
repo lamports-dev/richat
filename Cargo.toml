@@ -21,7 +21,7 @@ publish = false
 
 [workspace.dependencies]
 affinity = "0.1.2"
-agave-geyser-plugin-interface = "~2.1.1"
+agave-geyser-plugin-interface = "~2.2.1"
 anyhow = "1.0.62"
 arrayvec = "0.7.6"
 base64 = "0.22.1"
@@ -58,11 +58,11 @@ protobuf-src = "1.1.0"
 quinn = "0.11.6"
 rayon = "1.10.0"
 rcgen = "0.13.1"
-richat-client = { path = "client", version = "2.2.0" }
-richat-filter = { path = "filter", version = "2.4.1" }
-richat-plugin-agave = { path = "plugin-agave", version = "2.1.0" }
-richat-proto = { path = "proto", version = "2.1.0" }
-richat-shared = { path = "shared", version = "2.5.0" }
+richat-client = { path = "client", version = "3.0.0" }
+richat-filter = { path = "filter", version = "3.0.0" }
+richat-plugin-agave = { path = "plugin-agave", version = "3.0.0" }
+richat-proto = { path = "proto", version = "3.0.0" }
+richat-shared = { path = "shared", version = "3.0.0" }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
@@ -73,17 +73,17 @@ signal-hook = "0.3.17"
 slab = "0.4.9"
 smallvec = "1.13.2"
 socket2 = "0.5.8"
-solana-account = "~2.1.1"
-solana-account-decoder = "~2.1.1"
-solana-client = "~2.1.1"
-solana-logger = "~2.1.1"
-solana-rpc = "~2.1.1"
-solana-rpc-client-api = "~2.1.1"
-solana-sdk = "~2.1.1"
-solana-storage-proto = "~2.1.1"
-solana-transaction-status = "~2.1.1"
-solana-version = "~2.1.1"
-spl-token-2022 = "6.0.0"
+solana-account = "~2.2.1"
+solana-account-decoder = "~2.2.1"
+solana-client = "~2.2.1"
+solana-logger = "~2.2.1"
+solana-rpc = "~2.2.1"
+solana-rpc-client-api = "~2.2.1"
+solana-sdk = "~2.2.1"
+solana-storage-proto = "~2.2.1"
+solana-transaction-status = "~2.2.1"
+solana-version = "~2.2.1"
+spl-token-2022 = "7.0.0"
 thiserror = "2.0.7"
 tokio = "1.42.0"
 tokio-rustls = "0.26.1"
@@ -94,7 +94,7 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 vergen = "9.0.2"
 webpki-roots = "0.26.7"
-yellowstone-grpc-proto = "5.0.0"
+yellowstone-grpc-proto = "6.0.0"
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"

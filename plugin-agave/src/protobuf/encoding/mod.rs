@@ -46,7 +46,7 @@ const fn u8_to_static_str(num: u8) -> &'static str {
 #[derive(Debug)]
 struct RewardWrapper<'a>(Reward, PhantomData<&'a ()>);
 
-impl<'a> RewardWrapper<'a> {
+impl RewardWrapper<'_> {
     const fn new(rewards: &[Reward]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<RewardWrapper>() == align_of::<Reward>()`,
@@ -56,7 +56,7 @@ impl<'a> RewardWrapper<'a> {
     }
 }
 
-impl<'a> Deref for RewardWrapper<'a> {
+impl Deref for RewardWrapper<'_> {
     type Target = Reward;
 
     fn deref(&self) -> &Self::Target {
@@ -64,7 +64,7 @@ impl<'a> Deref for RewardWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for RewardWrapper<'a> {
+impl prost::Message for RewardWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -144,6 +144,6 @@ pub fn bytes_encode(tag: u32, value: &[u8], buf: &mut impl BufMut) {
 }
 
 #[inline]
-pub fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
+pub const fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
     key_len(tag) + encoded_len_varint(value.len() as u64) + value.len()
 }

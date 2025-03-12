@@ -39,7 +39,7 @@ pub enum ProtobufMessage<'a> {
     },
 }
 
-impl<'a> ProtobufMessage<'a> {
+impl ProtobufMessage<'_> {
     pub const fn get_plugin_notification(&self) -> PluginNotification {
         match self {
             Self::Account { .. } => PluginNotification::Account,

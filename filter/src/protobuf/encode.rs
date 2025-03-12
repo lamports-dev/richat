@@ -21,7 +21,7 @@ pub struct SubscribeUpdateMessageLimited<'a> {
     pub created_at: Timestamp,
 }
 
-impl<'a> Message for SubscribeUpdateMessageLimited<'a> {
+impl Message for SubscribeUpdateMessageLimited<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -71,7 +71,7 @@ pub enum UpdateOneofLimitedEncode<'a> {
     Entry(&'a [u8]),
 }
 
-impl<'a> UpdateOneofLimitedEncode<'a> {
+impl UpdateOneofLimitedEncode<'_> {
     const fn tag(&self) -> u32 {
         match self {
             Self::Account(_) => 2u32,
@@ -126,7 +126,7 @@ pub enum UpdateOneofLimitedEncodeAccount<'a> {
     },
 }
 
-impl<'a> Message for UpdateOneofLimitedEncodeAccount<'a> {
+impl Message for UpdateOneofLimitedEncodeAccount<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         match self {
             Self::Slice(slice) => buf.put_slice(slice),
@@ -204,7 +204,7 @@ pub struct UpdateOneofLimitedEncodeAccountInner<'a> {
     pub txn_signature: Option<&'a [u8]>,
 }
 
-impl<'a> Message for UpdateOneofLimitedEncodeAccountInner<'a> {
+impl Message for UpdateOneofLimitedEncodeAccountInner<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         bytes_encode(1u32, self.pubkey.as_ref(), buf);
         if self.lamports != 0u64 {
@@ -289,7 +289,7 @@ pub struct UpdateOneofLimitedEncodeTransactionStatus<'a> {
     pub err: Option<confirmed_block::TransactionError>,
 }
 
-impl<'a> Message for UpdateOneofLimitedEncodeTransactionStatus<'a> {
+impl Message for UpdateOneofLimitedEncodeTransactionStatus<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         if self.slot != 0u64 {
             encoding::uint64::encode(1u32, &self.slot, buf);
@@ -366,7 +366,7 @@ pub struct UpdateOneofLimitedEncodeBlock<'a> {
     pub entries: Vec<&'a [u8]>,
 }
 
-impl<'a> Message for UpdateOneofLimitedEncodeBlock<'a> {
+impl Message for UpdateOneofLimitedEncodeBlock<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         if self.slot != 0u64 {
             encoding::uint64::encode(1u32, &self.slot, buf);
@@ -501,7 +501,7 @@ pub struct SubscribeUpdateMessageProst<'a> {
     pub created_at: Timestamp,
 }
 
-impl<'a> Message for SubscribeUpdateMessageProst<'a> {
+impl Message for SubscribeUpdateMessageProst<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,

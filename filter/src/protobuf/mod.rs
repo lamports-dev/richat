@@ -14,6 +14,6 @@ pub fn bytes_encode(tag: u32, value: &[u8], buf: &mut impl BufMut) {
 }
 
 #[inline]
-pub fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
+pub const fn bytes_encoded_len(tag: u32, value: &[u8]) -> usize {
     key_len(tag) + encoded_len_varint(value.len() as u64) + value.len()
 }

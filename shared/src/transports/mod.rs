@@ -62,7 +62,7 @@ impl<'a, W> WriteVectored<'a, W> {
     }
 }
 
-impl<'a, W> Future for WriteVectored<'a, W>
+impl<W> Future for WriteVectored<'_, W>
 where
     W: AsyncWrite + Unpin + ?Sized,
 {

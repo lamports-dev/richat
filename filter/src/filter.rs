@@ -740,7 +740,7 @@ pub struct FilteredUpdate<'a> {
     pub filtered_update: FilteredUpdateType<'a>,
 }
 
-impl<'a> FilteredUpdate<'a> {
+impl FilteredUpdate<'_> {
     pub fn encode(&self) -> Vec<u8> {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {

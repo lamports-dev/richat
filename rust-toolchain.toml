@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.81.0" # agave v2.1
+channel = "1.84.1" # agave v2.2
 components = ["clippy", "rustfmt"]
 targets = []
 profile = "minimal"

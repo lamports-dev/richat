@@ -323,7 +323,7 @@ impl<'a> Recv<'a> {
     }
 }
 
-impl<'a> Future for Recv<'a> {
+impl Future for Recv<'_> {
     type Output = Result<RecvItem, RecvError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

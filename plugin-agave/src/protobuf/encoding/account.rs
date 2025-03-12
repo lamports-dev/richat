@@ -17,7 +17,7 @@ impl<'a> Deref for ReplicaWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for ReplicaWrapper<'a> {
+impl prost::Message for ReplicaWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut)
     where
         Self: Sized,
@@ -108,7 +108,7 @@ impl<'a> Account<'a> {
     }
 }
 
-impl<'a> prost::Message for Account<'a> {
+impl prost::Message for Account<'_> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let wrapper = ReplicaWrapper(self.account);
         encoding::message::encode(1, &wrapper, buf);

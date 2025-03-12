@@ -34,7 +34,7 @@ impl<'a> Transaction<'a> {
     }
 }
 
-impl<'a> prost::Message for Transaction<'a> {
+impl prost::Message for Transaction<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         let tx = ReplicaWrapper(self.transaction);
         encoding::message::encode(1, &tx, buf);
@@ -82,7 +82,7 @@ impl<'a> Deref for ReplicaWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for ReplicaWrapper<'a> {
+impl prost::Message for ReplicaWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -146,7 +146,7 @@ impl<'a> prost::Message for ReplicaWrapper<'a> {
 #[derive(Debug)]
 struct SanitizedTransactionWrapper<'a>(&'a SanitizedTransaction);
 
-impl<'a> Deref for SanitizedTransactionWrapper<'a> {
+impl Deref for SanitizedTransactionWrapper<'_> {
     type Target = SanitizedTransaction;
 
     fn deref(&self) -> &Self::Target {
@@ -154,7 +154,7 @@ impl<'a> Deref for SanitizedTransactionWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for SanitizedTransactionWrapper<'a> {
+impl prost::Message for SanitizedTransactionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -192,7 +192,7 @@ fn signatures_encode(tag: u32, signatures: &[Signature], buf: &mut impl BufMut) 
     }
 }
 
-fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
+const fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
     (encoding::key_len(tag)
         + encoding::encoded_len_varint(SIGNATURE_BYTES as u64)
         + SIGNATURE_BYTES)
@@ -202,7 +202,7 @@ fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
 #[derive(Debug)]
 struct SanitizedMessageWrapper<'a>(&'a SanitizedMessage);
 
-impl<'a> Deref for SanitizedMessageWrapper<'a> {
+impl Deref for SanitizedMessageWrapper<'_> {
     type Target = SanitizedMessage;
 
     fn deref(&self) -> &Self::Target {
@@ -210,7 +210,7 @@ impl<'a> Deref for SanitizedMessageWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for SanitizedMessageWrapper<'a> {
+impl prost::Message for SanitizedMessageWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -375,7 +375,7 @@ fn pubkeys_encode(tag: u32, pubkeys: &[Pubkey], buf: &mut impl BufMut) {
     }
 }
 
-fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
+const fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
     (encoding::key_len(tag) + encoding::encoded_len_varint(PUBKEY_BYTES as u64) + PUBKEY_BYTES)
         * pubkeys.len()
 }
@@ -398,7 +398,7 @@ fn versioned_encoded_len(tag: u32, versioned: bool) -> usize {
 #[derive(Debug)]
 struct MessageAddressTableLookupWrapper<'a>(MessageAddressTableLookup, PhantomData<&'a ()>);
 
-impl<'a> MessageAddressTableLookupWrapper<'a> {
+impl MessageAddressTableLookupWrapper<'_> {
     const fn new(address_table_lookups: &[MessageAddressTableLookup]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<MessageAddressTableLookupWrapper>() == align_of::<MessageAddressTableLookup>()`,
@@ -408,7 +408,7 @@ impl<'a> MessageAddressTableLookupWrapper<'a> {
     }
 }
 
-impl<'a> Deref for MessageAddressTableLookupWrapper<'a> {
+impl Deref for MessageAddressTableLookupWrapper<'_> {
     type Target = MessageAddressTableLookup;
 
     fn deref(&self) -> &Self::Target {
@@ -416,7 +416,7 @@ impl<'a> Deref for MessageAddressTableLookupWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for MessageAddressTableLookupWrapper<'a> {
+impl prost::Message for MessageAddressTableLookupWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -465,7 +465,7 @@ impl<'a> prost::Message for MessageAddressTableLookupWrapper<'a> {
 #[derive(Debug)]
 struct TransactionStatusMetaWrapper<'a>(&'a TransactionStatusMeta);
 
-impl<'a> Deref for TransactionStatusMetaWrapper<'a> {
+impl Deref for TransactionStatusMetaWrapper<'_> {
     type Target = TransactionStatusMeta;
 
     fn deref(&self) -> &Self::Target {
@@ -473,7 +473,7 @@ impl<'a> Deref for TransactionStatusMetaWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for TransactionStatusMetaWrapper<'a> {
+impl prost::Message for TransactionStatusMetaWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -628,7 +628,7 @@ thread_local! {
 #[derive(Debug)]
 struct TransactionErrorWrapper<'a>(&'a TransactionError);
 
-impl<'a> prost::Message for TransactionErrorWrapper<'a> {
+impl prost::Message for TransactionErrorWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -679,7 +679,7 @@ impl<'a> prost::Message for TransactionErrorWrapper<'a> {
 #[derive(Debug)]
 struct InnerInstructionsWrapper<'a>(InnerInstructions, PhantomData<&'a ()>);
 
-impl<'a> InnerInstructionsWrapper<'a> {
+impl InnerInstructionsWrapper<'_> {
     const fn new(inner_instructions: &[InnerInstructions]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<InnerInstructionsWrapper>() == align_of::<InnerInstructions>()`,
@@ -689,7 +689,7 @@ impl<'a> InnerInstructionsWrapper<'a> {
     }
 }
 
-impl<'a> Deref for InnerInstructionsWrapper<'a> {
+impl Deref for InnerInstructionsWrapper<'_> {
     type Target = InnerInstructions;
 
     fn deref(&self) -> &Self::Target {
@@ -697,7 +697,7 @@ impl<'a> Deref for InnerInstructionsWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for InnerInstructionsWrapper<'a> {
+impl prost::Message for InnerInstructionsWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -749,7 +749,7 @@ impl<'a> prost::Message for InnerInstructionsWrapper<'a> {
 #[derive(Debug)]
 struct InnerInstructionWrapper<'a>(InnerInstruction, PhantomData<&'a ()>);
 
-impl<'a> InnerInstructionWrapper<'a> {
+impl InnerInstructionWrapper<'_> {
     const fn new(inner_instructions: &[InnerInstruction]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<InnerInstructionWrapper>() == align_of::<InnerInstruction>()`,
@@ -759,7 +759,7 @@ impl<'a> InnerInstructionWrapper<'a> {
     }
 }
 
-impl<'a> Deref for InnerInstructionWrapper<'a> {
+impl Deref for InnerInstructionWrapper<'_> {
     type Target = InnerInstruction;
 
     fn deref(&self) -> &Self::Target {
@@ -767,7 +767,7 @@ impl<'a> Deref for InnerInstructionWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for InnerInstructionWrapper<'a> {
+impl prost::Message for InnerInstructionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -831,7 +831,7 @@ impl<'a> prost::Message for InnerInstructionWrapper<'a> {
 #[derive(Debug)]
 struct CompiledInstructionWrapper<'a>(CompiledInstruction, PhantomData<&'a ()>);
 
-impl<'a> CompiledInstructionWrapper<'a> {
+impl CompiledInstructionWrapper<'_> {
     const fn new(compiled_instructions: &[CompiledInstruction]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<CompiledInstructionWrapper>() == align_of::<CompiledInstruction>()`,
@@ -841,7 +841,7 @@ impl<'a> CompiledInstructionWrapper<'a> {
     }
 }
 
-impl<'a> Deref for CompiledInstructionWrapper<'a> {
+impl Deref for CompiledInstructionWrapper<'_> {
     type Target = CompiledInstruction;
 
     fn deref(&self) -> &Self::Target {
@@ -849,7 +849,7 @@ impl<'a> Deref for CompiledInstructionWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for CompiledInstructionWrapper<'a> {
+impl prost::Message for CompiledInstructionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -905,7 +905,7 @@ impl<'a> prost::Message for CompiledInstructionWrapper<'a> {
 #[derive(Debug)]
 struct TransactionTokenBalanceWrapper<'a>(TransactionTokenBalance, PhantomData<&'a ()>);
 
-impl<'a> TransactionTokenBalanceWrapper<'a> {
+impl TransactionTokenBalanceWrapper<'_> {
     const fn new(transaction_token_balances: &[TransactionTokenBalance]) -> &[Self] {
         // SAFETY: the compiler guarantees that
         // `align_of::<TransactionTokenBalanceWrapper>() == align_of::<TransactionTokenBalance>()`,
@@ -915,7 +915,7 @@ impl<'a> TransactionTokenBalanceWrapper<'a> {
     }
 }
 
-impl<'a> Deref for TransactionTokenBalanceWrapper<'a> {
+impl Deref for TransactionTokenBalanceWrapper<'_> {
     type Target = TransactionTokenBalance;
 
     fn deref(&self) -> &Self::Target {
@@ -923,7 +923,7 @@ impl<'a> Deref for TransactionTokenBalanceWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for TransactionTokenBalanceWrapper<'a> {
+impl prost::Message for TransactionTokenBalanceWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -990,7 +990,7 @@ impl<'a> prost::Message for TransactionTokenBalanceWrapper<'a> {
 #[derive(Debug)]
 struct UiTokenAmountWrapper<'a>(&'a UiTokenAmount);
 
-impl<'a> Deref for UiTokenAmountWrapper<'a> {
+impl Deref for UiTokenAmountWrapper<'_> {
     type Target = UiTokenAmount;
 
     fn deref(&self) -> &Self::Target {
@@ -998,7 +998,7 @@ impl<'a> Deref for UiTokenAmountWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for UiTokenAmountWrapper<'a> {
+impl prost::Message for UiTokenAmountWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -1064,7 +1064,7 @@ impl<'a> prost::Message for UiTokenAmountWrapper<'a> {
 #[derive(Debug)]
 struct TransactionReturnDataWrapper<'a>(&'a TransactionReturnData);
 
-impl<'a> Deref for TransactionReturnDataWrapper<'a> {
+impl Deref for TransactionReturnDataWrapper<'_> {
     type Target = TransactionReturnData;
 
     fn deref(&self) -> &Self::Target {
@@ -1072,7 +1072,7 @@ impl<'a> Deref for TransactionReturnDataWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for TransactionReturnDataWrapper<'a> {
+impl prost::Message for TransactionReturnDataWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,

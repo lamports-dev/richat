@@ -44,7 +44,7 @@ impl<'a> Slot<'a> {
     }
 }
 
-impl<'a> prost::Message for Slot<'a> {
+impl prost::Message for Slot<'_> {
     fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
         let status = slot_status_as_i32(self.status);
         let dead_error = slot_status_as_dead_error(self.status);

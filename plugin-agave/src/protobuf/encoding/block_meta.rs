@@ -21,7 +21,7 @@ impl<'a> BlockMeta<'a> {
     }
 }
 
-impl<'a> prost::Message for BlockMeta<'a> {
+impl prost::Message for BlockMeta<'_> {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
         let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
 
@@ -125,7 +125,7 @@ impl<'a> Deref for RewardsAndNumPartitionsWrapper<'a> {
     }
 }
 
-impl<'a> prost::Message for RewardsAndNumPartitionsWrapper<'a> {
+impl prost::Message for RewardsAndNumPartitionsWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
