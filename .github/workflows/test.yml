@@ -26,6 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libudev-dev
+
       - uses: fanatid/rust-github-ci-prepare@master
         with:
           cache-version: v0003
