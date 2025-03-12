@@ -236,6 +236,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 
 ## List of RPC providers with Dragon's Mouth support
 
+- `ERPC` — https://erpc.global/en/
 - `Gadfly Node` — https://gadflynode.com/
 - `Geeks Labs` — https://discord.gg/geekslabs
 - `GetBlock` — https://getblock.io/
