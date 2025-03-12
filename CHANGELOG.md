@@ -16,6 +16,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-03-12
+
 - cli-v4.0.0
 - client-v3.0.0
 - filter-v3.0.0
@@ -23,8 +25,6 @@ The minor version will be incremented upon a breaking change and the patch versi
 - proto-v3.0.0
 - richat-v3.0.0
 - shared-v3.0.0
-
-## 2025-03-12
 
 ### Breaking
 
