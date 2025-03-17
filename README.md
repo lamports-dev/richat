@@ -246,6 +246,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `QuickNode` — https://www.quicknode.com/
 - `Shyft` — https://shyft.to/
 - `Solana Tracker` — https://www.solanatracker.io/solana-rpc
+- `SolSqueezer` — https://solsqueezer.io/
 - `Triton One` — https://triton.one/
 - `Urban Node` — https://urbannode.io/
 
