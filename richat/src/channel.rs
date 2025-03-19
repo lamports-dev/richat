@@ -136,6 +136,8 @@ impl Messages {
                 .shared_finalized
                 .as_ref()
                 .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
+            slot_confirmed: 0,
+            slot_finalized: 0,
         }
     }
 
@@ -177,6 +179,8 @@ pub struct Sender {
     processed: SenderShared,
     confirmed: Option<SenderShared>,
     finalized: Option<SenderShared>,
+    slot_confirmed: Slot,
+    slot_finalized: Slot,
 }
 
 impl Sender {
@@ -285,26 +289,26 @@ impl Sender {
         for message in messages {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
-                if let Some(shared) = self.confirmed.as_mut() {
-                    if msg.status() == SlotStatus::SlotConfirmed {
+                if msg.status() == SlotStatus::SlotConfirmed {
+                    self.slot_confirmed = slot;
+                    if let Some(shared) = self.confirmed.as_mut() {
                         if let Some(slot_info) = self.slots.get(&slot) {
                             for message in slot_info.get_messages_cloned() {
                                 shared.push(slot, message);
                             }
                         }
                     }
-                    shared.push(slot, message.clone());
                 }
 
-                if let Some(shared) = self.finalized.as_mut() {
-                    if msg.status() == SlotStatus::SlotFinalized {
+                if msg.status() == SlotStatus::SlotFinalized {
+                    self.slot_finalized = slot;
+                    if let Some(shared) = self.finalized.as_mut() {
                         if let Some(mut slot_info) = self.slots.remove(&slot) {
                             for message in slot_info.get_messages_owned() {
                                 shared.push(slot, message);
                             }
                         }
                     }
-                    shared.push(slot, message.clone());
                 }
 
                 // remove slot info
@@ -317,6 +321,18 @@ impl Sender {
                             _ => break,
                         }
                     }
+                }
+            }
+
+            // push to confirmed and finalized (if we received SlotStatus or message after it)
+            if slot <= self.slot_confirmed {
+                if let Some(shared) = self.confirmed.as_mut() {
+                    shared.push(slot, message.clone());
+                }
+            }
+            if slot <= self.slot_finalized {
+                if let Some(shared) = self.finalized.as_mut() {
+                    shared.push(slot, message.clone());
                 }
             }
 
