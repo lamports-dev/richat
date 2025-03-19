@@ -12,6 +12,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+- richat: do not update head on new filter with same commitment (backport of [#88](https://github.com/lamports-dev/richat/pull/88)) ([#91](https://github.com/lamports-dev/richat/pull/91))
+
 ### Features
 
 ### Breaking
