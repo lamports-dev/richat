@@ -425,12 +425,15 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
                                 let mut state = client.state_lock();
                                 if let Err(error) = new_filter.map(|filter| {
+                                    let commitment_prev = state.commitment;
                                     state.commitment = filter.commitment().into();
-                                    state.head = messages
-                                        .get_current_tail(state.commitment, subscribe_from_slot)
-                                        .ok_or(Status::invalid_argument(format!(
-                                            "failed to get slot {subscribe_from_slot:?}"
-                                        )))?;
+                                    if state.filter.is_none() || state.commitment != commitment_prev {
+                                        state.head = messages
+                                            .get_current_tail(state.commitment, subscribe_from_slot)
+                                            .ok_or(Status::invalid_argument(format!(
+                                                "failed to get slot {subscribe_from_slot:?}"
+                                            )))?;
+                                    }
                                     state.filter = Some(filter);
                                     Ok::<(), Status>(())
                                 }) {
