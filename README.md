@@ -4,7 +4,7 @@ Next iteration of [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/
 
 In addition to `Yellowstone Drangon's Mouth / Geyser gRPC` richat includes Solana PubSub implementation.
 
-Any issue not related to bugs or feature-related topics will be closed. If you're having trouble loading a plugin or have questions on how to use crates, please post your question in the Telegram group: [https://t.me/lamportsdev](https://t.me/lamportsdev)
+Please use issues only for reporting bugs or discussing feature-related topics. If you're having trouble loading a plugin or need guidance on how to use crates, please post your question in the Telegram group: [https://t.me/lamportsdev](https://t.me/lamportsdev)
 
 ## Sponsored by
 

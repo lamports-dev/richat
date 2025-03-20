@@ -3,6 +3,7 @@ use {
         channel::{Messages, ParsedMessage, ReceiverSync},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
+        metrics::{self, GrpcSubscribeMessage},
         version::VERSION,
     },
     futures::{
@@ -168,6 +169,14 @@ impl GrpcServer {
         Ok(try_join_all([block_meta_jh, block_meta_task_jh, workers, server]).map_ok(|_| ()))
     }
 
+    fn get_x_subscription_id<T>(request: &Request<T>) -> String {
+        request
+            .metadata()
+            .get("x-subscription-id")
+            .and_then(|value| value.to_str().ok().map(ToOwned::to_owned))
+            .unwrap_or_default()
+    }
+
     fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevelProto, Status> {
         let commitment = commitment.unwrap_or(CommitmentLevelProto::Processed as i32);
         CommitmentLevelProto::try_from(commitment)
@@ -315,7 +324,7 @@ impl GrpcServer {
             {
                 state.ping_ts_latest = ts;
                 let message = SubscribeClientState::create_ping();
-                state.push_message(message);
+                state.push_message(GrpcSubscribeMessage::Ping, message);
             }
 
             // filter messages
@@ -358,12 +367,17 @@ impl GrpcServer {
                     let items = filter
                         .get_updates_ref(message_ref, state.commitment)
                         .iter()
-                        .map(|msg| msg.encode())
-                        .collect::<SmallVec<[Vec<u8>; 2]>>();
+                        .map(|msg| ((&msg.filtered_update).into(), msg.encode()))
+                        .collect::<SmallVec<[(GrpcSubscribeMessage, Vec<u8>); 2]>>();
 
-                    for message in items {
-                        state.push_message(message);
+                    for (message, data) in items {
+                        state.push_message(message, data);
                     }
+                }
+            }
+            if messages_counter > 0 {
+                if let Ok(elapsed) = ts.elapsed() {
+                    metrics::grpc_subscribe_cpu_inc(&state.x_subscription_id, elapsed);
                 }
             }
             drop(state);
@@ -382,8 +396,11 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::Subscribe);
+
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
-        let client = SubscribeClient::new(id, self.subscribe_messages_len_max);
+        let client = SubscribeClient::new(id, self.subscribe_messages_len_max, x_subscription_id);
         self.push_client(client.clone());
 
         tokio::spawn({
@@ -401,7 +418,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                 if let Some(SubscribeRequestPing { id }) = message.ping {
                                     let message = SubscribeClientState::create_pong(id);
                                     let mut state = client.state_lock();
-                                    state.push_message(message);
+                                    state.push_message(GrpcSubscribeMessage::Pong, message);
                                     continue;
                                 }
 
@@ -462,6 +479,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::Ping);
+
         let count = request.get_ref().count;
         let response = PongResponse { count };
         Ok(Response::new(response))
@@ -471,6 +491,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetLatestBlockhashRequest>,
     ) -> TonicResult<Response<GetLatestBlockhashResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(
+            &x_subscription_id,
+            metrics::GrpcRequestMethod::GetLatestBlockhash,
+        );
+
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
             let block = storage.get_block(commitment).await?;
@@ -487,6 +513,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetBlockHeightRequest>,
     ) -> TonicResult<Response<GetBlockHeightResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(
+            &x_subscription_id,
+            metrics::GrpcRequestMethod::GetBlockHeight,
+        );
+
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
             let block = storage.get_block(commitment).await?;
@@ -501,6 +533,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetSlotRequest>,
     ) -> TonicResult<Response<GetSlotResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::GetSlot);
+
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
             let block = storage.get_block(commitment).await?;
@@ -513,6 +548,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: tonic::Request<IsBlockhashValidRequest>,
     ) -> TonicResult<Response<IsBlockhashValidResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(
+            &x_subscription_id,
+            metrics::GrpcRequestMethod::IsBlockhashValid,
+        );
+
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
             let (valid, slot) = storage
@@ -525,8 +566,11 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
     async fn get_version(
         &self,
-        _request: Request<GetVersionRequest>,
+        request: Request<GetVersionRequest>,
     ) -> TonicResult<Response<GetVersionResponse>> {
+        let x_subscription_id = Self::get_x_subscription_id(&request);
+        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::GetVersion);
+
         Ok(Response::new(GetVersionResponse {
             version: VERSION.create_grpc_version_info().json(),
         }))
@@ -554,8 +598,8 @@ impl Drop for SubscribeClient {
 }
 
 impl SubscribeClient {
-    fn new(id: u64, messages_len_max: usize) -> Self {
-        let state = SubscribeClientState::new(id, messages_len_max);
+    fn new(id: u64, messages_len_max: usize, x_subscription_id: String) -> Self {
+        let state = SubscribeClientState::new(id, messages_len_max, x_subscription_id);
         Self {
             state: Arc::new(Mutex::new(state)),
         }
@@ -573,6 +617,7 @@ impl SubscribeClient {
 #[derive(Debug)]
 struct SubscribeClientState {
     id: u64,
+    x_subscription_id: String,
     ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
     head: u64,
@@ -580,22 +625,29 @@ struct SubscribeClientState {
     messages_error: Option<Status>,
     messages_len_max: usize,
     messages_len_total: usize,
-    messages: LinkedList<Vec<u8>>,
+    messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
     ping_ts_latest: SystemTime,
 }
 
 impl Drop for SubscribeClientState {
     fn drop(&mut self) {
-        info!(id = self.id, "drop client state");
+        info!(
+            id = self.id,
+            x_subscription_id = self.x_subscription_id,
+            "drop client state"
+        );
+        metrics::grpc_subscribe_dec(&self.x_subscription_id);
     }
 }
 
 impl SubscribeClientState {
-    fn new(id: u64, messages_len_max: usize) -> Self {
-        info!(id, "new client");
+    fn new(id: u64, messages_len_max: usize, x_subscription_id: String) -> Self {
+        info!(id, x_subscription_id, "new client");
+        metrics::grpc_subscribe_inc(&x_subscription_id);
         Self {
             id,
+            x_subscription_id,
             ref_count: 1,
             commitment: CommitmentLevel::default(),
             head: 0,
@@ -640,21 +692,24 @@ impl SubscribeClientState {
         }
     }
 
-    fn push_message(&mut self, message: Vec<u8>) {
-        self.messages_len_total += message.len();
-        self.messages.push_back(message);
+    fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
+        self.messages_len_total += data.len();
+        self.messages.push_back((message, data));
         if let Some(waker) = self.messages_waker.take() {
             waker.wake();
         }
     }
 
-    fn pop_message(&mut self, cx: &Context) -> Option<TonicResult<Vec<u8>>> {
+    fn pop_message(
+        &mut self,
+        cx: &Context,
+    ) -> Option<TonicResult<(GrpcSubscribeMessage, Vec<u8>)>> {
         if let Some(error) = self.messages_error.take() {
             return Some(Err(error));
         }
 
         if let Some(message) = self.messages.pop_front() {
-            self.messages_len_total -= message.len();
+            self.messages_len_total -= message.1.len();
             Some(Ok(message))
         } else {
             self.messages_waker = Some(cx.waker().clone());
@@ -688,6 +743,17 @@ impl Stream for ReceiverStream {
 
         let mut state = self.client.state_lock();
         if let Some(item) = state.pop_message(cx) {
+            let item = match item {
+                Ok((message, data)) => {
+                    metrics::grpc_subscribe_messages_inc(
+                        &state.x_subscription_id,
+                        message,
+                        data.len(),
+                    );
+                    Ok(data)
+                }
+                Err(error) => Err(error),
+            };
             drop(state);
 
             self.finished = item.is_err();

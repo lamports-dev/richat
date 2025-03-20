@@ -2,6 +2,7 @@ use {
     crate::{
         channel::Messages,
         config::ConfigAppsWorkers,
+        metrics,
         pubsub::{
             config::ConfigAppsPubsub,
             notification::{RpcNotification, RpcNotifications},
@@ -25,7 +26,7 @@ use {
     jsonrpsee_types::{ResponsePayload, TwoPointZero},
     richat_shared::shutdown::Shutdown,
     solana_rpc_client_api::response::RpcVersionInfo,
-    std::{collections::HashSet, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
+    std::{collections::HashMap, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
     tokio::{
         net::TcpListener,
         sync::{broadcast, mpsc, oneshot},
@@ -125,12 +126,20 @@ impl PubSubServer {
                         let notifications = notifications.subscribe();
                         let shutdown = shutdown.clone();
                         async move {
+                            let x_subscription_id = req
+                                .headers()
+                                .get("x-subscription-id")
+                                .and_then(|value| value.to_str().ok().map(ToOwned::to_owned))
+                                .unwrap_or_default();
+
                             match (req.uri().path(), is_upgrade_request(&req)) {
                                 ("/", true) => match upgrade(req) {
                                     Ok((response, ws_fut)) => {
                                         tokio::spawn(async move {
+                                            metrics::pubsub_connections_inc(&x_subscription_id);
                                             if let Err(error) = Self::handle_client(
                                                 client_id,
+                                                x_subscription_id.clone(),
                                                 ws_fut,
                                                 recv_max_message_size,
                                                 enable_block_subscription,
@@ -143,6 +152,7 @@ impl PubSubServer {
                                             {
                                                 error!("Error serving WebSocket connection: {error:?}")
                                             }
+                                            metrics::pubsub_connections_dec(&x_subscription_id);
                                         });
 
                                         let (parts, body) = response.into_parts();
@@ -200,6 +210,7 @@ impl PubSubServer {
     #[allow(clippy::too_many_arguments)]
     async fn handle_client(
         client_id: ClientId,
+        x_subscription_id: String,
         ws_fut: UpgradeFut,
         recv_max_message_size: usize,
         enable_block_subscription: bool,
@@ -281,7 +292,7 @@ impl PubSubServer {
         .and_then(ready);
 
         let write_fut = tokio::spawn(async move {
-            let mut subscriptions = HashSet::new();
+            let mut subscriptions = HashMap::new();
             let maybe_close_reason = loop {
                 tokio::select! {
                     message = read_rx.recv() => match message {
@@ -311,7 +322,9 @@ impl PubSubServer {
                                     }
                                     let removed = rx.await?;
                                     if removed {
-                                        subscriptions.remove(&id);
+                                        if let Some(method) = subscriptions.remove(&id) {
+                                            metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
+                                        }
                                     }
                                     removed.into()
                                 },
@@ -324,8 +337,9 @@ impl PubSubServer {
                                     }).await.is_err() {
                                         break Some("shutdown".as_bytes());
                                     }
-                                    let id = rx.await?;
-                                    subscriptions.insert(id);
+                                    let (id, method) = rx.await?;
+                                    subscriptions.insert(id, method);
+                                    metrics::pubsub_subscriptions_inc(&x_subscription_id, method);
                                     id.into()
                                 },
                             };
@@ -342,15 +356,19 @@ impl PubSubServer {
                         None => break None, // means shutdown
                     },
                     message = notifications.recv() => match message {
-                        Ok(notification) if subscriptions.contains(&notification.subscription_id) => {
+                        Ok(notification) if subscriptions.contains_key(&notification.subscription_id) => {
                             if notification.is_final {
-                                subscriptions.remove(&notification.subscription_id);
+                                if let Some(method) = subscriptions.remove(&notification.subscription_id) {
+                                    metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
+                                }
                             }
 
                             match notification.json.upgrade() {
                                 Some(json) => {
+                                    let size = json.len();
                                     let frame = Frame::text(Payload::Borrowed(json.as_bytes()));
                                     ws_tx.write_frame(frame).await?;
+                                    metrics::pubsub_messages_sent_inc(&x_subscription_id, notification.method, size);
                                 },
                                 None => {
                                     break Some("lagged: memory".as_bytes())
@@ -366,6 +384,9 @@ impl PubSubServer {
             if let Some(close_reason) = maybe_close_reason {
                 let frame = Frame::close(CloseCode::Away.into(), close_reason);
                 ws_tx.write_frame(frame).await?;
+            }
+            for (_subscription_id, method) in subscriptions {
+                metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
             }
             Ok::<(), anyhow::Error>(())
         })

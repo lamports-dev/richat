@@ -1,20 +1,28 @@
 use {
     crate::{config::ConfigChannelInner, metrics},
-    richat_filter::message::{
-        Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
-        MessageSlot, MessageTransaction,
+    futures::stream::{Stream, StreamExt},
+    richat_filter::{
+        filter::FilteredUpdate,
+        message::{
+            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
+            MessageSlot, MessageTransaction,
+        },
     },
-    richat_proto::geyser::SlotStatus,
-    richat_shared::transports::RecvError,
+    richat_proto::{geyser::SlotStatus, richat::RichatFilter},
+    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    smallvec::SmallVec,
     solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
     std::{
         collections::{BTreeMap, HashMap},
         fmt,
+        pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
             Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
         },
+        task::{Context, Poll, Waker},
     },
+    tracing::debug,
 };
 
 #[derive(Debug, Clone)]
@@ -111,12 +119,12 @@ pub struct Messages {
 }
 
 impl Messages {
-    pub fn new(config: ConfigChannelInner, grpc: bool, pubsub: bool) -> Self {
+    pub fn new(config: ConfigChannelInner, richat: bool, grpc: bool, pubsub: bool) -> Self {
         let max_messages = config.max_messages.next_power_of_two();
         Self {
-            shared_processed: Arc::new(Shared::new(max_messages)),
-            shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages))),
-            shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages))),
+            shared_processed: Arc::new(Shared::new(max_messages, richat)),
+            shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
+            shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
         }
@@ -168,6 +176,43 @@ impl Messages {
         } else {
             Some(shared.tail.load(Ordering::Relaxed))
         }
+    }
+}
+
+impl Subscribe for Messages {
+    fn subscribe(
+        &self,
+        replay_from_slot: Option<Slot>,
+        filter: Option<RichatFilter>,
+    ) -> Result<RecvStream, SubscribeError> {
+        let head = if let Some(replay_from_slot) = replay_from_slot {
+            let state = self.shared_processed.slots_lock();
+            match state.get(&replay_from_slot) {
+                Some(obj) => obj.head,
+                None => {
+                    return Err(match state.keys().min().copied() {
+                        Some(first_available) => {
+                            SubscribeError::SlotNotAvailable { first_available }
+                        }
+                        None => SubscribeError::NotInitialized,
+                    })
+                }
+            }
+        } else {
+            self.shared_processed.tail.load(Ordering::Relaxed)
+        };
+
+        let filter = filter.unwrap_or_default();
+
+        Ok(ReceiverAsync {
+            shared: Arc::clone(&self.shared_processed),
+            head,
+            finished: false,
+            enable_notifications_accounts: !filter.disable_accounts,
+            enable_notifications_transactions: !filter.disable_transactions,
+            enable_notifications_entries: !filter.disable_entries,
+        }
+        .boxed())
     }
 }
 
@@ -289,6 +334,24 @@ impl Sender {
         for message in messages {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
+                // update metrics
+                metrics::channel_slot_set(msg);
+                if msg.status() == SlotStatus::SlotProcessed {
+                    let processed_slots_len = self.processed.shared.slots_lock().len();
+                    debug!(
+                        "new processed {slot} / {} messages / {} slots / {} bytes",
+                        self.processed.tail - self.processed.head,
+                        processed_slots_len,
+                        self.processed.bytes_total
+                    );
+
+                    metrics::channel_messages_set(
+                        (self.processed.tail - self.processed.head) as usize,
+                    );
+                    metrics::channel_slots_set(processed_slots_len);
+                    metrics::channel_bytes_set(self.processed.bytes_total);
+                }
+
                 if msg.status() == SlotStatus::SlotConfirmed {
                     self.slot_confirmed = slot;
                     if let Some(shared) = self.confirmed.as_mut() {
@@ -338,6 +401,12 @@ impl Sender {
 
             // push to processed
             self.processed.push(slot, message);
+        }
+
+        if let Some(mut wakers) = self.processed.shared.wakers_lock() {
+            for waker in wakers.drain(..) {
+                waker.wake();
+            }
         }
     }
 }
@@ -438,6 +507,72 @@ impl SenderShared {
 }
 
 #[derive(Debug)]
+pub struct ReceiverAsync {
+    shared: Arc<Shared>,
+    head: u64,
+    finished: bool,
+    enable_notifications_accounts: bool,
+    enable_notifications_transactions: bool,
+    enable_notifications_entries: bool,
+}
+
+impl ReceiverAsync {
+    fn recv_ref(&mut self, waker: &Waker) -> Result<Option<RecvItem>, RecvError> {
+        let tail = self.shared.tail.load(Ordering::Relaxed);
+        while self.head <= tail {
+            let idx = self.shared.get_idx(self.head);
+            let item = self.shared.buffer_idx_read(idx);
+            if item.pos != self.head {
+                return Err(RecvError::Lagged);
+            }
+            self.head = self.head.wrapping_add(1);
+
+            let item = item.data.as_ref().ok_or(RecvError::Lagged)?;
+            match item {
+                ParsedMessage::Account(_) if !self.enable_notifications_accounts => continue,
+                ParsedMessage::Transaction(_) if !self.enable_notifications_transactions => {
+                    continue
+                }
+                ParsedMessage::Entry(_) if !self.enable_notifications_entries => continue,
+                _ => {}
+            }
+
+            let data = FilteredUpdate {
+                filters: SmallVec::new_const(),
+                filtered_update: MessageRef::from(item).into(),
+            }
+            .encode();
+            return Ok(Some(Arc::new(data)));
+        }
+
+        if let Some(mut wakers) = self.shared.wakers_lock() {
+            wakers.push(waker.clone());
+        }
+        Ok(None)
+    }
+}
+
+impl Stream for ReceiverAsync {
+    type Item = Result<RecvItem, RecvError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let me = self.get_mut();
+        if me.finished {
+            return Poll::Ready(None);
+        }
+
+        match me.recv_ref(cx.waker()) {
+            Ok(Some(value)) => Poll::Ready(Some(Ok(value))),
+            Ok(None) => Poll::Pending,
+            Err(error) => {
+                me.finished = true;
+                Poll::Ready(Some(Err(error)))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ReceiverSync {
     shared_processed: Arc<Shared>,
     shared_confirmed: Option<Arc<Shared>>,
@@ -478,6 +613,7 @@ struct Shared {
     mask: u64,
     buffer: Box<[RwLock<Item>]>,
     slots: Mutex<BTreeMap<Slot, SlotHead>>,
+    wakers: Option<Mutex<Vec<Waker>>>,
 }
 
 impl fmt::Debug for Shared {
@@ -487,7 +623,7 @@ impl fmt::Debug for Shared {
 }
 
 impl Shared {
-    fn new(max_messages: usize) -> Self {
+    fn new(max_messages: usize, richat: bool) -> Self {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(RwLock::new(Item {
@@ -502,6 +638,7 @@ impl Shared {
             mask: (max_messages - 1) as u64,
             buffer: buffer.into_boxed_slice(),
             slots: Mutex::default(),
+            wakers: richat.then_some(Mutex::default()),
         }
     }
 
@@ -532,6 +669,14 @@ impl Shared {
             Ok(lock) => lock,
             Err(p_err) => p_err.into_inner(),
         }
+    }
+
+    #[inline]
+    fn wakers_lock(&self) -> Option<MutexGuard<'_, Vec<Waker>>> {
+        self.wakers.as_ref().map(|wakers| match wakers.lock() {
+            Ok(lock) => lock,
+            Err(p_err) => p_err.into_inner(),
+        })
     }
 }
 

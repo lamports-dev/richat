@@ -12,12 +12,22 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+### Features
+
+### Breaking
+
+## 2025-03-19
+
+- richat-v3.1.0
+
+### Fixes
+
 - richat: do not update head on new filter with same commitment ([#88](https://github.com/lamports-dev/richat/pull/88))
 - richat: push messages even after SlotStatus ([#89](https://github.com/lamports-dev/richat/pull/89))
 
 ### Features
 
-### Breaking
+- richat: add metrics ([#90](https://github.com/lamports-dev/richat/pull/90))
 
 ## 2025-03-12
 

@@ -1,6 +1,7 @@
 use {
     crate::{
         channel::{Messages, ParsedMessage},
+        metrics,
         pubsub::{
             notification::{
                 RpcBlockUpdate, RpcNotification, RpcNotifications, RpcTransactionUpdate,
@@ -41,7 +42,7 @@ pub enum ClientRequest {
     Subscribe {
         client_id: ClientId,
         config: SubscribeConfig,
-        tx: oneshot::Sender<SubscriptionId>,
+        tx: oneshot::Sender<(SubscriptionId, SubscribeMethod)>,
     },
     Unsubscribe {
         client_id: ClientId,
@@ -95,8 +96,9 @@ impl Subscriptions {
                 config,
                 tx,
             } => {
+                let method = config.method();
                 let subscription_id = self.subscribe(client_id, config, signatures, notifications);
-                let _ = tx.send(subscription_id);
+                let _ = tx.send((subscription_id, method));
             }
             ClientRequest::Unsubscribe {
                 client_id,
@@ -157,7 +159,12 @@ impl Subscriptions {
                                 err,
                             }),
                         );
-                        notifications.push(subscription_id, is_final, json);
+                        notifications.push(
+                            subscription_id,
+                            SubscribeMethod::Signature,
+                            is_final,
+                            json,
+                        );
                     }
                 }
 
@@ -371,6 +378,7 @@ pub fn subscriptions_worker(
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotProcessed =>
                         {
+                            metrics::pubsub_slot_set(CommitmentLevel::Processed, message.slot());
                             slots_stats
                                 .entry(message.slot())
                                 .or_default()
@@ -385,12 +393,14 @@ pub fn subscriptions_worker(
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotConfirmed =>
                         {
+                            metrics::pubsub_slot_set(CommitmentLevel::Confirmed, message.slot());
                             signatures.set_confirmed(message.slot());
                             None
                         }
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotFinalized =>
                         {
+                            metrics::pubsub_slot_set(CommitmentLevel::Finalized, message.slot());
                             signatures.set_finalized(message.slot());
                             slot_finalized = message.slot();
                             loop {
@@ -639,13 +649,21 @@ pub fn subscriptions_worker(
                     None
                 })
                 .map(|(subscription, is_final, json)| {
-                    (subscription.config_hash, subscription.id, is_final, json)
+                    (
+                        subscription.config_hash,
+                        subscription.config.method(),
+                        subscription.id,
+                        is_final,
+                        json,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
 
-        for (subscription_config_hash, subscription_id, is_final, json) in new_notifications {
-            notifications.push(subscription_id, is_final, json);
+        for (subscription_config_hash, subscription_method, subscription_id, is_final, json) in
+            new_notifications
+        {
+            notifications.push(subscription_id, subscription_method, is_final, json);
             if is_final {
                 subscriptions.remove_subscription(subscription_config_hash);
             }
@@ -723,6 +741,8 @@ impl CachedSignatures {
                 .entry(message.slot())
                 .or_default()
                 .push(*message.signature());
+
+            metrics::pubsub_cached_signatures_set_count(self.signatures.len());
         }
     }
 
@@ -730,6 +750,7 @@ impl CachedSignatures {
         for signature in self.slots.remove(&slot).unwrap_or_default() {
             self.signatures.remove(&signature);
         }
+        metrics::pubsub_cached_signatures_set_count(self.signatures.len());
     }
 
     fn set_confirmed(&mut self, slot: Slot) {
