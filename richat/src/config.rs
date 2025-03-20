@@ -1,5 +1,8 @@
 use {
-    crate::{grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub},
+    crate::{
+        grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub,
+        richat::config::ConfigAppsRichat,
+    },
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
     richat_filter::message::MessageParserEncoding,
@@ -154,6 +157,8 @@ impl Default for ConfigChannelInner {
 pub struct ConfigApps {
     /// Runtime for incoming connections
     pub tokio: ConfigTokio,
+    /// downstream richat
+    pub richat: Option<ConfigAppsRichat>,
     /// gRPC app (fully compatible with Yellowstone Dragon's Mouth)
     pub grpc: Option<ConfigAppsGrpc>,
     /// WebSocket app (fully compatible with Solana PubSub)

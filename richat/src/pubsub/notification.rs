@@ -1,5 +1,8 @@
 use {
-    crate::pubsub::SubscriptionId,
+    crate::{
+        metrics,
+        pubsub::{solana::SubscribeMethod, SubscriptionId},
+    },
     jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
     richat_shared::five8::signature_encode,
@@ -28,6 +31,7 @@ use {
 #[derive(Debug, Clone)]
 pub struct RpcNotification {
     pub subscription_id: SubscriptionId,
+    pub method: SubscribeMethod,
     pub is_final: bool,
     pub json: Weak<String>,
 }
@@ -93,9 +97,16 @@ impl RpcNotifications {
         }
     }
 
-    pub fn push(&mut self, subscription_id: SubscriptionId, is_final: bool, json: Arc<String>) {
+    pub fn push(
+        &mut self,
+        subscription_id: SubscriptionId,
+        method: SubscribeMethod,
+        is_final: bool,
+        json: Arc<String>,
+    ) {
         let notification = RpcNotification {
             subscription_id,
+            method,
             is_final,
             json: Arc::downgrade(&json),
         };
@@ -110,6 +121,8 @@ impl RpcNotifications {
             self.bytes_total -= item.len();
         }
         self.items.push_back(json);
+
+        metrics::pubsub_stored_messages_set(self.items.len(), self.bytes_total);
     }
 }
 

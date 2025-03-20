@@ -1,8 +1,11 @@
 use {
-    crate::channel::ParsedMessage,
+    crate::{channel::ParsedMessage, metrics},
     futures::future::TryFutureExt,
     richat_proto::geyser::{CommitmentLevel as CommitmentLevelProto, SlotStatus},
-    solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
+    solana_sdk::{
+        clock::{Slot, MAX_PROCESSING_AGE},
+        commitment_config::CommitmentLevel,
+    },
     std::{collections::HashMap, future::Future, sync::Arc},
     tokio::sync::{mpsc, oneshot},
     tonic::Status,
@@ -70,11 +73,13 @@ impl BlockMetaStorage {
                             entry.confirmed = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().confirmed = true;
                             confirmed = slot;
+                            metrics::grpc_block_meta_slot_set(CommitmentLevel::Confirmed, confirmed);
                         } else if status == SlotStatus::SlotFinalized {
                             let entry = blocks.entry(slot).or_default();
                             entry.finalized = true;
                             blockhashes.entry(Arc::clone(&entry.blockhash)).or_default().finalized = true;
                             finalized = slot;
+                            metrics::grpc_block_meta_slot_set(CommitmentLevel::Finalized, finalized);
 
                             // cleanup
                             blockhashes.retain(|_blockhash, bentry| bentry.last_valid_block_height < entry.block_height);
@@ -92,11 +97,13 @@ impl BlockMetaStorage {
                         bentry.last_valid_block_height = entry.block_height + MAX_PROCESSING_AGE as u64;
                         bentry.processed = true;
                         processed = processed.max(slot);
+                        metrics::grpc_block_meta_slot_set(CommitmentLevel::Processed, processed);
                     }
                     Some(_) => {}
                     None => break,
                 },
                 request = requests_rx.recv() => {
+                    metrics::grpc_block_meta_queue_dec();
                     match request {
                         Some(Request::GetBlock(tx, commitment)) => {
                             let slot = match commitment {
@@ -142,6 +149,7 @@ impl BlockMetaStorage {
             return Err(tonic::Status::resource_exhausted("queue channel is full"));
         }
 
+        metrics::grpc_block_meta_queue_inc();
         match rx.await {
             Ok(Some(block)) => Ok(block),
             Ok(None) => Err(Status::aborted("failed to get result")),

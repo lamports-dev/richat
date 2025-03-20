@@ -105,6 +105,20 @@ impl SubscribeMethod {
             ParsedMessage::Block(_) => &[Self::Block],
         }
     }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Program => "program",
+            Self::Logs => "logs",
+            Self::Signature => "signature",
+            Self::Slot => "slot",
+            Self::SlotsUpdates => "slotsupdates",
+            Self::Block => "block",
+            Self::Root => "root",
+            Self::Transaction => "transaction",
+        }
+    }
 }
 
 pub type SubscribeConfigHashId = u64;

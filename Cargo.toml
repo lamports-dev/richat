@@ -15,7 +15,7 @@ authors = ["Lamports Dev", "Triton One"]
 edition = "2021"
 homepage = "https://lamports.dev"
 repository = "https://github.com/lamports-dev/richat"
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 keywords = ["solana"]
 publish = false
 
