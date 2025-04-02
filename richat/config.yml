@@ -7,7 +7,7 @@ channel:
   tokio:
     worker_threads: 2
     affinity: 0-1
-  source:
+  sources:
     # - name: plugin-quic
     #   parser: prost
     #   disable_accounts: false
