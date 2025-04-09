@@ -81,7 +81,8 @@ pub async fn spawn_server(
             .inc();
     });
 
-    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), shutdown).await
+    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), || true, || true, shutdown)
+        .await
 }
 
 pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {
