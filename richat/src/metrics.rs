@@ -172,7 +172,7 @@ pub async fn spawn_server(
             .inc();
     });
 
-    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), shutdown)
+    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), || true, || true, shutdown)
         .await
         .map_err(Into::into)
 }

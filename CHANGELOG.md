@@ -16,6 +16,12 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-04-09
+
+### Features
+
+- shared: support ready and health endpoints on metrics server ([#96](https://github.com/lamports-dev/richat/pull/96))
+
 ## 2025-03-19
 
 - richat-v3.1.0
