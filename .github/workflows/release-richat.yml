@@ -32,7 +32,7 @@ jobs:
 
       - uses: fanatid/rust-github-ci-prepare@master
         with:
-          cache-version: v0002-richat
+          cache-version: v0003-richat
 
       - name: Build richat
         run: |

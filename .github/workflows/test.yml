@@ -28,7 +28,7 @@ jobs:
 
       - uses: fanatid/rust-github-ci-prepare@master
         with:
-          cache-version: v0003
+          cache-version: v0004
 
       - name: cargo deny check advisories
         uses: EmbarkStudios/cargo-deny-action@v1
