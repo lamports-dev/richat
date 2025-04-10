@@ -40,7 +40,8 @@ impl ConfigTokio {
         }
         if let Some(cpus) = self.affinity.clone() {
             builder.on_thread_start(move || {
-                affinity::set_thread_affinity(&cpus).expect("failed to set affinity")
+                affinity_linux::set_thread_affinity(cpus.iter().copied())
+                    .expect("failed to set affinity")
             });
         }
         builder
@@ -301,20 +302,20 @@ pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
         }
     }
 
-    let mut vec = set.into_iter().collect::<Vec<usize>>();
-    vec.sort();
-
-    if let Some(set_max_index) = vec.last().copied() {
-        let max_index = affinity::get_thread_affinity()
-            .map_err(|_err| "failed to get affinity".to_owned())?
-            .into_iter()
-            .max()
-            .unwrap_or(0);
-
-        if set_max_index > max_index {
-            return Err(format!("core index must be in the range [0, {max_index}]"));
+    if !set.is_empty() {
+        if let Some(core_ids) = affinity_linux::get_thread_affinity()
+            .map_err(|error| format!("failed to get allowed cpus: {error:?}"))?
+        {
+            if !set.is_subset(&core_ids) {
+                return Err(format!(
+                    "not allowed core index, should be set of: {core_ids:?}"
+                ));
+            }
         }
     }
+
+    let mut vec = set.into_iter().collect::<Vec<usize>>();
+    vec.sort();
 
     Ok(vec)
 }

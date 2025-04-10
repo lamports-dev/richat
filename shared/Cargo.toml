@@ -11,7 +11,7 @@ keywords = { workspace = true }
 publish = true
 
 [dependencies]
-affinity = { workspace = true, optional = true }
+affinity-linux = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 bs58 = { workspace = true, optional = true }
 five8 = { workspace = true, optional = true }
@@ -45,9 +45,16 @@ protobuf-src = { workspace = true, optional = true }
 tonic-build = { workspace = true, optional = true }
 
 [features]
-default = ["config", "five8", "metrics", "shutdown", "transports", "version"]
+default = [
+    "config",
+    "five8",
+    "metrics",
+    "shutdown",
+    "transports",
+    "version"
+]
 config = [
-    "dep:affinity",
+    "dep:affinity-linux",
     "dep:base64",
     "dep:bs58",
     "dep:rcgen",
