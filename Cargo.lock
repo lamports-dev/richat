@@ -64,15 +64,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "affinity"
-version = "0.1.2"
+name = "affinity-linux"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763e484feceb7dd021b21c5c6f81aee06b1594a743455ec7efbf72e6355e447b"
+checksum = "119038623e6a2eda09deff65fa7dec3a9b963254cbed11d23aa8a2484b3693fc"
 dependencies = [
- "cfg-if 1.0.0",
  "errno",
  "libc",
- "num_cpus",
 ]
 
 [[package]]
@@ -4970,7 +4968,7 @@ dependencies = [
 name = "richat"
 version = "3.2.0"
 dependencies = [
- "affinity",
+ "affinity-linux",
  "anyhow",
  "arrayvec",
  "cargo-lock",
@@ -5102,7 +5100,6 @@ dependencies = [
 name = "richat-plugin-agave"
 version = "3.1.0"
 dependencies = [
- "affinity",
  "agave-geyser-plugin-interface",
  "anyhow",
  "bincode",
@@ -5149,10 +5146,10 @@ dependencies = [
 name = "richat-shared"
 version = "3.1.0"
 dependencies = [
+ "affinity-linux",
  "anyhow",
  "base64 0.22.1",
  "bs58",
- "errno",
  "five8",
  "futures 0.3.31",
  "hostname",
@@ -5161,7 +5158,6 @@ dependencies = [
  "humantime-serde",
  "hyper 1.6.0",
  "hyper-util",
- "libc",
  "prometheus",
  "prost 0.13.5",
  "protobuf-src",

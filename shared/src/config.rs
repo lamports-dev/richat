@@ -1,8 +1,5 @@
 use {
-    crate::{
-        affinity::{get_thread_affinity, set_thread_affinity},
-        five8::{pubkey_decode, signature_decode},
-    },
+    crate::five8::{pubkey_decode, signature_decode},
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
@@ -43,7 +40,8 @@ impl ConfigTokio {
         }
         if let Some(cpus) = self.affinity.clone() {
             builder.on_thread_start(move || {
-                set_thread_affinity(cpus.iter().copied()).expect("failed to set affinity")
+                affinity_linux::set_thread_affinity(cpus.iter().copied())
+                    .expect("failed to set affinity")
             });
         }
         builder
@@ -305,7 +303,7 @@ pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
     }
 
     if !set.is_empty() {
-        if let Some(core_ids) = get_thread_affinity()
+        if let Some(core_ids) = affinity_linux::get_thread_affinity()
             .map_err(|error| format!("failed to get allowed cpus: {error:?}"))?
         {
             if !set.is_subset(&core_ids) {

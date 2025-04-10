@@ -23,7 +23,6 @@ harness = false
 required-features = ["fixtures"]
 
 [dependencies]
-affinity = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
 bincode = { workspace = true }
