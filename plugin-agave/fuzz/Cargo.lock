@@ -64,15 +64,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "affinity"
-version = "0.1.2"
+name = "affinity-linux"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763e484feceb7dd021b21c5c6f81aee06b1594a743455ec7efbf72e6355e447b"
+checksum = "119038623e6a2eda09deff65fa7dec3a9b963254cbed11d23aa8a2484b3693fc"
 dependencies = [
- "cfg-if",
  "errno",
  "libc",
- "num_cpus",
 ]
 
 [[package]]
@@ -402,7 +400,7 @@ version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
 dependencies = [
- "hermit-abi 0.1.19",
+ "hermit-abi",
  "libc",
  "winapi",
 ]
@@ -1690,12 +1688,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hermit-abi"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2230,9 +2222,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.169"
+version = "0.2.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5aba8db14291edd000dfcc4d620c7ebfb122c613afb886ca8803fa4e128a20a"
+checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
 name = "libfuzzer-sys"
@@ -2527,16 +2519,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "num_cpus"
-version = "1.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
-dependencies = [
- "hermit-abi 0.3.9",
- "libc",
 ]
 
 [[package]]
@@ -3229,9 +3211,8 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
- "affinity",
  "agave-geyser-plugin-interface",
  "anyhow",
  "bincode",
@@ -3289,9 +3270,9 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
- "affinity",
+ "affinity-linux",
  "anyhow",
  "base64 0.22.1",
  "bs58",
