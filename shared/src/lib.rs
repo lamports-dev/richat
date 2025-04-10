@@ -1,3 +1,5 @@
+#[cfg(feature = "affinity")]
+pub mod affinity;
 #[cfg(feature = "config")]
 pub mod config;
 #[cfg(feature = "five8")]

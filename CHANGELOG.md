@@ -28,6 +28,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - shared: support ready and health endpoints on metrics server ([#97](https://github.com/lamports-dev/richat/pull/97))
+- shared: use affinity only on linux ([#99](https://github.com/lamports-dev/richat/pull/99))
 
 ## 2025-03-19
 

@@ -11,9 +11,9 @@ keywords = { workspace = true }
 publish = true
 
 [dependencies]
-affinity = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 bs58 = { workspace = true, optional = true }
+errno = { workspace = true, optional = true }
 five8 = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
@@ -22,6 +22,7 @@ http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"], optional = true }
+libc = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
@@ -45,9 +46,20 @@ protobuf-src = { workspace = true, optional = true }
 tonic-build = { workspace = true, optional = true }
 
 [features]
-default = ["config", "five8", "metrics", "shutdown", "transports", "version"]
+default = [
+    "affinity",
+    "config",
+    "five8",
+    "metrics",
+    "shutdown",
+    "transports",
+    "version"
+]
+affinity = [
+    "dep:errno",
+    "dep:libc"
+]
 config = [
-    "dep:affinity",
     "dep:base64",
     "dep:bs58",
     "dep:rcgen",
@@ -57,6 +69,7 @@ config = [
     "dep:solana-sdk",
     "dep:thiserror",
     "dep:tokio",
+    "affinity",
     "five8",
 ]
 five8 = ["dep:five8", "dep:solana-sdk"]
