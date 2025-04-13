@@ -3580,6 +3580,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a7deb012b3b2767169ff203fadb4c6b0b82b947512e5eb9e0b78c2e186ad9e3"
+dependencies = [
+ "ahash 0.8.11",
+ "portable-atomic",
+]
+
+[[package]]
+name = "metrics-exporter-prometheus"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd7399781913e5393588a8d8c6a2867bf85fb38eaf2502fdce465aad2dc6f034"
+dependencies = [
+ "base64 0.22.1",
+ "indexmap 2.8.0",
+ "metrics",
+ "metrics-util",
+ "quanta",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "metrics-util"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbd4884b1dd24f7d6628274a2f5ae22465c337c5ba065ec9b6edccddf8acc673"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "hashbrown 0.15.2",
+ "metrics",
+ "quanta",
+ "rand 0.8.5",
+ "rand_xoshiro",
+ "sketches-ddsketch",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4395,21 +4435,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prometheus"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
-dependencies = [
- "cfg-if 1.0.0",
- "fnv",
- "lazy_static",
- "memchr",
- "parking_lot 0.12.3",
- "protobuf",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "proptest"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4534,12 +4559,6 @@ checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
  "prost 0.13.5",
 ]
-
-[[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "protobuf-src"
@@ -4966,7 +4985,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "3.2.0"
+version = "3.3.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
@@ -4982,12 +5001,13 @@ dependencies = [
  "hyper-util",
  "json5",
  "jsonrpsee-types",
- "lazy_static",
  "maplit",
+ "metrics",
+ "metrics-exporter-prometheus",
  "pin-project-lite",
- "prometheus",
  "prost 0.13.5",
  "prost-types 0.13.5",
+ "quanta",
  "rayon",
  "richat-client",
  "richat-filter",
@@ -5019,7 +5039,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -5052,7 +5072,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5078,7 +5098,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
@@ -5098,7 +5118,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -5109,9 +5129,9 @@ dependencies = [
  "criterion",
  "futures 0.3.31",
  "git-version",
- "lazy_static",
  "log",
- "prometheus",
+ "metrics",
+ "metrics-exporter-prometheus",
  "prost 0.11.9",
  "prost 0.13.5",
  "prost-types 0.13.5",
@@ -5144,7 +5164,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
@@ -5158,7 +5178,6 @@ dependencies = [
  "humantime-serde",
  "hyper 1.6.0",
  "hyper-util",
- "prometheus",
  "prost 0.13.5",
  "protobuf-src",
  "quinn",
@@ -5765,6 +5784,12 @@ dependencies = [
  "bitmaps",
  "typenum",
 ]
+
+[[package]]
+name = "sketches-ddsketch"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e9a774a6c28142ac54bb25d25562e6bcf957493a184f15ad4eebccb23e410a"
 
 [[package]]
 name = "slab"

@@ -10,6 +10,7 @@ use {
             ClientId, SubscriptionId,
         },
     },
+    ::metrics::gauge,
     prost_types::Timestamp,
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
@@ -379,7 +380,8 @@ pub fn subscriptions_worker(
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotProcessed =>
                         {
-                            metrics::pubsub_slot_set(CommitmentLevel::Processed, message.slot());
+                            gauge!(metrics::PUBSUB_SLOT, "commitment" => "processed")
+                                .set(message.slot() as f64);
                             slots_stats
                                 .entry(message.slot())
                                 .or_default()
@@ -394,14 +396,16 @@ pub fn subscriptions_worker(
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotConfirmed =>
                         {
-                            metrics::pubsub_slot_set(CommitmentLevel::Confirmed, message.slot());
+                            gauge!(metrics::PUBSUB_SLOT, "commitment" => "confirmed")
+                                .set(message.slot() as f64);
                             signatures.set_confirmed(message.slot());
                             None
                         }
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotFinalized =>
                         {
-                            metrics::pubsub_slot_set(CommitmentLevel::Finalized, message.slot());
+                            gauge!(metrics::PUBSUB_SLOT, "commitment" => "finalized")
+                                .set(message.slot() as f64);
                             signatures.set_finalized(message.slot());
                             slot_finalized = message.slot();
                             loop {
@@ -743,7 +747,7 @@ impl CachedSignatures {
                 .or_default()
                 .push(*message.signature());
 
-            metrics::pubsub_cached_signatures_set_count(self.signatures.len());
+            gauge!(metrics::PUBSUB_CACHED_SIGNATURES_TOTAL).set(self.signatures.len() as f64);
         }
     }
 
@@ -751,7 +755,7 @@ impl CachedSignatures {
         for signature in self.slots.remove(&slot).unwrap_or_default() {
             self.signatures.remove(&signature);
         }
-        metrics::pubsub_cached_signatures_set_count(self.signatures.len());
+        gauge!(metrics::PUBSUB_CACHED_SIGNATURES_TOTAL).set(self.signatures.len() as f64);
     }
 
     fn set_confirmed(&mut self, slot: Slot) {

@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "3.2.0"
+version = "3.3.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -23,12 +23,13 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 json5 = { workspace = true }
 jsonrpsee-types = { workspace = true }
-lazy_static = { workspace = true }
 maplit = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 pin-project-lite = { workspace = true }
-prometheus = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+quanta = { workspace = true }
 rayon = { workspace = true }
 richat-client = { workspace = true }
 richat-filter = { workspace = true }

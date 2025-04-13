@@ -6,12 +6,13 @@ use {
         pubsub::{
             config::ConfigAppsPubsub,
             notification::{RpcNotification, RpcNotifications},
-            solana::{SubscribeConfig, SubscribeMessage},
+            solana::{SubscribeConfig, SubscribeMessage, SubscribeMethod},
             tracker::{subscriptions_worker, ClientRequest},
-            ClientId,
+            ClientId, SubscriptionId,
         },
         version::VERSION,
     },
+    ::metrics::{counter, gauge},
     fastwebsockets::{
         upgrade::{is_upgrade_request, upgrade, UpgradeFut},
         CloseCode, FragmentCollectorRead, Frame, OpCode, Payload, WebSocketError,
@@ -126,20 +127,25 @@ impl PubSubServer {
                         let notifications = notifications.subscribe();
                         let shutdown = shutdown.clone();
                         async move {
-                            let x_subscription_id = req
+                            let x_subscription_id: Arc<str> = req
                                 .headers()
                                 .get("x-subscription-id")
                                 .and_then(|value| value.to_str().ok().map(ToOwned::to_owned))
-                                .unwrap_or_default();
+                                .unwrap_or_default()
+                                .into();
+                            let connections_total = gauge!(
+                                metrics::PUBSUB_CONNECTIONS_TOTAL,
+                                "x_subscription_id" => Arc::clone(&x_subscription_id),
+                            );
 
                             match (req.uri().path(), is_upgrade_request(&req)) {
                                 ("/", true) => match upgrade(req) {
                                     Ok((response, ws_fut)) => {
                                         tokio::spawn(async move {
-                                            metrics::pubsub_connections_inc(&x_subscription_id);
+                                            connections_total.increment(1);
                                             if let Err(error) = Self::handle_client(
                                                 client_id,
-                                                x_subscription_id.clone(),
+                                                x_subscription_id,
                                                 ws_fut,
                                                 recv_max_message_size,
                                                 enable_block_subscription,
@@ -152,7 +158,7 @@ impl PubSubServer {
                                             {
                                                 error!("Error serving WebSocket connection: {error:?}")
                                             }
-                                            metrics::pubsub_connections_dec(&x_subscription_id);
+                                            connections_total.decrement(1);
                                         });
 
                                         let (parts, body) = response.into_parts();
@@ -210,7 +216,7 @@ impl PubSubServer {
     #[allow(clippy::too_many_arguments)]
     async fn handle_client(
         client_id: ClientId,
-        x_subscription_id: String,
+        x_subscription_id: Arc<str>,
         ws_fut: UpgradeFut,
         recv_max_message_size: usize,
         enable_block_subscription: bool,
@@ -292,7 +298,7 @@ impl PubSubServer {
         .and_then(ready);
 
         let write_fut = tokio::spawn(async move {
-            let mut subscriptions = HashMap::new();
+            let mut subscriptions = HashMap::<SubscriptionId, SubscribeMethod>::new();
             let maybe_close_reason = loop {
                 tokio::select! {
                     message = read_rx.recv() => match message {
@@ -323,7 +329,12 @@ impl PubSubServer {
                                     let removed = rx.await?;
                                     if removed {
                                         if let Some(method) = subscriptions.remove(&id) {
-                                            metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
+                                            gauge!(
+                                                metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
+                                                "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                                "method" => method.as_str()
+                                            )
+                                            .decrement(1);
                                         }
                                     }
                                     removed.into()
@@ -339,7 +350,12 @@ impl PubSubServer {
                                     }
                                     let (id, method) = rx.await?;
                                     subscriptions.insert(id, method);
-                                    metrics::pubsub_subscriptions_inc(&x_subscription_id, method);
+                                    gauge!(
+                                        metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
+                                        "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                        "method" => method.as_str()
+                                    )
+                                    .increment(1);
                                     id.into()
                                 },
                             };
@@ -359,7 +375,12 @@ impl PubSubServer {
                         Ok(notification) if subscriptions.contains_key(&notification.subscription_id) => {
                             if notification.is_final {
                                 if let Some(method) = subscriptions.remove(&notification.subscription_id) {
-                                    metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
+                                    gauge!(
+                                        metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
+                                        "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                        "method" => method.as_str()
+                                    )
+                                    .decrement(1);
                                 }
                             }
 
@@ -368,7 +389,19 @@ impl PubSubServer {
                                     let size = json.len();
                                     let frame = Frame::text(Payload::Borrowed(json.as_bytes()));
                                     ws_tx.write_frame(frame).await?;
-                                    metrics::pubsub_messages_sent_inc(&x_subscription_id, notification.method, size);
+
+                                    counter!(
+                                        metrics::PUBSUB_MESSAGES_SENT_COUNT_TOTAL,
+                                        "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                        "subscription" => notification.method.as_str(),
+                                    )
+                                    .increment(1);
+                                    counter!(
+                                        metrics::PUBSUB_MESSAGES_SENT_BYTES_TOTAL,
+                                        "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                        "subscription" => notification.method.as_str(),
+                                    )
+                                    .increment(size as u64);
                                 },
                                 None => {
                                     break Some("lagged: memory".as_bytes())
@@ -386,7 +419,12 @@ impl PubSubServer {
                 ws_tx.write_frame(frame).await?;
             }
             for (_subscription_id, method) in subscriptions {
-                metrics::pubsub_subscriptions_dec(&x_subscription_id, method);
+                gauge!(
+                    metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
+                    "x_subscription_id" => Arc::clone(&x_subscription_id),
+                    "method" => method.as_str()
+                )
+                .decrement(1);
             }
             Ok::<(), anyhow::Error>(())
         })
