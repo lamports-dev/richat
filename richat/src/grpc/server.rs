@@ -6,7 +6,7 @@ use {
         metrics::{self, GrpcSubscribeMessage},
         version::VERSION,
     },
-    ::metrics::{counter, gauge},
+    ::metrics::{counter, gauge, Gauge},
     futures::{
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
@@ -377,11 +377,9 @@ impl GrpcServer {
             }
             if messages_counter > 0 {
                 let elapsed = ts.elapsed();
-                gauge!(
-                    metrics::GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL,
-                    "x_subscription_id" => Arc::clone(&state.x_subscription_id)
-                )
-                .increment(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9);
+                state
+                    .metric_cpu_usage
+                    .increment(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9);
             }
             drop(state);
             if !errored {
@@ -651,6 +649,7 @@ struct SubscribeClientState {
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
     ping_ts_latest: Instant,
+    metric_cpu_usage: Gauge,
 }
 
 impl Drop for SubscribeClientState {
@@ -674,6 +673,12 @@ impl SubscribeClientState {
         );
         gauge!(metrics::GRPC_SUBSCRIBE_TOTAL, "x_subscription_id" => Arc::clone(&x_subscription_id))
             .increment(1);
+
+        let metric_cpu_usage = gauge!(
+            metrics::GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL,
+            "x_subscription_id" => Arc::clone(&x_subscription_id)
+        );
+
         Self {
             id,
             x_subscription_id,
@@ -687,6 +692,7 @@ impl SubscribeClientState {
             messages: LinkedList::new(),
             messages_waker: None,
             ping_ts_latest: Instant::now(),
+            metric_cpu_usage,
         }
     }
 
