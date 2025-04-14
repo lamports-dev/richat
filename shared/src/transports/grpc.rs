@@ -233,8 +233,8 @@ impl<S, F1, F2> fmt::Debug for GrpcServer<S, F1, F2> {
 impl<S, F1, F2> GrpcServer<S, F1, F2>
 where
     S: Subscribe + Send + Sync + 'static,
-    F1: Fn() + Copy + Unpin + Send + Sync + 'static,
-    F2: Fn() + Copy + Unpin + Send + Sync + 'static,
+    F1: Fn() + Clone + Unpin + Send + Sync + 'static,
+    F2: Fn() + Clone + Unpin + Send + Sync + 'static,
 {
     pub async fn spawn(
         config: ConfigGrpcServer,
@@ -293,8 +293,8 @@ where
 impl<S, F1, F2> gen::geyser_server::Geyser for GrpcServer<S, F1, F2>
 where
     S: Subscribe + Send + Sync + 'static,
-    F1: Fn() + Copy + Unpin + Send + Sync + 'static,
-    F2: Fn() + Copy + Unpin + Send + Sync + 'static,
+    F2: Fn() + Clone + Unpin + Send + Sync + 'static,
+    F1: Fn() + Clone + Unpin + Send + Sync + 'static,
 {
     type SubscribeStream = ReceiverStream<F2>;
 
@@ -329,8 +329,8 @@ where
                 Ok(Response::new(ReceiverStream::new(
                     rx.boxed(),
                     id,
-                    self.on_conn_new_cb,  // on new conn
-                    self.on_conn_drop_cb, // on drop conn
+                    self.on_conn_new_cb.clone(),  // on new conn
+                    self.on_conn_drop_cb.clone(), // on drop conn
                 )))
             }
             Err(SubscribeError::NotInitialized) => Err(Status::internal("not initialized")),

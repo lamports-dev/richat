@@ -1,5 +1,6 @@
 use {
     crate::{channel::Messages, metrics, richat::config::ConfigAppsRichat, version::VERSION},
+    ::metrics::gauge,
     futures::future::{try_join_all, FutureExt, TryFutureExt},
     richat_shared::{
         shutdown::Shutdown,
@@ -19,16 +20,16 @@ impl RichatServer {
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
         let mut tasks = Vec::with_capacity(3);
 
-        use metrics::{richat_connections_add, richat_connections_dec, RichatConnectionsTransport};
-
         // Start Quic
         if let Some(config) = config.quic {
+            let connections_inc = gauge!(metrics::RICHAT_CONNECTIONS_TOTAL, "transport" => "quic");
+            let connections_dec = connections_inc.clone();
             tasks.push(
                 QuicServer::spawn(
                     config,
                     messages.clone(),
-                    || richat_connections_add(RichatConnectionsTransport::Quic), // on_conn_new_cb
-                    || richat_connections_dec(RichatConnectionsTransport::Quic), // on_conn_drop_cb
+                    move || connections_inc.increment(1), // on_conn_new_cb
+                    move || connections_dec.decrement(1), // on_conn_drop_cb
                     shutdown.clone(),
                 )
                 .await?
@@ -38,12 +39,14 @@ impl RichatServer {
 
         // Start Tcp
         if let Some(config) = config.tcp {
+            let connections_inc = gauge!(metrics::RICHAT_CONNECTIONS_TOTAL, "transport" => "tcp");
+            let connections_dec = connections_inc.clone();
             tasks.push(
                 TcpServer::spawn(
                     config,
                     messages.clone(),
-                    || richat_connections_add(RichatConnectionsTransport::Tcp), // on_conn_new_cb
-                    || richat_connections_dec(RichatConnectionsTransport::Tcp), // on_conn_drop_cb
+                    move || connections_inc.increment(1), // on_conn_new_cb
+                    move || connections_dec.decrement(1), // on_conn_drop_cb
                     shutdown.clone(),
                 )
                 .await?
@@ -53,12 +56,14 @@ impl RichatServer {
 
         // Start gRPC
         if let Some(config) = config.grpc {
+            let connections_inc = gauge!(metrics::RICHAT_CONNECTIONS_TOTAL, "transport" => "grpc");
+            let connections_dec = connections_inc.clone();
             tasks.push(
                 GrpcServer::spawn(
                     config,
                     messages.clone(),
-                    || richat_connections_add(RichatConnectionsTransport::Grpc), // on_conn_new_cb
-                    || richat_connections_dec(RichatConnectionsTransport::Grpc), // on_conn_drop_cb
+                    move || connections_inc.increment(1), // on_conn_new_cb
+                    move || connections_dec.decrement(1), // on_conn_drop_cb
                     VERSION,
                     shutdown.clone(),
                 )

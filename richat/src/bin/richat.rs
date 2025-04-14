@@ -46,6 +46,12 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let metrics_handle = if config.metrics.is_some() {
+        Some(richat::metrics::setup().context("failed to setup metrics")?)
+    } else {
+        None
+    };
+
     // Setup logs
     richat::log::setup(config.logs.json)?;
 
@@ -129,8 +135,10 @@ fn main() -> anyhow::Result<()> {
                     ready(Ok(())).boxed()
                 };
 
-                let metrics_fut = if let Some(config) = config.metrics {
-                    richat::metrics::spawn_server(config, shutdown)
+                let metrics_fut = if let (Some(config), Some(metrics_handle)) =
+                    (config.metrics, metrics_handle)
+                {
+                    richat::metrics::spawn_server(config, metrics_handle, shutdown)
                         .await?
                         .map_err(anyhow::Error::from)
                         .boxed()

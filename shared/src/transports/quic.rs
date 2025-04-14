@@ -153,8 +153,8 @@ impl QuicServer {
     pub async fn spawn(
         config: ConfigQuicServer,
         messages: impl Subscribe + Clone + Send + 'static,
-        on_conn_new_cb: impl Fn() + Copy + Send + 'static,
-        on_conn_drop_cb: impl Fn() + Copy + Send + 'static,
+        on_conn_new_cb: impl Fn() + Clone + Send + 'static,
+        on_conn_drop_cb: impl Fn() + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> Result<impl Future<Output = Result<(), JoinError>>, CreateEndpointError> {
         let endpoint = config.create_endpoint()?;
@@ -176,6 +176,8 @@ impl QuicServer {
                         };
 
                         let messages = messages.clone();
+                        let on_conn_new_cb = on_conn_new_cb.clone();
+                        let on_conn_drop_cb = on_conn_drop_cb.clone();
                         let x_tokens = Arc::clone(&x_tokens);
                         tokio::spawn(async move {
                             on_conn_new_cb();

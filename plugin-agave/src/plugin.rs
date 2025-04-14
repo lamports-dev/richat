@@ -6,6 +6,7 @@ use {
         protobuf::{ProtobufEncoder, ProtobufMessage},
         version::VERSION,
     },
+    ::metrics::gauge,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
@@ -52,6 +53,14 @@ pub struct PluginInner {
 
 impl PluginInner {
     fn new(config: Config) -> PluginResult<Self> {
+        let metrics_handle = if config.metrics.is_some() {
+            Some(metrics::setup().map_err(|error| {
+                GeyserPluginError::Custom(format!("failed to setup metrics: {error:?}").into())
+            })?)
+        } else {
+            None
+        };
+
         // Create Tokio runtime
         let runtime = config
             .tokio
@@ -67,18 +76,18 @@ impl PluginInner {
                 let shutdown = Shutdown::new();
                 let mut tasks = Vec::with_capacity(4);
 
-                use metrics::{connections_add, connections_dec, ConnectionsTransport};
-
                 // Start Quic
                 if let Some(config) = config.quic {
+                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "quic");
+                    let connections_dec = connections_inc.clone();
                     tasks.push((
                         "Quic Server",
                         PluginTask(Box::pin(
                             QuicServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_add(ConnectionsTransport::Quic), // on_conn_new_cb
-                                || connections_dec(ConnectionsTransport::Quic), // on_conn_drop_cb
+                                move || connections_inc.increment(1), // on_conn_new_cb
+                                move || connections_dec.decrement(1), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -88,14 +97,16 @@ impl PluginInner {
 
                 // Start Tcp
                 if let Some(config) = config.tcp {
+                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "tcp");
+                    let connections_dec = connections_inc.clone();
                     tasks.push((
                         "Tcp Server",
                         PluginTask(Box::pin(
                             TcpServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_add(ConnectionsTransport::Tcp), // on_conn_new_cb
-                                || connections_dec(ConnectionsTransport::Tcp), // on_conn_drop_cb
+                                move || connections_inc.increment(1), // on_conn_new_cb
+                                move || connections_dec.decrement(1), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
@@ -105,14 +116,16 @@ impl PluginInner {
 
                 // Start gRPC
                 if let Some(config) = config.grpc {
+                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "grpc");
+                    let connections_dec = connections_inc.clone();
                     tasks.push((
                         "gRPC Server",
                         PluginTask(Box::pin(
                             GrpcServer::spawn(
                                 config,
                                 messages.clone(),
-                                || connections_add(ConnectionsTransport::Grpc), // on_conn_new_cb
-                                || connections_dec(ConnectionsTransport::Grpc), // on_conn_drop_cb
+                                move || connections_inc.increment(1), // on_conn_new_cb
+                                move || connections_dec.decrement(1), // on_conn_drop_cb
                                 VERSION,
                                 shutdown.clone(),
                             )
@@ -122,11 +135,11 @@ impl PluginInner {
                 }
 
                 // Start prometheus server
-                if let Some(config) = config.metrics {
+                if let (Some(config), Some(metrics_handle)) = (config.metrics, metrics_handle) {
                     tasks.push((
                         "Prometheus Server",
                         PluginTask(Box::pin(
-                            metrics::spawn_server(config, shutdown.clone()).await?,
+                            metrics::spawn_server(config, metrics_handle, shutdown.clone()).await?,
                         )),
                     ));
                 }

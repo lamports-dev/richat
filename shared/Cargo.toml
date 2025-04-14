@@ -1,6 +1,6 @@
 [package]
 name = "richat-shared"
-version = "2.6.0"
+version = "2.7.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Shared code"
@@ -22,7 +22,6 @@ http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"], optional = true }
-prometheus = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
@@ -72,7 +71,6 @@ metrics = [
     "dep:http-body-util",
     "dep:hyper",
     "dep:hyper-util",
-    "dep:prometheus",
     "dep:tracing",
     "config",
 ]

@@ -6,11 +6,13 @@ use {
         metrics::{self, GrpcSubscribeMessage},
         version::VERSION,
     },
+    ::metrics::{counter, gauge, Gauge},
     futures::{
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
     },
     prost::Message,
+    quanta::Instant,
     richat_filter::{
         config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
         filter::Filter,
@@ -318,10 +320,8 @@ impl GrpcServer {
             }
 
             // send ping
-            let ts = SystemTime::now();
-            if !state.is_full()
-                && ts.duration_since(state.ping_ts_latest).unwrap_or_default() > ping_interval
-            {
+            let ts = Instant::now();
+            if !state.is_full() && ts.duration_since(state.ping_ts_latest) > ping_interval {
                 state.ping_ts_latest = ts;
                 let message = SubscribeClientState::create_ping();
                 state.push_message(GrpcSubscribeMessage::Ping, message);
@@ -376,9 +376,10 @@ impl GrpcServer {
                 }
             }
             if messages_counter > 0 {
-                if let Ok(elapsed) = ts.elapsed() {
-                    metrics::grpc_subscribe_cpu_inc(&state.x_subscription_id, elapsed);
-                }
+                let elapsed = ts.elapsed();
+                state
+                    .metric_cpu_usage
+                    .increment(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9);
             }
             drop(state);
             if !errored {
@@ -396,8 +397,13 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<Streaming<SubscribeRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::Subscribe);
+        let x_subscription_id: Arc<str> = Self::get_x_subscription_id(&request).into();
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Arc::clone(&x_subscription_id),
+            "method" => "subscribe"
+        )
+        .increment(1);
 
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         let client = SubscribeClient::new(id, self.subscribe_messages_len_max, x_subscription_id);
@@ -479,8 +485,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::Ping);
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "ping"
+        )
+        .increment(1);
 
         let count = request.get_ref().count;
         let response = PongResponse { count };
@@ -491,11 +501,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetLatestBlockhashRequest>,
     ) -> TonicResult<Response<GetLatestBlockhashResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(
-            &x_subscription_id,
-            metrics::GrpcRequestMethod::GetLatestBlockhash,
-        );
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "get_latest_blockhash"
+        )
+        .increment(1);
 
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
@@ -513,11 +524,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetBlockHeightRequest>,
     ) -> TonicResult<Response<GetBlockHeightResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(
-            &x_subscription_id,
-            metrics::GrpcRequestMethod::GetBlockHeight,
-        );
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "get_block_height"
+        )
+        .increment(1);
 
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
@@ -533,8 +545,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetSlotRequest>,
     ) -> TonicResult<Response<GetSlotResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::GetSlot);
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "get_slot"
+        )
+        .increment(1);
 
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
@@ -548,11 +564,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: tonic::Request<IsBlockhashValidRequest>,
     ) -> TonicResult<Response<IsBlockhashValidResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(
-            &x_subscription_id,
-            metrics::GrpcRequestMethod::IsBlockhashValid,
-        );
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "is_blockhash_valid"
+        )
+        .increment(1);
 
         let commitment = Self::parse_commitment(request.get_ref().commitment)?;
         self.with_block_meta(|storage| async move {
@@ -568,8 +585,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         &self,
         request: Request<GetVersionRequest>,
     ) -> TonicResult<Response<GetVersionResponse>> {
-        let x_subscription_id = Self::get_x_subscription_id(&request);
-        metrics::grpc_requests_inc(&x_subscription_id, metrics::GrpcRequestMethod::GetVersion);
+        counter!(
+            metrics::GRPC_REQUESTS_TOTAL,
+            "x_subscription_id" => Self::get_x_subscription_id(&request),
+            "method" => "get_version"
+        )
+        .increment(1);
 
         Ok(Response::new(GetVersionResponse {
             version: VERSION.create_grpc_version_info().json(),
@@ -598,7 +619,7 @@ impl Drop for SubscribeClient {
 }
 
 impl SubscribeClient {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: String) -> Self {
+    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
         let state = SubscribeClientState::new(id, messages_len_max, x_subscription_id);
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -617,7 +638,7 @@ impl SubscribeClient {
 #[derive(Debug)]
 struct SubscribeClientState {
     id: u64,
-    x_subscription_id: String,
+    x_subscription_id: Arc<str>,
     ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
     head: u64,
@@ -627,24 +648,37 @@ struct SubscribeClientState {
     messages_len_total: usize,
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
-    ping_ts_latest: SystemTime,
+    ping_ts_latest: Instant,
+    metric_cpu_usage: Gauge,
 }
 
 impl Drop for SubscribeClientState {
     fn drop(&mut self) {
         info!(
             id = self.id,
-            x_subscription_id = self.x_subscription_id,
+            x_subscription_id = self.x_subscription_id.as_ref(),
             "drop client state"
         );
-        metrics::grpc_subscribe_dec(&self.x_subscription_id);
+        gauge!(metrics::GRPC_SUBSCRIBE_TOTAL, "x_subscription_id" => Arc::clone(&self.x_subscription_id))
+            .decrement(1);
     }
 }
 
 impl SubscribeClientState {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: String) -> Self {
-        info!(id, x_subscription_id, "new client");
-        metrics::grpc_subscribe_inc(&x_subscription_id);
+    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
+        info!(
+            id,
+            x_subscription_id = x_subscription_id.as_ref(),
+            "new client"
+        );
+        gauge!(metrics::GRPC_SUBSCRIBE_TOTAL, "x_subscription_id" => Arc::clone(&x_subscription_id))
+            .increment(1);
+
+        let metric_cpu_usage = gauge!(
+            metrics::GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL,
+            "x_subscription_id" => Arc::clone(&x_subscription_id)
+        );
+
         Self {
             id,
             x_subscription_id,
@@ -657,7 +691,8 @@ impl SubscribeClientState {
             messages_len_total: 0,
             messages: LinkedList::new(),
             messages_waker: None,
-            ping_ts_latest: SystemTime::now(),
+            ping_ts_latest: Instant::now(),
+            metric_cpu_usage,
         }
     }
 
@@ -745,11 +780,19 @@ impl Stream for ReceiverStream {
         if let Some(item) = state.pop_message(cx) {
             let item = match item {
                 Ok((message, data)) => {
-                    metrics::grpc_subscribe_messages_inc(
-                        &state.x_subscription_id,
-                        message,
-                        data.len(),
-                    );
+                    counter!(
+                        metrics::GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL,
+                        "x_subscription_id" => Arc::clone(&state.x_subscription_id),
+                        "message" => message.as_str(),
+                    )
+                    .increment(1);
+                    counter!(
+                        metrics::GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL,
+                        "x_subscription_id" => Arc::clone(&state.x_subscription_id),
+                        "message" => message.as_str(),
+                    )
+                    .increment(data.len() as u64);
+
                     Ok(data)
                 }
                 Err(error) => Err(error),

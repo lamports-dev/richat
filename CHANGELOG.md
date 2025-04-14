@@ -16,6 +16,19 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-04-13
+
+- richat-cli-v3.2.0
+- richat-client-v2.4.0
+- richat-filter-v2.6.0
+- richat-plugin-agave-v2.3.0
+- richat-v2.6.0
+- richat-shared-v2.7.0
+
+### Features
+
+- richat: use metrics.rs (backport of [#101](https://github.com/lamports-dev/richat/pull/101)) ([#102](https://github.com/lamports-dev/richat/pull/102))
+
 ## 2025-04-09
 
 - richat-cli-v3.1.0

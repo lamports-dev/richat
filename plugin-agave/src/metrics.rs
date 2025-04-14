@@ -1,153 +1,74 @@
 use {
     crate::version::VERSION as VERSION_INFO,
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
-    prometheus::{IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
+    bytes::Bytes,
+    metrics::{counter, describe_counter, describe_gauge},
+    metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle},
     richat_shared::config::ConfigMetrics,
-    solana_sdk::clock::Slot,
-    std::{future::Future, io, sync::Once},
-    tokio::task::JoinError,
+    std::{future::Future, io},
+    tokio::{
+        task::JoinError,
+        time::{sleep, Duration},
+    },
 };
 
-lazy_static::lazy_static! {
-    pub static ref REGISTRY: Registry = Registry::new();
+pub const GEYSER_SLOT_STATUS: &str = "geyser_slot_status"; // status
+pub const GEYSER_MISSED_SLOT_STATUS: &str = "geyser_missed_slot_status_total"; // status
+pub const CHANNEL_MESSAGES_TOTAL: &str = "channel_messages_total";
+pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
+pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
+pub const CONNECTIONS_TOTAL: &str = "connections_total"; // transport
 
-    static ref VERSION: IntCounterVec = IntCounterVec::new(
-        Opts::new("version", "Richat Plugin version info"),
-        &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
-    ).unwrap();
+pub fn setup() -> Result<PrometheusHandle, BuildError> {
+    let handle = PrometheusBuilder::new().install_recorder()?;
 
-    // Geyser
-    static ref GEYSER_SLOT_STATUS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("geyser_slot_status", "Latest slot received from Geyser"),
-        &["status"]
-    ).unwrap();
+    describe_counter!("version", "Richat Plugin version info");
+    counter!(
+        "version",
+        "buildts" => VERSION_INFO.buildts,
+        "git" => VERSION_INFO.git,
+        "package" => VERSION_INFO.package,
+        "proto" => VERSION_INFO.proto,
+        "rustc" => VERSION_INFO.rustc,
+        "solana" => VERSION_INFO.solana,
+        "version" => VERSION_INFO.version,
+    )
+    .absolute(1);
 
-    static ref GEYSER_MISSED_SLOT_STATUS: IntCounterVec = IntCounterVec::new(
-        Opts::new("geyser_missed_slot_status_total", "Number of missed slot status updates"),
-        &["status"]
-    ).unwrap();
+    describe_gauge!(GEYSER_SLOT_STATUS, "Latest slot received from Geyser");
+    describe_counter!(
+        GEYSER_MISSED_SLOT_STATUS,
+        "Number of missed slot status updates"
+    );
+    describe_gauge!(
+        CHANNEL_MESSAGES_TOTAL,
+        "Total number of messages in channel"
+    );
+    describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
+    describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
+    describe_gauge!(CONNECTIONS_TOTAL, "Total number of connections");
 
-    // Channel
-    static ref CHANNEL_MESSAGES_TOTAL: IntGauge = IntGauge::new(
-        "channel_messages_total", "Total number of messages in channel"
-    ).unwrap();
-
-    static ref CHANNEL_SLOTS_TOTAL: IntGauge = IntGauge::new(
-        "channel_slots_total", "Total number of slots in channel"
-    ).unwrap();
-
-    static ref CHANNEL_BYTES_TOTAL: IntGauge = IntGauge::new(
-        "channel_bytes_total", "Total size of all messages in channel"
-    ).unwrap();
-
-    // Connections
-    static ref CONNECTIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("connections_total", "Total number of connections"),
-        &["transport"]
-    ).unwrap();
+    Ok(handle)
 }
 
 pub async fn spawn_server(
     config: ConfigMetrics,
+    handle: PrometheusHandle,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<impl Future<Output = Result<(), JoinError>>> {
-    static REGISTER: Once = Once::new();
-    REGISTER.call_once(|| {
-        macro_rules! register {
-            ($collector:ident) => {
-                REGISTRY
-                    .register(Box::new($collector.clone()))
-                    .expect("collector can't be registered");
-            };
+    let recorder_handle = handle.clone();
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(1)).await;
+            recorder_handle.run_upkeep();
         }
-        register!(VERSION);
-        register!(GEYSER_SLOT_STATUS);
-        register!(GEYSER_MISSED_SLOT_STATUS);
-        register!(CHANNEL_MESSAGES_TOTAL);
-        register!(CHANNEL_SLOTS_TOTAL);
-        register!(CHANNEL_BYTES_TOTAL);
-        register!(CONNECTIONS_TOTAL);
-
-        VERSION
-            .with_label_values(&[
-                VERSION_INFO.buildts,
-                VERSION_INFO.git,
-                VERSION_INFO.package,
-                VERSION_INFO.proto,
-                VERSION_INFO.rustc,
-                VERSION_INFO.solana,
-                VERSION_INFO.version,
-            ])
-            .inc();
     });
 
-    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), || true, || true, shutdown)
-        .await
-}
-
-pub fn geyser_slot_status_set(slot: Slot, status: &SlotStatus) {
-    if let Some(status) = match status {
-        SlotStatus::Processed => Some("processed"),
-        SlotStatus::Rooted => Some("finalized"),
-        SlotStatus::Confirmed => Some("confirmed"),
-        SlotStatus::FirstShredReceived => Some("first_shred_received"),
-        SlotStatus::Completed => Some("completed"),
-        SlotStatus::CreatedBank => Some("created_bank"),
-        SlotStatus::Dead(_) => None,
-    } {
-        GEYSER_SLOT_STATUS
-            .with_label_values(&[status])
-            .set(slot as i64);
-    }
-}
-
-pub fn geyser_missed_slot_status_inc(status: &SlotStatus) {
-    if let Some(status) = match status {
-        SlotStatus::Confirmed => Some("confirmed"),
-        SlotStatus::Rooted => Some("finalized"),
-        _ => None,
-    } {
-        GEYSER_MISSED_SLOT_STATUS.with_label_values(&[status]).inc()
-    }
-}
-
-pub fn channel_messages_set(count: usize) {
-    CHANNEL_MESSAGES_TOTAL.set(count as i64)
-}
-
-pub fn channel_slots_set(count: usize) {
-    CHANNEL_SLOTS_TOTAL.set(count as i64)
-}
-
-pub fn channel_bytes_set(count: usize) {
-    CHANNEL_BYTES_TOTAL.set(count as i64)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ConnectionsTransport {
-    Grpc,
-    Quic,
-    Tcp,
-}
-
-impl ConnectionsTransport {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Grpc => "grpc",
-            Self::Quic => "quic",
-            Self::Tcp => "tcp",
-        }
-    }
-}
-
-pub fn connections_add(transport: ConnectionsTransport) {
-    CONNECTIONS_TOTAL
-        .with_label_values(&[transport.as_str()])
-        .inc();
-}
-
-pub fn connections_dec(transport: ConnectionsTransport) {
-    CONNECTIONS_TOTAL
-        .with_label_values(&[transport.as_str()])
-        .dec();
+    richat_shared::metrics::spawn_server(
+        config,
+        move || Bytes::from(handle.render()), // metrics
+        || true,                              // health
+        || true,                              // ready
+        shutdown,
+    )
+    .await
 }

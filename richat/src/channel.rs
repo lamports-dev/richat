@@ -1,5 +1,6 @@
 use {
     crate::{config::ConfigChannelInner, metrics},
+    ::metrics::gauge,
     futures::stream::{Stream, StreamExt},
     richat_filter::{
         filter::FilteredUpdate,
@@ -335,7 +336,14 @@ impl Sender {
             // push messages to confirmed / finalized
             if let ParsedMessage::Slot(msg) = &message {
                 // update metrics
-                metrics::channel_slot_set(msg);
+                if let Some(commitment) = match msg.status() {
+                    SlotStatus::SlotProcessed => Some("processed"),
+                    SlotStatus::SlotConfirmed => Some("confirmed"),
+                    SlotStatus::SlotFinalized => Some("finalized"),
+                    _ => None,
+                } {
+                    gauge!(metrics::CHANNEL_SLOT, "commitment" => commitment).set(msg.slot() as f64)
+                }
                 if msg.status() == SlotStatus::SlotProcessed {
                     let processed_slots_len = self.processed.shared.slots_lock().len();
                     debug!(
@@ -345,11 +353,10 @@ impl Sender {
                         self.processed.bytes_total
                     );
 
-                    metrics::channel_messages_set(
-                        (self.processed.tail - self.processed.head) as usize,
-                    );
-                    metrics::channel_slots_set(processed_slots_len);
-                    metrics::channel_bytes_set(self.processed.bytes_total);
+                    gauge!(metrics::CHANNEL_MESSAGES_TOTAL)
+                        .set((self.processed.tail - self.processed.head) as f64);
+                    gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(processed_slots_len as f64);
+                    gauge!(metrics::CHANNEL_BYTES_TOTAL).set(self.processed.bytes_total as f64);
                 }
 
                 if msg.status() == SlotStatus::SlotConfirmed {

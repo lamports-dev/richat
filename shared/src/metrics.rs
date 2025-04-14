@@ -10,7 +10,6 @@ use {
         rt::tokio::{TokioExecutor, TokioIo},
         server::conn::auto::Builder as ServerBuilder,
     },
-    prometheus::{proto::MetricFamily, TextEncoder},
     std::future::Future,
     tokio::{net::TcpListener, task::JoinError},
     tracing::{error, info},
@@ -18,7 +17,7 @@ use {
 
 pub async fn spawn_server(
     ConfigMetrics { endpoint }: ConfigMetrics,
-    gather_metrics: impl Fn() -> Vec<MetricFamily> + Clone + Send + 'static,
+    gather_metrics: impl Fn() -> Bytes + Clone + Send + 'static,
     is_health_check: impl Fn() -> bool + Clone + Send + 'static,
     is_ready_check: impl Fn() -> bool + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
@@ -67,18 +66,7 @@ pub async fn spawn_server(
                                             )
                                         }
                                     }
-                                    "/metrics" => {
-                                        let metrics = TextEncoder::new()
-                                            .encode_to_string(&gather_metrics())
-                                            .unwrap_or_else(|error| {
-                                                error!(
-                                                    "could not encode custom metrics: {}",
-                                                    error
-                                                );
-                                                String::new()
-                                            });
-                                        (StatusCode::OK, Bytes::from(metrics))
-                                    }
+                                    "/metrics" => (StatusCode::OK, gather_metrics()),
                                     "/ready" => {
                                         if is_ready_check() {
                                             (StatusCode::OK, Bytes::from("OK"))

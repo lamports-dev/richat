@@ -97,8 +97,8 @@ impl TcpServer {
     pub async fn spawn(
         mut config: ConfigTcpServer,
         messages: impl Subscribe + Clone + Send + 'static,
-        on_conn_new_cb: impl Fn() + Copy + Send + 'static,
-        on_conn_drop_cb: impl Fn() + Copy + Send + 'static,
+        on_conn_new_cb: impl Fn() + Clone + Send + 'static,
+        on_conn_drop_cb: impl Fn() + Clone + Send + 'static,
         shutdown: Shutdown,
     ) -> io::Result<impl Future<Output = Result<(), JoinError>>> {
         let listener = config.listen()?;
@@ -126,6 +126,8 @@ impl TcpServer {
                         };
 
                         let messages = messages.clone();
+                        let on_conn_new_cb = on_conn_new_cb.clone();
+                        let on_conn_drop_cb = on_conn_drop_cb.clone();
                         let x_tokens = Arc::clone(&x_tokens);
                         tokio::spawn(async move {
                             on_conn_new_cb();

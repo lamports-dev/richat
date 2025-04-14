@@ -6,6 +6,7 @@ use {
         plugin::PluginNotification,
         protobuf::{ProtobufEncoder, ProtobufMessage},
     },
+    ::metrics::{counter, gauge},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
@@ -100,7 +101,10 @@ impl Sender {
                     messages.push((message, data));
 
                     error!("missed slot status update for {} ({:?})", parent, *status);
-                    metrics::geyser_missed_slot_status_inc(status);
+                    if matches!(status, SlotStatus::Confirmed | SlotStatus::Rooted) {
+                        counter!(metrics::GEYSER_MISSED_SLOT_STATUS, "status" => status.as_str())
+                            .increment(1);
+                    }
                 }
             }
         }
@@ -188,7 +192,9 @@ impl Sender {
 
         // update metrics
         if let ProtobufMessage::Slot { status, .. } = message {
-            metrics::geyser_slot_status_set(slot, status);
+            if !matches!(status, SlotStatus::Dead(_)) {
+                gauge!(metrics::GEYSER_SLOT_STATUS, "status" => status.as_str()).set(slot as f64);
+            }
             if *status == SlotStatus::Processed {
                 debug!(
                     "new processed {slot} / {} messages / {} slots / {} bytes",
@@ -197,9 +203,9 @@ impl Sender {
                     state.bytes_total
                 );
 
-                metrics::channel_messages_set((state.tail - state.head) as usize);
-                metrics::channel_slots_set(state.slots.len());
-                metrics::channel_bytes_set(state.bytes_total);
+                gauge!(metrics::CHANNEL_MESSAGES_TOTAL).set((state.tail - state.head) as f64);
+                gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(state.slots.len() as f64);
+                gauge!(metrics::CHANNEL_BYTES_TOTAL).set(state.bytes_total as f64);
             }
         }
     }

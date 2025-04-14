@@ -3,6 +3,7 @@ use {
         metrics,
         pubsub::{solana::SubscribeMethod, SubscriptionId},
     },
+    ::metrics::gauge,
     jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
     richat_shared::five8::signature_encode,
@@ -122,7 +123,8 @@ impl RpcNotifications {
         }
         self.items.push_back(json);
 
-        metrics::pubsub_stored_messages_set(self.items.len(), self.bytes_total);
+        gauge!(metrics::PUBSUB_STORED_MESSAGES_COUNT_TOTAL).set(self.items.len() as f64);
+        gauge!(metrics::PUBSUB_STORED_MESSAGES_BYTES_TOTAL).set(self.bytes_total as f64);
     }
 }
 

@@ -1,180 +1,140 @@
 use {
-    crate::{pubsub::solana::SubscribeMethod, version::VERSION as VERSION_INFO},
-    prometheus::{GaugeVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry},
-    richat_filter::{filter::FilteredUpdateType, message::MessageSlot},
-    richat_proto::geyser::SlotStatus,
+    crate::version::VERSION as VERSION_INFO,
+    hyper::body::Bytes,
+    metrics::{counter, describe_counter, describe_gauge},
+    metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle},
+    richat_filter::filter::FilteredUpdateType,
     richat_shared::config::ConfigMetrics,
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
-    std::{future::Future, sync::Once, time::Duration},
-    tokio::task::JoinError,
+    solana_sdk::clock::Slot,
+    std::future::Future,
+    tokio::{
+        task::JoinError,
+        time::{sleep, Duration},
+    },
     tracing::error,
 };
 
-lazy_static::lazy_static! {
-    pub static ref REGISTRY: Registry = Registry::new();
+pub const BLOCK_MESSAGE_FAILED: &str = "block_message_failed"; // reason
+pub const CHANNEL_SLOT: &str = "channel_slot"; // commitment
+pub const CHANNEL_MESSAGES_TOTAL: &str = "channel_messages_total";
+pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
+pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
+pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
+pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
+pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
+pub const GRPC_SUBSCRIBE_TOTAL: &str = "grpc_subscribe_total"; // x_subscription_id
+pub const GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL: &str = "grpc_subscribe_messages_count_total"; // x_subscription_id, message
+pub const GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL: &str = "grpc_subscribe_messages_bytes_total"; // x_subscription_id, message
+pub const GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL: &str = "grpc_subscribe_cpu_seconds_total"; // x_subscription_id
+pub const PUBSUB_SLOT: &str = "pubsub_slot"; // commitment
+pub const PUBSUB_CACHED_SIGNATURES_TOTAL: &str = "pubsub_cached_signatures_total";
+pub const PUBSUB_STORED_MESSAGES_COUNT_TOTAL: &str = "pubsub_stored_messages_count_total";
+pub const PUBSUB_STORED_MESSAGES_BYTES_TOTAL: &str = "pubsub_stored_messages_bytes_total";
+pub const PUBSUB_CONNECTIONS_TOTAL: &str = "pubsub_connections_total"; // x_subscription_id
+pub const PUBSUB_SUBSCRIPTIONS_TOTAL: &str = "pubsub_subscriptions_total"; // x_subscription_id, subscription
+pub const PUBSUB_MESSAGES_SENT_COUNT_TOTAL: &str = "pubsub_messages_sent_count_total"; // x_subscription_id, subscription
+pub const PUBSUB_MESSAGES_SENT_BYTES_TOTAL: &str = "pubsub_messages_sent_bytes_total"; // x_subscription_id, subscription
+pub const RICHAT_CONNECTIONS_TOTAL: &str = "richat_connections_total"; // transport
 
-    static ref VERSION: IntCounterVec = IntCounterVec::new(
-        Opts::new("version", "Richat App version info"),
-        &["buildts", "git", "package", "proto", "rustc", "solana", "version"]
-    ).unwrap();
+pub fn setup() -> Result<PrometheusHandle, BuildError> {
+    let handle = PrometheusBuilder::new().install_recorder()?;
 
-    // Block build
-    static ref BLOCK_MESSAGE_FAILED: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("block_message_failed", "Block message reconstruction errors"),
-        &["reason"]
-    ).unwrap();
+    describe_counter!("version", "Richat App version info");
+    counter!(
+        "version",
+        "buildts" => VERSION_INFO.buildts,
+        "git" => VERSION_INFO.git,
+        "package" => VERSION_INFO.package,
+        "proto" => VERSION_INFO.proto,
+        "rustc" => VERSION_INFO.rustc,
+        "solana" => VERSION_INFO.solana,
+        "version" => VERSION_INFO.version,
+    )
+    .absolute(1);
 
-    // Channel
-    static ref CHANNEL_SLOT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("channel_slot", "Latest slot in channel by commitment"),
-        &["commitment"]
-    ).unwrap();
+    describe_counter!(BLOCK_MESSAGE_FAILED, "Block message reconstruction errors");
+    describe_gauge!(CHANNEL_SLOT, "Latest slot in channel by commitment");
+    describe_gauge!(
+        CHANNEL_MESSAGES_TOTAL,
+        "Total number of messages in channel"
+    );
+    describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
+    describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
+    describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
+    describe_gauge!(
+        GRPC_BLOCK_META_QUEUE_SIZE,
+        "Number of gRPC requests to block meta data"
+    );
+    describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");
+    describe_gauge!(GRPC_SUBSCRIBE_TOTAL, "Number of gRPC subscriptions");
+    describe_counter!(
+        GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL,
+        "Number of gRPC messages in subscriptions by type"
+    );
+    describe_counter!(
+        GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL,
+        "Total size of gRPC messages in subscriptions by type"
+    );
+    describe_gauge!(
+        GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL,
+        "CPU consumption of gRPC filters in subscriptions"
+    );
+    describe_gauge!(PUBSUB_SLOT, "Latest slot handled in PubSub by commitment");
+    describe_gauge!(
+        PUBSUB_CACHED_SIGNATURES_TOTAL,
+        "Number of cached signatures"
+    );
+    describe_gauge!(
+        PUBSUB_STORED_MESSAGES_COUNT_TOTAL,
+        "Number of stored filtered messages in cache"
+    );
+    describe_gauge!(
+        PUBSUB_STORED_MESSAGES_BYTES_TOTAL,
+        "Total size of stored filtered messages in cache"
+    );
+    describe_gauge!(PUBSUB_CONNECTIONS_TOTAL, "Number of connections to PubSub");
+    describe_gauge!(
+        PUBSUB_SUBSCRIPTIONS_TOTAL,
+        "Number of subscriptions by type"
+    );
+    describe_counter!(
+        PUBSUB_MESSAGES_SENT_COUNT_TOTAL,
+        "Number of sent filtered messages by type"
+    );
+    describe_counter!(
+        PUBSUB_MESSAGES_SENT_BYTES_TOTAL,
+        "Total size of sent filtered messages by type"
+    );
+    describe_gauge!(
+        RICHAT_CONNECTIONS_TOTAL,
+        "Total number of connections to Richat"
+    );
 
-    static ref CHANNEL_MESSAGES_TOTAL: IntGauge = IntGauge::new(
-        "channel_messages_total", "Total number of messages in channel"
-    ).unwrap();
-
-    static ref CHANNEL_SLOTS_TOTAL: IntGauge = IntGauge::new(
-        "channel_slots_total", "Total number of slots in channel"
-    ).unwrap();
-
-    static ref CHANNEL_BYTES_TOTAL: IntGauge = IntGauge::new(
-        "channel_bytes_total", "Total size of all messages in channel"
-    ).unwrap();
-
-    // gRPC block meta
-    static ref GRPC_BLOCK_META_SLOT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("grpc_block_meta_slot", "Latest slot in gRPC block meta"),
-        &["commitment"]
-    ).unwrap();
-
-    static ref GRPC_BLOCK_META_QUEUE_SIZE: IntGauge = IntGauge::new(
-        "grpc_block_meta_queue_size", "Number of gRPC requests to block meta data"
-    ).unwrap();
-
-    // gRPC
-    static ref GRPC_REQUESTS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("grpc_requests_total", "Number of gRPC requests per method"),
-        &["x_subscription_id", "method"]
-    ).unwrap();
-
-    static ref GRPC_SUBSCRIBE_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("grpc_subscribe_total", "Number of gRPC subscriptions"),
-        &["x_subscription_id"]
-    ).unwrap();
-
-    static ref GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("grpc_subscribe_messages_count_total", "Number of gRPC messages in subscriptions by type"),
-        &["x_subscription_id", "message"]
-    ).unwrap();
-
-    static ref GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("grpc_subscribe_messages_bytes_total", "Total size of gRPC messages in subscriptions by type"),
-        &["x_subscription_id", "message"]
-    ).unwrap();
-
-    static ref GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL: GaugeVec = GaugeVec::new(
-        Opts::new("grpc_subscribe_cpu_seconds_total", "CPU consumption of gRPC filters in subscriptions"),
-        &["x_subscription_id"]
-    ).unwrap();
-
-    // PubSub
-    static ref PUBSUB_SLOT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("pubsub_slot", "Latest slot handled in PubSub by commitment"),
-        &["commitment"]
-    ).unwrap();
-
-    static ref PUBSUB_CACHED_SIGNATURES_TOTAL: IntGauge = IntGauge::new(
-        "pubsub_cached_signatures_total", "Number of cached signatures"
-    ).unwrap();
-
-    static ref PUBSUB_STORED_MESSAGES_COUNT_TOTAL: IntGauge = IntGauge::new(
-        "pubsub_stored_messages_count_total", "Number of stored filtered messages in cache"
-    ).unwrap();
-
-    static ref PUBSUB_STORED_MESSAGES_BYTES_TOTAL: IntGauge = IntGauge::new(
-        "pubsub_stored_messages_bytes_total", "Total size of stored filtered messages in cache"
-    ).unwrap();
-
-    static ref PUBSUB_CONNECTIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("pubsub_connections_total", "Number of connections to PubSub"),
-        &["x_subscription_id"]
-    ).unwrap();
-
-    static ref PUBSUB_SUBSCRIPTIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("pubsub_subscriptions_total", "Number of subscriptions by type"),
-        &["x_subscription_id", "subscription"]
-    ).unwrap();
-
-    static ref PUBSUB_MESSAGES_SENT_COUNT_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("pubsub_messages_sent_count_total", "Number of sent filtered messages by type"),
-        &["x_subscription_id", "subscription"]
-    ).unwrap();
-
-    static ref PUBSUB_MESSAGES_SENT_BYTES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("pubsub_messages_sent_bytes_total", "Total size of sent filtered messages by type"),
-        &["x_subscription_id", "subscription"]
-    ).unwrap();
-
-    // Richat
-    static ref RICHAT_CONNECTIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("richat_connections_total", "Total number of connections to Richat"),
-        &["transport"]
-    ).unwrap();
+    Ok(handle)
 }
 
 pub async fn spawn_server(
     config: ConfigMetrics,
+    handle: PrometheusHandle,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
-    static REGISTER: Once = Once::new();
-    REGISTER.call_once(|| {
-        macro_rules! register {
-            ($collector:ident) => {
-                REGISTRY
-                    .register(Box::new($collector.clone()))
-                    .expect("collector can't be registered");
-            };
+    let recorder_handle = handle.clone();
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(1)).await;
+            recorder_handle.run_upkeep();
         }
-        register!(VERSION);
-        register!(BLOCK_MESSAGE_FAILED);
-        register!(CHANNEL_SLOT);
-        register!(CHANNEL_MESSAGES_TOTAL);
-        register!(CHANNEL_SLOTS_TOTAL);
-        register!(CHANNEL_BYTES_TOTAL);
-        register!(GRPC_BLOCK_META_SLOT);
-        register!(GRPC_BLOCK_META_QUEUE_SIZE);
-        register!(GRPC_REQUESTS_TOTAL);
-        register!(GRPC_SUBSCRIBE_TOTAL);
-        register!(GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL);
-        register!(GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL);
-        register!(GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL);
-        register!(PUBSUB_SLOT);
-        register!(PUBSUB_CACHED_SIGNATURES_TOTAL);
-        register!(PUBSUB_STORED_MESSAGES_COUNT_TOTAL);
-        register!(PUBSUB_STORED_MESSAGES_BYTES_TOTAL);
-        register!(PUBSUB_CONNECTIONS_TOTAL);
-        register!(PUBSUB_SUBSCRIPTIONS_TOTAL);
-        register!(PUBSUB_MESSAGES_SENT_COUNT_TOTAL);
-        register!(PUBSUB_MESSAGES_SENT_BYTES_TOTAL);
-        register!(RICHAT_CONNECTIONS_TOTAL);
-
-        VERSION
-            .with_label_values(&[
-                VERSION_INFO.buildts,
-                VERSION_INFO.git,
-                VERSION_INFO.package,
-                VERSION_INFO.proto,
-                VERSION_INFO.rustc,
-                VERSION_INFO.solana,
-                VERSION_INFO.version,
-            ])
-            .inc();
     });
 
-    richat_shared::metrics::spawn_server(config, || REGISTRY.gather(), || true, || true, shutdown)
-        .await
-        .map_err(Into::into)
+    richat_shared::metrics::spawn_server(
+        config,
+        move || Bytes::from(handle.render()), // metrics
+        || true,                              // health
+        || true,                              // ready
+        shutdown,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,102 +174,10 @@ pub fn block_message_failed_inc(slot: Slot, reasons: &[BlockMessageFailedReason]
         );
 
         for reason in reasons {
-            BLOCK_MESSAGE_FAILED
-                .with_label_values(&[reason.as_str()])
-                .inc();
+            counter!(BLOCK_MESSAGE_FAILED, "reason" => reason.as_str()).increment(1);
         }
-        BLOCK_MESSAGE_FAILED
-            .with_label_values(&["Total"])
-            .add(reasons.len() as i64);
+        counter!(BLOCK_MESSAGE_FAILED, "reason" => "Total").increment(reasons.len() as u64);
     }
-}
-
-pub fn channel_slot_set(message: &MessageSlot) {
-    if let Some(commitment) = match message.status() {
-        SlotStatus::SlotProcessed => Some("processed"),
-        SlotStatus::SlotConfirmed => Some("confirmed"),
-        SlotStatus::SlotFinalized => Some("finalized"),
-        _ => None,
-    } {
-        CHANNEL_SLOT
-            .with_label_values(&[commitment])
-            .set(message.slot() as i64)
-    }
-}
-
-pub fn channel_messages_set(count: usize) {
-    CHANNEL_MESSAGES_TOTAL.set(count as i64)
-}
-
-pub fn channel_slots_set(count: usize) {
-    CHANNEL_SLOTS_TOTAL.set(count as i64)
-}
-
-pub fn channel_bytes_set(bytes: usize) {
-    CHANNEL_BYTES_TOTAL.set(bytes as i64)
-}
-
-pub fn grpc_block_meta_slot_set(commitment: CommitmentLevel, slot: Slot) {
-    if let Some(commitment) = match commitment {
-        CommitmentLevel::Processed => Some("processed"),
-        CommitmentLevel::Confirmed => Some("confirmed"),
-        CommitmentLevel::Finalized => Some("finalized"),
-    } {
-        GRPC_BLOCK_META_SLOT
-            .with_label_values(&[commitment])
-            .set(slot as i64)
-    }
-}
-
-pub fn grpc_block_meta_queue_inc() {
-    GRPC_BLOCK_META_QUEUE_SIZE.inc()
-}
-
-pub fn grpc_block_meta_queue_dec() {
-    GRPC_BLOCK_META_QUEUE_SIZE.dec()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrpcRequestMethod {
-    Subscribe,
-    Ping,
-    GetLatestBlockhash,
-    GetBlockHeight,
-    GetSlot,
-    IsBlockhashValid,
-    GetVersion,
-}
-
-impl GrpcRequestMethod {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Subscribe => "subscribe",
-            Self::Ping => "ping",
-            Self::GetLatestBlockhash => "get_latest_blockhash",
-            Self::GetBlockHeight => "get_block_height",
-            Self::GetSlot => "get_slot",
-            Self::IsBlockhashValid => "is_blockhash_valid",
-            Self::GetVersion => "get_version",
-        }
-    }
-}
-
-pub fn grpc_requests_inc(x_subscription_id: &str, method: GrpcRequestMethod) {
-    GRPC_REQUESTS_TOTAL
-        .with_label_values(&[x_subscription_id, method.as_str()])
-        .inc()
-}
-
-pub fn grpc_subscribe_inc(x_subscription_id: &str) {
-    GRPC_SUBSCRIBE_TOTAL
-        .with_label_values(&[x_subscription_id])
-        .inc()
-}
-
-pub fn grpc_subscribe_dec(x_subscription_id: &str) {
-    GRPC_SUBSCRIBE_TOTAL
-        .with_label_values(&[x_subscription_id])
-        .dec()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,110 +221,4 @@ impl GrpcSubscribeMessage {
             GrpcSubscribeMessage::Pong => "pong",
         }
     }
-}
-
-pub fn grpc_subscribe_messages_inc(
-    x_subscription_id: &str,
-    message: GrpcSubscribeMessage,
-    bytes: usize,
-) {
-    GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL
-        .with_label_values(&[x_subscription_id, message.as_str()])
-        .inc();
-    GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL
-        .with_label_values(&[x_subscription_id, message.as_str()])
-        .add(bytes as i64)
-}
-
-pub fn grpc_subscribe_cpu_inc(x_subscription_id: &str, elapsed: Duration) {
-    GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL
-        .with_label_values(&[x_subscription_id])
-        .add(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9)
-}
-
-pub fn pubsub_slot_set(commitment: CommitmentLevel, slot: Slot) {
-    if let Some(commitment) = match commitment {
-        CommitmentLevel::Processed => Some("processed"),
-        CommitmentLevel::Confirmed => Some("confirmed"),
-        CommitmentLevel::Finalized => Some("finalized"),
-    } {
-        PUBSUB_SLOT
-            .with_label_values(&[commitment])
-            .set(slot as i64)
-    }
-}
-
-pub fn pubsub_cached_signatures_set_count(count: usize) {
-    PUBSUB_CACHED_SIGNATURES_TOTAL.set(count as i64)
-}
-
-pub fn pubsub_stored_messages_set(count: usize, bytes: usize) {
-    PUBSUB_STORED_MESSAGES_COUNT_TOTAL.set(count as i64);
-    PUBSUB_STORED_MESSAGES_BYTES_TOTAL.set(bytes as i64);
-}
-
-pub fn pubsub_connections_inc(x_subscription_id: &str) {
-    PUBSUB_CONNECTIONS_TOTAL
-        .with_label_values(&[x_subscription_id])
-        .inc()
-}
-
-pub fn pubsub_connections_dec(x_subscription_id: &str) {
-    PUBSUB_CONNECTIONS_TOTAL
-        .with_label_values(&[x_subscription_id])
-        .dec()
-}
-
-pub fn pubsub_subscriptions_inc(x_subscription_id: &str, subscription: SubscribeMethod) {
-    PUBSUB_SUBSCRIPTIONS_TOTAL
-        .with_label_values(&[x_subscription_id, subscription.as_str()])
-        .inc()
-}
-
-pub fn pubsub_subscriptions_dec(x_subscription_id: &str, subscription: SubscribeMethod) {
-    PUBSUB_SUBSCRIPTIONS_TOTAL
-        .with_label_values(&[x_subscription_id, subscription.as_str()])
-        .dec()
-}
-
-pub fn pubsub_messages_sent_inc(
-    x_subscription_id: &str,
-    subscription: SubscribeMethod,
-    bytes: usize,
-) {
-    PUBSUB_MESSAGES_SENT_COUNT_TOTAL
-        .with_label_values(&[x_subscription_id, subscription.as_str()])
-        .inc();
-    PUBSUB_MESSAGES_SENT_BYTES_TOTAL
-        .with_label_values(&[x_subscription_id, subscription.as_str()])
-        .inc_by(bytes as u64);
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RichatConnectionsTransport {
-    Grpc,
-    Quic,
-    Tcp,
-}
-
-impl RichatConnectionsTransport {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Grpc => "grpc",
-            Self::Quic => "quic",
-            Self::Tcp => "tcp",
-        }
-    }
-}
-
-pub fn richat_connections_add(transport: RichatConnectionsTransport) {
-    RICHAT_CONNECTIONS_TOTAL
-        .with_label_values(&[transport.as_str()])
-        .inc();
-}
-
-pub fn richat_connections_dec(transport: RichatConnectionsTransport) {
-    RICHAT_CONNECTIONS_TOTAL
-        .with_label_values(&[transport.as_str()])
-        .dec();
 }
