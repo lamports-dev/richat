@@ -74,6 +74,9 @@ jobs:
         run: cargo check -p richat-shared --all-targets --no-default-features --features="five8"
 
       - name: check features in `richat-shared`
+        run: cargo check -p richat-shared --all-targets --no-default-features --features="jsonrpc"
+
+      - name: check features in `richat-shared`
         run: cargo check -p richat-shared --all-targets --no-default-features --features="metrics"
 
       - name: check features in `richat-shared`

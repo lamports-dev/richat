@@ -26,7 +26,7 @@ use {
         PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing,
         SubscribeUpdatePong,
     },
-    richat_shared::{shutdown::Shutdown, transports::RecvError},
+    richat_shared::{metrics::duration_to_seconds, shutdown::Shutdown, transports::RecvError},
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
@@ -376,10 +376,9 @@ impl GrpcServer {
                 }
             }
             if messages_counter > 0 {
-                let elapsed = ts.elapsed();
                 state
                     .metric_cpu_usage
-                    .increment(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9);
+                    .increment(duration_to_seconds(ts.elapsed()));
             }
             drop(state);
             if !errored {

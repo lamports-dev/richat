@@ -2,6 +2,8 @@
 pub mod config;
 #[cfg(feature = "five8")]
 pub mod five8;
+#[cfg(feature = "jsonrpc")]
+pub mod jsonrpc;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 #[cfg(feature = "shutdown")]
