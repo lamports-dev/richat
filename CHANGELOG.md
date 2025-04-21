@@ -16,6 +16,19 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-04-21
+
+- richat-cli-v3.3.0
+- richat-client-v2.5.0
+- richat-filter-v2.7.0
+- richat-plugin-agave-v2.4.0
+- richat-v2.7.0
+- richat-shared-v2.8.0
+
+### Features
+
+- shared: add jsonrpc feature (backport of [#104](https://github.com/lamports-dev/richat/pull/104)) ([#105](https://github.com/lamports-dev/richat/pull/105))
+
 ## 2025-04-13
 
 - richat-cli-v3.2.0

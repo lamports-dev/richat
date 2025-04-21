@@ -218,7 +218,7 @@ pub struct GrpcServer<S, F1, F2> {
     subscribe_id: AtomicU64,
     on_conn_new_cb: F1,
     on_conn_drop_cb: F2,
-    version: Version,
+    version: Version<'static>,
 }
 
 impl<S, F1, F2> fmt::Debug for GrpcServer<S, F1, F2> {
@@ -241,7 +241,7 @@ where
         messages: S,
         on_conn_new_cb: F1,
         on_conn_drop_cb: F2,
-        version: Version,
+        version: Version<'static>,
         shutdown: Shutdown,
     ) -> Result<impl Future<Output = Result<(), JoinError>>, CreateServerError> {
         let (incoming, server_builder) = config.create_server_builder()?;

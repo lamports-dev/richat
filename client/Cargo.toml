@@ -1,6 +1,6 @@
 [package]
 name = "richat-client"
-version = "2.4.0"
+version = "2.5.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Client Library"
@@ -18,7 +18,7 @@ pin-project-lite = { workspace = true }
 prost = { workspace = true }
 quinn = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true }
+richat-shared = { workspace = true, features = ["config", "transports"] }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }

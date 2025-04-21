@@ -1,19 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct Version {
-    pub package: &'static str,
-    pub version: &'static str,
-    pub proto: &'static str,
-    pub proto_richat: &'static str,
-    pub solana: &'static str,
-    pub git: &'static str,
-    pub rustc: &'static str,
-    pub buildts: &'static str,
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub struct Version<'a> {
+    pub package: &'a str,
+    pub version: &'a str,
+    pub proto: &'a str,
+    pub proto_richat: &'a str,
+    pub solana: &'a str,
+    pub git: &'a str,
+    pub rustc: &'a str,
+    pub buildts: &'a str,
 }
 
-impl Version {
-    pub fn create_grpc_version_info(self) -> GrpcVersionInfo {
+impl<'a> Version<'a> {
+    pub fn create_grpc_version_info(self) -> GrpcVersionInfo<'a> {
         GrpcVersionInfo::new(self)
     }
 }
@@ -23,14 +23,15 @@ pub struct GrpcVersionInfoExtra {
     hostname: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct GrpcVersionInfo {
-    version: Version,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GrpcVersionInfo<'a> {
+    #[serde(borrow)]
+    version: Version<'a>,
     extra: GrpcVersionInfoExtra,
 }
 
-impl GrpcVersionInfo {
-    pub fn new(version: Version) -> Self {
+impl<'a> GrpcVersionInfo<'a> {
+    pub fn new(version: Version<'a>) -> Self {
         Self {
             version,
             extra: GrpcVersionInfoExtra {

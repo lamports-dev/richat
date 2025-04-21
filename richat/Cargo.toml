@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "2.6.0"
+version = "2.7.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -34,7 +34,7 @@ rayon = { workspace = true }
 richat-client = { workspace = true }
 richat-filter = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true }
+richat-shared = { workspace = true, features = ["jsonrpc", "metrics"] }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }

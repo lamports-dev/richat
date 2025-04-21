@@ -1,6 +1,6 @@
 [package]
 name = "richat-shared"
-version = "2.7.0"
+version = "2.8.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Shared code"
@@ -12,6 +12,7 @@ publish = true
 
 [dependencies]
 affinity-linux = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 bs58 = { workspace = true, optional = true }
 five8 = { workspace = true, optional = true }
@@ -22,7 +23,11 @@ http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"], optional = true }
+jsonrpc-core = { workspace = true, optional = true }
+jsonrpsee-types = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
+quanta = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 richat-proto = { workspace = true, optional = true }
@@ -32,6 +37,7 @@ serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 slab = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
+solana-rpc-client-api = { workspace = true, optional = true }
 solana-sdk = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
@@ -47,6 +53,7 @@ tonic-build = { workspace = true, optional = true }
 default = [
     "config",
     "five8",
+    "jsonrpc",
     "metrics",
     "shutdown",
     "transports",
@@ -66,6 +73,18 @@ config = [
     "five8",
 ]
 five8 = ["dep:five8", "dep:solana-sdk"]
+jsonrpc = [
+    "dep:anyhow",
+    "dep:futures",
+    "dep:jsonrpc-core",
+    "dep:jsonrpsee-types",
+    "dep:metrics",
+    "dep:quanta",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:solana-rpc-client-api",
+    "metrics",
+]
 metrics = [
     "dep:http",
     "dep:http-body-util",

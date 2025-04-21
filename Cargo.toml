@@ -45,6 +45,7 @@ hyper = "1.4.1"
 hyper-util = "0.1.7"
 indicatif = "0.17.9"
 json5 = "0.4.1"
+jsonrpc-core = "18.0.0"
 jsonrpsee-types = "0.24.8"
 log = "0.4.22"
 maplit = "1.0.2"
@@ -59,11 +60,11 @@ quanta = "0.12.5"
 quinn = "0.11.6"
 rayon = "1.10.0"
 rcgen = "0.13.1"
-richat-client = { path = "client", version = "2.4.0" }
-richat-filter = { path = "filter", version = "2.6.0" }
-richat-plugin-agave = { path = "plugin-agave", version = "2.3.0" }
+richat-client = { path = "client", version = "2.5.0" }
+richat-filter = { path = "filter", version = "2.7.0" }
+richat-plugin-agave = { path = "plugin-agave", version = "2.4.0" }
 richat-proto = { path = "proto", version = "2.1.0" }
-richat-shared = { path = "shared", version = "2.7.0" }
+richat-shared = { path = "shared", version = "2.8.0" }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"

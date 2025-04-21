@@ -26,7 +26,10 @@ use {
         PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing,
         SubscribeUpdatePong,
     },
-    richat_shared::{shutdown::Shutdown, transports::RecvError},
+    richat_shared::{
+        jsonrpc::helpers::X_SUBSCRIPTION_ID, metrics::duration_to_seconds, shutdown::Shutdown,
+        transports::RecvError,
+    },
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
     std::{
@@ -174,7 +177,7 @@ impl GrpcServer {
     fn get_x_subscription_id<T>(request: &Request<T>) -> String {
         request
             .metadata()
-            .get("x-subscription-id")
+            .get(X_SUBSCRIPTION_ID)
             .and_then(|value| value.to_str().ok().map(ToOwned::to_owned))
             .unwrap_or_default()
     }
@@ -376,10 +379,9 @@ impl GrpcServer {
                 }
             }
             if messages_counter > 0 {
-                let elapsed = ts.elapsed();
                 state
                     .metric_cpu_usage
-                    .increment(elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1e9);
+                    .increment(duration_to_seconds(ts.elapsed()));
             }
             drop(state);
             if !errored {

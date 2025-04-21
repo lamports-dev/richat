@@ -1,6 +1,6 @@
 [package]
 name = "richat-plugin-agave"
-version = "2.3.0"
+version = "2.4.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Agave Geyser Plugin"
@@ -36,7 +36,7 @@ prost = { workspace = true }
 prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true }
+richat-shared = { workspace = true, features = ["metrics", "shutdown", "transports", "version"] }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
