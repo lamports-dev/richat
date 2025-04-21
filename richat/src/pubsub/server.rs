@@ -25,7 +25,7 @@ use {
         server::conn::auto::Builder as ServerBuilder,
     },
     jsonrpsee_types::{ResponsePayload, TwoPointZero},
-    richat_shared::shutdown::Shutdown,
+    richat_shared::{jsonrpc::helpers::get_x_subscription_id, shutdown::Shutdown},
     solana_rpc_client_api::response::RpcVersionInfo,
     std::{collections::HashMap, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
     tokio::{
@@ -127,12 +127,7 @@ impl PubSubServer {
                         let notifications = notifications.subscribe();
                         let shutdown = shutdown.clone();
                         async move {
-                            let x_subscription_id: Arc<str> = req
-                                .headers()
-                                .get("x-subscription-id")
-                                .and_then(|value| value.to_str().ok().map(ToOwned::to_owned))
-                                .unwrap_or_default()
-                                .into();
+                            let x_subscription_id: Arc<str> = get_x_subscription_id(req.headers());
                             let connections_total = gauge!(
                                 metrics::PUBSUB_CONNECTIONS_TOTAL,
                                 "x_subscription_id" => Arc::clone(&x_subscription_id),

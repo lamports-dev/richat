@@ -17,7 +17,7 @@ bs58 = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true }
+richat-shared = { workspace = true, features = ["config", "five8"] }
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true }
 solana-account = { workspace = true }
