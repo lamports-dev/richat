@@ -6,7 +6,7 @@ use {
     richat_filter::filter::FilteredUpdateType,
     richat_shared::config::ConfigMetrics,
     solana_sdk::clock::Slot,
-    std::future::Future,
+    std::{borrow::Cow, future::Future},
     tokio::{
         task::JoinError,
         time::{sleep, Duration},
@@ -140,26 +140,12 @@ pub async fn spawn_server(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockMessageFailedReason {
     MissedBlockMeta,
-    MismatchTransactions,
-    MismatchEntries,
+    MismatchTransactions { actual: usize, expected: usize },
+    MismatchEntries { actual: usize, expected: usize },
     ExtraAccount,
     ExtraTransaction,
     ExtraEntry,
     ExtraBlockMeta,
-}
-
-impl BlockMessageFailedReason {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::MissedBlockMeta => "MissedBlockMeta",
-            Self::MismatchTransactions => "MismatchTransactions",
-            Self::MismatchEntries => "MismatchEntries",
-            Self::ExtraAccount => "ExtraAccount",
-            Self::ExtraTransaction => "ExtraTransaction",
-            Self::ExtraEntry => "ExtraEntry",
-            Self::ExtraBlockMeta => "ExtraBlockMeta",
-        }
-    }
 }
 
 pub fn block_message_failed_inc(slot: Slot, reasons: &[BlockMessageFailedReason]) {
@@ -168,13 +154,32 @@ pub fn block_message_failed_inc(slot: Slot, reasons: &[BlockMessageFailedReason]
             "failed to build block ({slot}): {}",
             reasons
                 .iter()
-                .map(|r| r.as_str())
+                .map(|reason| match reason {
+                    BlockMessageFailedReason::MissedBlockMeta => Cow::Borrowed("MissedBlockMeta"),
+                    BlockMessageFailedReason::MismatchTransactions { actual, expected } =>
+                        Cow::Owned(format!("MismatchTransactions({actual}/{expected})")),
+                    BlockMessageFailedReason::MismatchEntries { actual, expected } =>
+                        Cow::Owned(format!("MismatchEntries({actual}/{expected})")),
+                    BlockMessageFailedReason::ExtraAccount => Cow::Borrowed("ExtraAccount"),
+                    BlockMessageFailedReason::ExtraTransaction => Cow::Borrowed("ExtraTransaction"),
+                    BlockMessageFailedReason::ExtraEntry => Cow::Borrowed("ExtraEntry"),
+                    BlockMessageFailedReason::ExtraBlockMeta => Cow::Borrowed("ExtraBlockMeta"),
+                })
                 .collect::<Vec<_>>()
                 .join(",")
         );
 
         for reason in reasons {
-            counter!(BLOCK_MESSAGE_FAILED, "reason" => reason.as_str()).increment(1);
+            let reason = match reason {
+                BlockMessageFailedReason::MissedBlockMeta => "MissedBlockMeta",
+                BlockMessageFailedReason::MismatchTransactions { .. } => "MismatchTransactions",
+                BlockMessageFailedReason::MismatchEntries { .. } => "MismatchEntries",
+                BlockMessageFailedReason::ExtraAccount => "ExtraAccount",
+                BlockMessageFailedReason::ExtraTransaction => "ExtraTransaction",
+                BlockMessageFailedReason::ExtraEntry => "ExtraEntry",
+                BlockMessageFailedReason::ExtraBlockMeta => "ExtraBlockMeta",
+            };
+            counter!(BLOCK_MESSAGE_FAILED, "reason" => reason).increment(1);
         }
         counter!(BLOCK_MESSAGE_FAILED, "reason" => "Total").increment(reasons.len() as u64);
     }

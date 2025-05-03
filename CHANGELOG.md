@@ -14,6 +14,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: detailed mismatch error message ([#107](https://github.com/lamports-dev/richat/pull/107))
+
 ### Breaking
 
 ## 2025-04-21
