@@ -44,32 +44,23 @@ pub fn response_500<E: fmt::Display>(error: E) -> HttpResult<RpcResponse> {
         .body(format!("{error}\n").boxed())
 }
 
-pub fn jsonrpc_response_success(
-    id: Id<'_>,
-    payload: serde_json::Value,
-) -> Response<'_, serde_json::Value> {
-    Response {
+pub fn jsonrpc_response_success<T: Clone + Serialize>(id: Id<'_>, payload: T) -> Vec<u8> {
+    to_vec(&Response {
         jsonrpc: Some(TwoPointZero),
         payload: ResponsePayload::success(payload),
         id,
-    }
+    })
 }
 
-pub fn jsonrpc_response_error(
-    id: Id<'_>,
-    error: ErrorObjectOwned,
-) -> Response<'_, serde_json::Value> {
-    Response {
+pub fn jsonrpc_response_error(id: Id<'_>, error: ErrorObjectOwned) -> Vec<u8> {
+    to_vec(&Response {
         jsonrpc: Some(TwoPointZero),
-        payload: ResponsePayload::error(error),
+        payload: ResponsePayload::<()>::error(error),
         id,
-    }
+    })
 }
 
-pub fn jsonrpc_response_error_custom(
-    id: Id<'_>,
-    error: RpcCustomError,
-) -> Response<'_, serde_json::Value> {
+pub fn jsonrpc_response_error_custom(id: Id<'_>, error: RpcCustomError) -> Vec<u8> {
     let error = jsonrpc_core::Error::from(error);
     jsonrpc_response_error(
         id,
@@ -82,4 +73,8 @@ pub fn jsonrpc_error_invalid_params<S: Serialize>(
     data: Option<S>,
 ) -> ErrorObjectOwned {
     ErrorObject::owned(ErrorCode::InvalidParams.code(), message, data)
+}
+
+pub fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
+    serde_json::to_vec(value).expect("json serialization never fail")
 }

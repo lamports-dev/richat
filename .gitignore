@@ -1,7 +1,7 @@
 # Project
-plugin-agave/config-test.json
+plugin-agave/config.dev.json
 plugin-agave/fixtures/blocks
-richat/config-test.yml
+richat/config.dev.yml
 
 # Solana
 test-ledger

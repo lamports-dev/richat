@@ -330,6 +330,11 @@ impl GeyserPlugin for Plugin {
 ///
 /// This function returns the Plugin pointer as trait GeyserPlugin.
 pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
+    #[cfg(feature = "test-validator")]
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to call CryptoProvider::install_default()");
+
     let plugin = Plugin::default();
     let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
     Box::into_raw(plugin)

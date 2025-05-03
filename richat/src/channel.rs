@@ -717,11 +717,19 @@ impl Drop for SlotInfo {
         if !self.block_created && !self.failed && self.landed {
             let mut reasons = vec![];
             if let Some(block_meta) = &self.block_meta {
-                if block_meta.executed_transaction_count() as usize != self.transactions_count {
-                    reasons.push(metrics::BlockMessageFailedReason::MismatchTransactions);
+                let executed_transaction_count = block_meta.executed_transaction_count() as usize;
+                if executed_transaction_count != self.transactions_count {
+                    reasons.push(metrics::BlockMessageFailedReason::MismatchTransactions {
+                        actual: self.transactions_count,
+                        expected: executed_transaction_count,
+                    });
                 }
-                if block_meta.entries_count() as usize != self.entries_count {
-                    reasons.push(metrics::BlockMessageFailedReason::MismatchEntries);
+                let entries_count = block_meta.entries_count() as usize;
+                if entries_count != self.entries_count {
+                    reasons.push(metrics::BlockMessageFailedReason::MismatchEntries {
+                        actual: self.entries_count,
+                        expected: entries_count,
+                    });
                 }
             } else {
                 reasons.push(metrics::BlockMessageFailedReason::MissedBlockMeta);
