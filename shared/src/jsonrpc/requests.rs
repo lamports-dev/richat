@@ -3,7 +3,7 @@ use {
         jsonrpc::{
             helpers::{
                 get_x_bigtable_disabled, get_x_subscription_id, response_200, response_400,
-                response_500, RpcResponse,
+                response_500, to_vec, RpcResponse,
             },
             metrics::{
                 RPC_REQUESTS_DURATION_SECONDS, RPC_REQUESTS_GENERATED_BYTES_TOTAL,
@@ -27,11 +27,10 @@ use {
     std::{collections::HashMap, fmt, sync::Arc},
 };
 
-pub type RpcRequestResult<'a> = anyhow::Result<Response<'a, serde_json::Value>>;
+pub type RpcRequestResult = anyhow::Result<Vec<u8>>;
 
-pub type RpcRequestHandler<S> = Box<
-    dyn Fn(S, Arc<str>, bool, Request<'_>) -> BoxFuture<'_, RpcRequestResult<'_>> + Send + Sync,
->;
+pub type RpcRequestHandler<S> =
+    Box<dyn Fn(S, Arc<str>, bool, Request<'_>) -> BoxFuture<'_, RpcRequestResult> + Send + Sync>;
 
 #[derive(Debug)]
 enum RpcRequests<'a> {
@@ -103,9 +102,7 @@ impl<S: Clone> RpcRequestsProcessor<S> {
                     .process(Arc::clone(&x_subscription_id), upstream_disabled, request)
                     .await
                 {
-                    Ok(response) => {
-                        serde_json::to_vec(&response).expect("json serialization never fail")
-                    }
+                    Ok(response) => response,
                     Err(error) => return response_500(error),
                 }
             }
@@ -124,8 +121,9 @@ impl<S: Clone> RpcRequestsProcessor<S> {
                 buffer.push(b'[');
                 while let Some(result) = futures.next().await {
                     match result {
-                        Ok(response) => serde_json::to_writer(&mut buffer, &response)
-                            .expect("json serialization never fail"),
+                        Ok(mut response) => {
+                            buffer.append(&mut response);
+                        }
                         Err(error) => return response_500(error),
                     }
                     if !futures.is_empty() {
@@ -150,13 +148,13 @@ impl<S: Clone> RpcRequestsProcessor<S> {
         x_subscription_id: Arc<str>,
         upstream_disabled: bool,
         request: Request<'a>,
-    ) -> anyhow::Result<Response<'a, serde_json::Value>> {
+    ) -> anyhow::Result<Vec<u8>> {
         let Some((method, handle)) = self.methods.get_key_value(request.method.as_ref()) else {
-            return Ok(Response {
+            return Ok(to_vec(&Response {
                 jsonrpc: Some(TwoPointZero),
-                payload: ResponsePayload::error(ErrorCode::MethodNotFound),
+                payload: ResponsePayload::<()>::error(ErrorCode::MethodNotFound),
                 id: request.id.into_owned(),
-            });
+            }));
         };
 
         let ts = Instant::now();
