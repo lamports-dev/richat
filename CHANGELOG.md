@@ -16,14 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2025-05-02
+## 2025-05-03
 
-- richat-cli-v4.3.0
-- richat-client-v3.3.0
-- richat-filter-v3.3.0
-- richat-plugin-agave-v3.3.0
-- richat-v3.4.0
-- richat-shared-v3.3.0
+- richat-cli-v4.4.0
+- richat-client-v3.4.0
+- richat-filter-v3.4.0
+- richat-plugin-agave-v3.4.0
+- richat-v3.5.0
+- richat-shared-v3.4.0
 
 ### Features
 
