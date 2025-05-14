@@ -26,7 +26,6 @@ jsonrpsee-types = { workspace = true }
 maplit = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
-pin-project-lite = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 quanta = { workspace = true }

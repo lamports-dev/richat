@@ -5004,7 +5004,6 @@ dependencies = [
  "maplit",
  "metrics",
  "metrics-exporter-prometheus",
- "pin-project-lite",
  "prost 0.13.5",
  "prost-types 0.13.5",
  "quanta",
