@@ -178,6 +178,25 @@ impl Messages {
             Some(shared.tail.load(Ordering::Relaxed))
         }
     }
+
+    pub fn get_first_available_slot(&self) -> Option<Slot> {
+        let slot = self
+            .shared_processed
+            .slots_lock()
+            .first_key_value()
+            .map(|(slot, _head)| *slot)?;
+        if let Some(shared) = self.shared_confirmed.as_ref() {
+            if !shared.slots_lock().contains_key(&slot) {
+                return None;
+            }
+        }
+        if let Some(shared) = self.shared_finalized.as_ref() {
+            if !shared.slots_lock().contains_key(&slot) {
+                return None;
+            }
+        }
+        Some(slot)
+    }
 }
 
 impl Subscribe for Messages {

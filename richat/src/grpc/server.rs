@@ -23,8 +23,8 @@ use {
         GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
         GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
         GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeRequest, SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing,
-        SubscribeUpdatePong,
+        PongResponse, SubscribeReplayInfoRequest, SubscribeReplayInfoResponse, SubscribeRequest,
+        SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
     },
     richat_shared::{
         jsonrpc::helpers::X_SUBSCRIPTION_ID, metrics::duration_to_seconds, shutdown::Shutdown,
@@ -484,6 +484,16 @@ impl gen::geyser_server::Geyser for GrpcServer {
         });
 
         Ok(Response::new(ReceiverStream::new(client)))
+    }
+
+    async fn subscribe_replay_info(
+        &self,
+        _request: Request<SubscribeReplayInfoRequest>,
+    ) -> TonicResult<Response<SubscribeReplayInfoResponse>> {
+        let response = SubscribeReplayInfoResponse {
+            first_available: self.messages.get_first_available_slot(),
+        };
+        Ok(Response::new(response))
     }
 
     async fn ping(&self, request: Request<PingRequest>) -> TonicResult<Response<PongResponse>> {

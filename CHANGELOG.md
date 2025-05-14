@@ -14,6 +14,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: impl `SubscribeReplayInfo` ([#109](https://github.com/lamports-dev/richat/pull/109))
+
 ### Breaking
 
 ## 2025-05-03

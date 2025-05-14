@@ -68,6 +68,15 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         )
         .method(
             Method::builder()
+                .name("subscribe_replay_info")
+                .route_name("SubscribeReplayInfo")
+                .input_type("richat_proto::geyser::SubscribeReplayInfoRequest")
+                .output_type("richat_proto::geyser::SubscribeReplayInfoResponse")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            Method::builder()
                 .name("ping")
                 .route_name("Ping")
                 .input_type("richat_proto::geyser::PingRequest")
