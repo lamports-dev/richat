@@ -141,6 +141,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 
 ## List of RPC providers with Dragon's Mouth support
 
+- `Allnodes` — https://www.allnodes.com/
 - `ERPC` — https://erpc.global/en/
 - `Gadfly Node` — https://gadflynode.com/
 - `Geeks Labs` — https://discord.gg/geekslabs
@@ -148,10 +149,13 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `Helius` — https://www.helius.dev/
 - `InstantNodes` — https://instantnodes.io/
 - `OrbitFlare` — https://orbitflare.com/
+- `PixelLabz` — https://pixellabz.io/
+- `Platinum Node` — https://www.platinumnode.io/
 - `PublicNode` — https://solana-rpc.publicnode.com/
 - `QuickNode` — https://www.quicknode.com/
 - `Shyft` — https://shyft.to/
 - `Solana Tracker` — https://www.solanatracker.io/solana-rpc
+- `Solana Vibe Station` — https://www.solanavibestation.com/
 - `SolSqueezer` — https://solsqueezer.io/
 - `Triton One` — https://triton.one/
 - `Urban Node` — https://urbannode.io/
