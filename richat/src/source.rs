@@ -128,6 +128,7 @@ impl Stream for Subscription {
 
 impl Subscription {
     async fn new(
+        name: &str,
         config: SubscriptionConfig,
         disable_accounts: bool,
         parser: MessageParserEncoding,
@@ -147,12 +148,19 @@ impl Subscription {
             SubscriptionConfig::Grpc { source, config } => {
                 let mut connection = config.connect().await.map_err(ConnectError::Grpc)?;
                 match source {
-                    ConfigGrpcClientSource::DragonsMouth => connection
-                        .subscribe_dragons_mouth_once(Self::create_dragons_mouth_filter(
-                            disable_accounts,
-                        ))
-                        .await?
-                        .boxed(),
+                    ConfigGrpcClientSource::DragonsMouth => {
+                        let version = connection
+                            .get_version()
+                            .await
+                            .map_err(|error| ConnectError::Grpc(error.into()))?;
+                        info!(name, version = version.version, "connected");
+                        connection
+                            .subscribe_dragons_mouth_once(Self::create_dragons_mouth_filter(
+                                disable_accounts,
+                            ))
+                            .await?
+                            .boxed()
+                    }
                     ConfigGrpcClientSource::Richat => connection
                         .subscribe_richat(GrpcSubscribeRequest {
                             replay_from_slot: None,
@@ -163,6 +171,7 @@ impl Subscription {
                 }
             }
         };
+        info!(name, "subscribed");
 
         Ok(Self {
             stream,
@@ -242,13 +251,13 @@ async fn subscribe(
 
     let Some(reconnect) = config.reconnect.take() else {
         let stream = Subscription::new(
+            &config.name,
             subscription_config,
             config.disable_accounts,
             config.parser,
             index,
         )
         .await?;
-        info!(name = config.name, "connected");
         return Ok(stream.boxed());
     };
 
@@ -276,6 +285,7 @@ async fn subscribe(
                     state.0.sleep().await;
                 } else {
                     match Subscription::new(
+                        &state.2.name,
                         state.1.clone(),
                         state.2.disable_accounts,
                         state.2.parser,
@@ -284,7 +294,6 @@ async fn subscribe(
                     .await
                     {
                         Ok(stream) => {
-                            info!(name = state.2.name, "connected");
                             state.3 = Some(stream);
                             state.0.reset();
                         }

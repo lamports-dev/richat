@@ -147,8 +147,10 @@ impl ConfigGrpcClient {
 pub enum GrpcClientBuilderError {
     #[error("failed to load cert: {0}")]
     LoadCert(io::Error),
-    #[error("tonic error: {0}")]
+    #[error("tonic transport error: {0}")]
     Tonic(#[from] tonic::transport::Error),
+    #[error("tonic status error: {0}")]
+    Status(#[from] tonic::Status),
     #[error("x-token error: {0}")]
     XToken(#[from] InvalidMetadataValueBytes),
 }
