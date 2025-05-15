@@ -7,7 +7,7 @@ use {
     },
     richat::{
         channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
-        richat::server::RichatServer, source::subscribe,
+        richat::server::RichatServer, source::Subscriptions,
     },
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
@@ -73,35 +73,24 @@ fn main() -> anyhow::Result<()> {
             || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
+                    let streams_total = config.channel.sources.len();
+                    let mut stream = Subscriptions::new(config.channel.sources).await?;
                     tokio::pin!(shutdown);
-
-                    let mut current = 0;
-                    let mut streams =
-                        try_join_all(config.channel.sources.into_iter().enumerate().map(
-                            |(index, config)| async move {
-                                subscribe(config, index)
-                                    .await
-                                    .context("failed to subscribe")
-                            },
-                        ))
-                        .await?;
-
                     loop {
                         let (index, message) = tokio::select! {
                             biased;
-                            message = streams[current].next() => match message {
+                            message = stream.next() => match message {
                                 Some(Ok(value)) => value,
                                 Some(Err(error)) => return Err(anyhow::Error::new(error)),
                                 None => anyhow::bail!("source stream finished"),
                             },
                             () = &mut shutdown => return Ok(()),
                         };
-                        current = (current + 1) % streams.len();
 
-                        let index_info = if streams.len() == 1 {
+                        let index_info = if streams_total == 1 {
                             None
                         } else {
-                            Some((index, streams.len()))
+                            Some((index, streams_total))
                         };
                         messages.push(message, index_info);
                     }

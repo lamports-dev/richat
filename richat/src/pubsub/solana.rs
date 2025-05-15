@@ -17,7 +17,6 @@ use {
     serde_json::value::RawValue,
     solana_account::ReadableAccount,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
-    solana_rpc::rpc_subscription_tracker::{BlockSubscriptionKind, LogsSubscriptionKind},
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
@@ -122,6 +121,19 @@ impl SubscribeMethod {
 }
 
 pub type SubscribeConfigHashId = u64;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BlockSubscriptionKind {
+    All,
+    MentionsAccountOrProgram(Pubkey),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LogsSubscriptionKind {
+    All,
+    AllWithVotes,
+    Single(Pubkey),
+}
 
 #[derive(Debug, Hash)]
 pub enum SubscribeConfig {

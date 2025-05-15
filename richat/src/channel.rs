@@ -12,9 +12,11 @@ use {
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
     richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     smallvec::SmallVec,
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey},
+    solana_sdk::{
+        clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
+    },
     std::{
-        collections::{BTreeMap, HashMap},
+        collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         fmt,
         pin::Pin,
         sync::{
@@ -249,18 +251,19 @@ pub struct Sender {
 }
 
 impl Sender {
-    pub fn push(&mut self, message: ParsedMessage, index_info: Option<(usize, usize)>) {
+    pub fn push(&mut self, message: Message, index_info: Option<(usize, usize)>) {
         let slot = message.slot();
 
         // get or create slot info
-        let messages = if let Some((index, streams)) = index_info {
+        let mut messages = SmallVec::<[ParsedMessage; 16]>::new();
+        let mut dedup_info = if let Some((index, streams_total)) = index_info {
             // return if we already processed and removed dedup for finalized slots
             if slot <= self.finalized_slot {
                 return;
             }
 
             // remove outdated info
-            if let ParsedMessage::Slot(msg) = &message {
+            if let Message::Slot(msg) = &message {
                 if msg.status() == SlotStatus::SlotFinalized {
                     self.finalized_slot = slot;
                     loop {
@@ -278,155 +281,183 @@ impl Sender {
             let dedup = self
                 .dedup
                 .entry(slot)
-                .or_insert_with(|| DedupInfo::new(streams));
+                .or_insert_with(|| DedupInfo::new(streams_total));
 
-            let message = match message {
-                ParsedMessage::Slot(msg) => {
+            match message {
+                Message::Slot(msg) => {
                     let index = msg.status() as i32 as usize;
-                    if dedup.slots[index] {
-                        return;
+                    if !dedup.slots[index] {
+                        dedup.slots[index] = true;
+                        messages.push(ParsedMessage::Slot(Arc::new(msg)));
                     }
-                    dedup.slots[index] = true;
-                    ParsedMessage::Slot(msg)
                 }
-                ParsedMessage::Account(msg) => {
-                    let msg = ParsedMessage::Account(msg);
-                    if dedup.block_index == Some(index) {
-                        msg // send to SlotInfo to generate error
+                Message::Account(mut msg) => {
+                    if let Some(key) = DedupInfoAccountTransactionKey::try_create(&msg) {
+                        if dedup.accounts_transactions.insert(key) {
+                            match dedup.transactions.entry(key.signature) {
+                                HashMapEntry::Occupied(mut entry) => match entry.get_mut() {
+                                    DedupInfoTransactionIndex::Index(index) => {
+                                        update_write_version(&mut msg, *index as u64);
+                                        messages.push(ParsedMessage::Account(Arc::new(msg)));
+                                    }
+                                    DedupInfoTransactionIndex::Accounts(vec) => {
+                                        vec.push(msg);
+                                    }
+                                },
+                                HashMapEntry::Vacant(entry) => {
+                                    entry.insert(DedupInfoTransactionIndex::Accounts(vec![msg]));
+                                }
+                            }
+                        }
                     } else {
-                        dedup.accounts[index].push(msg);
-                        return;
+                        let msg = ParsedMessage::Account(Arc::new(msg));
+                        if dedup.block_index == Some(index) {
+                            messages.push(msg); // send to SlotInfo to generate error
+                        } else {
+                            dedup.accounts_phantom[index].push(msg);
+                        }
                     }
                 }
-                ParsedMessage::Transaction(msg) => {
+                Message::Transaction(msg) => {
                     let index = msg.index() as usize;
-                    if dedup.transactions.len() <= index {
-                        dedup
-                            .transactions
-                            .resize(dedup.transactions.len() * 2, false);
+                    match dedup.transactions.entry(*msg.signature()) {
+                        HashMapEntry::Occupied(mut entry) => {
+                            let entry = entry.get_mut();
+                            if let DedupInfoTransactionIndex::Accounts(vec) = entry {
+                                for mut msg in vec.drain(..) {
+                                    update_write_version(&mut msg, index as u64);
+                                    messages.push(ParsedMessage::Account(Arc::new(msg)));
+                                }
+
+                                *entry = DedupInfoTransactionIndex::Index(index);
+                                messages.push(ParsedMessage::Transaction(Arc::new(msg)));
+                            }
+                        }
+                        HashMapEntry::Vacant(entry) => {
+                            entry.insert(DedupInfoTransactionIndex::Index(index));
+                            messages.push(ParsedMessage::Transaction(Arc::new(msg)));
+                        }
                     }
-                    if dedup.transactions[index] {
-                        return;
-                    }
-                    dedup.transactions[index] = true;
-                    ParsedMessage::Transaction(msg)
                 }
-                ParsedMessage::Entry(msg) => {
+                Message::Entry(msg) => {
                     let index = msg.index() as usize;
                     if dedup.entries.len() <= index {
                         dedup.entries.resize(dedup.entries.len() * 2, false);
                     }
-                    if dedup.entries[index] {
-                        return;
+                    if !dedup.entries[index] {
+                        dedup.entries[index] = true;
+                        messages.push(ParsedMessage::Entry(Arc::new(msg)));
                     }
-                    dedup.entries[index] = true;
-                    ParsedMessage::Entry(msg)
                 }
-                ParsedMessage::BlockMeta(msg) => {
-                    if dedup.block_meta {
-                        return;
+                Message::BlockMeta(msg) => {
+                    if !dedup.block_meta {
+                        dedup.block_meta = true;
+                        messages.push(ParsedMessage::BlockMeta(Arc::new(msg)));
                     }
-                    dedup.block_meta = true;
-                    ParsedMessage::BlockMeta(msg)
                 }
-                ParsedMessage::Block(_) => unreachable!(),
+                Message::Block(_) => unreachable!(),
             };
 
-            let messages = self
-                .slots
-                .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(&message, Some(&mut dedup.accounts[index]));
-            if messages.is_some() {
-                dedup.block_index = Some(index);
-            }
-            MessagesWithBlockIter::new(message, messages)
+            Some((index, dedup))
         } else {
-            let messages = self
-                .slots
-                .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(&message, None);
-            MessagesWithBlockIter::new(message, messages)
+            messages.push(message.into());
+            None
         };
 
         // push messages
         for message in messages {
-            // push messages to confirmed / finalized
-            if let ParsedMessage::Slot(msg) = &message {
-                // update metrics
-                if let Some(commitment) = match msg.status() {
-                    SlotStatus::SlotProcessed => Some("processed"),
-                    SlotStatus::SlotConfirmed => Some("confirmed"),
-                    SlotStatus::SlotFinalized => Some("finalized"),
-                    _ => None,
-                } {
-                    gauge!(metrics::CHANNEL_SLOT, "commitment" => commitment).set(msg.slot() as f64)
-                }
-                if msg.status() == SlotStatus::SlotProcessed {
-                    let processed_slots_len = self.processed.shared.slots_lock().len();
-                    debug!(
-                        "new processed {slot} / {} messages / {} slots / {} bytes",
-                        self.processed.tail - self.processed.head,
-                        processed_slots_len,
-                        self.processed.bytes_total
-                    );
+            let messages_with_block = self
+                .slots
+                .entry(slot)
+                .or_insert_with(|| SlotInfo::new(slot))
+                .get_messages_with_block(
+                    &message,
+                    dedup_info
+                        .as_mut()
+                        .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
+                );
+            if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &messages_with_block) {
+                dedup.block_index = Some(*index);
+            }
 
-                    gauge!(metrics::CHANNEL_MESSAGES_TOTAL)
-                        .set((self.processed.tail - self.processed.head) as f64);
-                    gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(processed_slots_len as f64);
-                    gauge!(metrics::CHANNEL_BYTES_TOTAL).set(self.processed.bytes_total as f64);
+            for message in MessagesWithBlockIter::new(message, messages_with_block) {
+                // push messages to confirmed / finalized
+                if let ParsedMessage::Slot(msg) = &message {
+                    // update metrics
+                    if let Some(commitment) = match msg.status() {
+                        SlotStatus::SlotProcessed => Some("processed"),
+                        SlotStatus::SlotConfirmed => Some("confirmed"),
+                        SlotStatus::SlotFinalized => Some("finalized"),
+                        _ => None,
+                    } {
+                        gauge!(metrics::CHANNEL_SLOT, "commitment" => commitment)
+                            .set(msg.slot() as f64)
+                    }
+                    if msg.status() == SlotStatus::SlotProcessed {
+                        let processed_slots_len = self.processed.shared.slots_lock().len();
+                        debug!(
+                            "new processed {slot} / {} messages / {} slots / {} bytes",
+                            self.processed.tail - self.processed.head,
+                            processed_slots_len,
+                            self.processed.bytes_total
+                        );
+
+                        gauge!(metrics::CHANNEL_MESSAGES_TOTAL)
+                            .set((self.processed.tail - self.processed.head) as f64);
+                        gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(processed_slots_len as f64);
+                        gauge!(metrics::CHANNEL_BYTES_TOTAL).set(self.processed.bytes_total as f64);
+                    }
+
+                    if msg.status() == SlotStatus::SlotConfirmed {
+                        self.slot_confirmed = slot;
+                        if let Some(shared) = self.confirmed.as_mut() {
+                            if let Some(slot_info) = self.slots.get(&slot) {
+                                for message in slot_info.get_messages_cloned() {
+                                    shared.push(slot, message);
+                                }
+                            }
+                        }
+                    }
+
+                    if msg.status() == SlotStatus::SlotFinalized {
+                        self.slot_finalized = slot;
+                        if let Some(shared) = self.finalized.as_mut() {
+                            if let Some(mut slot_info) = self.slots.remove(&slot) {
+                                for message in slot_info.get_messages_owned() {
+                                    shared.push(slot, message);
+                                }
+                            }
+                        }
+                    }
+
+                    // remove slot info
+                    if msg.status() == SlotStatus::SlotFinalized {
+                        loop {
+                            match self.slots.keys().next().copied() {
+                                Some(slot_min) if slot_min <= slot => {
+                                    self.slots.remove(&slot_min);
+                                }
+                                _ => break,
+                            }
+                        }
+                    }
                 }
 
-                if msg.status() == SlotStatus::SlotConfirmed {
-                    self.slot_confirmed = slot;
+                // push to confirmed and finalized (if we received SlotStatus or message after it)
+                if slot <= self.slot_confirmed {
                     if let Some(shared) = self.confirmed.as_mut() {
-                        if let Some(slot_info) = self.slots.get(&slot) {
-                            for message in slot_info.get_messages_cloned() {
-                                shared.push(slot, message);
-                            }
-                        }
+                        shared.push(slot, message.clone());
                     }
                 }
-
-                if msg.status() == SlotStatus::SlotFinalized {
-                    self.slot_finalized = slot;
+                if slot <= self.slot_finalized {
                     if let Some(shared) = self.finalized.as_mut() {
-                        if let Some(mut slot_info) = self.slots.remove(&slot) {
-                            for message in slot_info.get_messages_owned() {
-                                shared.push(slot, message);
-                            }
-                        }
+                        shared.push(slot, message.clone());
                     }
                 }
 
-                // remove slot info
-                if msg.status() == SlotStatus::SlotFinalized {
-                    loop {
-                        match self.slots.keys().next().copied() {
-                            Some(slot_min) if slot_min <= slot => {
-                                self.slots.remove(&slot_min);
-                            }
-                            _ => break,
-                        }
-                    }
-                }
+                // push to processed
+                self.processed.push(slot, message);
             }
-
-            // push to confirmed and finalized (if we received SlotStatus or message after it)
-            if slot <= self.slot_confirmed {
-                if let Some(shared) = self.confirmed.as_mut() {
-                    shared.push(slot, message.clone());
-                }
-            }
-            if slot <= self.slot_finalized {
-                if let Some(shared) = self.finalized.as_mut() {
-                    shared.push(slot, message.clone());
-                }
-            }
-
-            // push to processed
-            self.processed.push(slot, message);
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
@@ -777,7 +808,7 @@ impl SlotInfo {
     fn get_messages_with_block(
         &mut self,
         message: &ParsedMessage,
-        deduped_accounts: Option<&mut Vec<ParsedMessage>>,
+        deduped_accounts: Option<&mut SmallVec<[ParsedMessage; 8]>>,
     ) -> Option<MessagesWithBlock> {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
@@ -913,13 +944,13 @@ impl SlotInfo {
 
 #[derive(Debug)]
 struct MessagesWithBlock {
-    accounts: Vec<ParsedMessage>,
+    accounts: SmallVec<[ParsedMessage; 8]>,
     block: ParsedMessage,
 }
 
 #[derive(Debug)]
 struct MessagesWithBlockIter {
-    accounts: std::vec::IntoIter<ParsedMessage>,
+    accounts: Option<smallvec::IntoIter<[ParsedMessage; 8]>>,
     message: Option<ParsedMessage>,
     block: Option<ParsedMessage>,
 }
@@ -928,18 +959,22 @@ impl Iterator for MessagesWithBlockIter {
     type Item = ParsedMessage;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.accounts
-            .next()
-            .or_else(|| self.message.take())
-            .or_else(|| self.block.take())
+        if let Some(accounts) = self.accounts.as_mut() {
+            if let Some(message) = accounts.next() {
+                return Some(message);
+            }
+        }
+        self.message.take().or_else(|| self.block.take())
     }
 }
 
 impl MessagesWithBlockIter {
     fn new(message: ParsedMessage, messages: Option<MessagesWithBlock>) -> Self {
         let (accounts, block) = match messages {
-            Some(MessagesWithBlock { accounts, block }) => (accounts.into_iter(), Some(block)),
-            None => (Vec::new().into_iter(), None),
+            Some(MessagesWithBlock { accounts, block }) => {
+                (Some(accounts.into_iter()), Some(block))
+            }
+            None => (None, None),
         };
 
         Self {
@@ -953,24 +988,71 @@ impl MessagesWithBlockIter {
 #[derive(Debug)]
 struct DedupInfo {
     slots: [bool; 7],
-    accounts: Vec<Vec<ParsedMessage>>,
-    transactions: Vec<bool>,
+    accounts_phantom: Vec<SmallVec<[ParsedMessage; 8]>>,
+    accounts_transactions: HashSet<DedupInfoAccountTransactionKey>,
+    transactions: HashMap<Signature, DedupInfoTransactionIndex>,
     entries: Vec<bool>,
     block_meta: bool,
     block_index: Option<usize>,
 }
 
 impl DedupInfo {
-    fn new(streams: usize) -> Self {
+    fn new(streams_total: usize) -> Self {
         Self {
             slots: [false; 7],
-            accounts: std::iter::repeat_with(|| Vec::with_capacity(8_192))
-                .take(streams)
+            accounts_phantom: std::iter::repeat_with(SmallVec::new)
+                .take(streams_total)
                 .collect(),
-            transactions: std::iter::repeat(false).take(8_192).collect(),
+            accounts_transactions: HashSet::with_capacity(8_192),
+            transactions: HashMap::with_capacity(8_192),
             entries: std::iter::repeat(false).take(256).collect(),
             block_meta: false,
             block_index: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DedupInfoAccountTransactionKey {
+    signature: Signature,
+    pubkey: Pubkey,
+}
+
+impl DedupInfoAccountTransactionKey {
+    fn try_create(msg: &MessageAccount) -> Option<Self> {
+        let signature = match msg {
+            MessageAccount::Limited {
+                txn_signature_offset,
+                buffer,
+                ..
+            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
+            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
+        };
+
+        signature.map(|signature| Self {
+            signature: signature.try_into().expect("valid signature"),
+            pubkey: *msg.pubkey(),
+        })
+    }
+}
+
+#[derive(Debug)]
+enum DedupInfoTransactionIndex {
+    Index(usize),
+    Accounts(Vec<MessageAccount>),
+}
+
+fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
+    match msg {
+        MessageAccount::Limited {
+            write_version,
+            buffer,
+            ..
+        } => {
+            // todo: adjust buffer
+        }
+        MessageAccount::Prost { account, .. } => {
+            account.write_version = write_version;
         }
     }
 }

@@ -1,17 +1,15 @@
 use {
-    crate::{
-        channel::ParsedMessage,
-        config::{
-            ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
-            ConfigGrpcClientSource,
-        },
+    crate::config::{
+        ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
+        ConfigGrpcClientSource,
     },
+    anyhow::Context as _,
     futures::{
+        future::try_join_all,
         ready,
         stream::{try_unfold, BoxStream, Stream, StreamExt},
     },
     maplit::hashmap,
-    pin_project_lite::pin_project,
     richat_client::{
         grpc::{ConfigGrpcClient, GrpcClientBuilderError},
         quic::{ConfigQuicClient, QuicConnectError},
@@ -94,12 +92,10 @@ impl SubscriptionConfig {
     }
 }
 
-pin_project! {
-    struct Subscription {
-        stream: BoxStream<'static, Result<Vec<u8>, richat_client::error::ReceiveError>>,
-        parser: MessageParserEncoding,
-        index: usize,
-    }
+struct Subscription {
+    stream: BoxStream<'static, Result<Vec<u8>, richat_client::error::ReceiveError>>,
+    parser: MessageParserEncoding,
+    index: usize,
 }
 
 impl fmt::Debug for Subscription {
@@ -109,14 +105,14 @@ impl fmt::Debug for Subscription {
 }
 
 impl Stream for Subscription {
-    type Item = Result<(usize, ParsedMessage), ReceiveError>;
+    type Item = Result<(usize, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             let value = ready!(self.stream.poll_next_unpin(cx));
             return Poll::Ready(match value {
                 Some(Ok(data)) => match Message::parse(data, self.parser) {
-                    Ok(message) => Some(Ok((self.index, message.into()))),
+                    Ok(message) => Some(Ok((self.index, message))),
                     Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
                     Err(error) => Some(Err(error.into())),
                 },
@@ -129,6 +125,7 @@ impl Stream for Subscription {
 
 impl Subscription {
     async fn new(
+        name: &str,
         config: SubscriptionConfig,
         disable_accounts: bool,
         parser: MessageParserEncoding,
@@ -148,12 +145,19 @@ impl Subscription {
             SubscriptionConfig::Grpc { source, config } => {
                 let mut connection = config.connect().await.map_err(ConnectError::Grpc)?;
                 match source {
-                    ConfigGrpcClientSource::DragonsMouth => connection
-                        .subscribe_dragons_mouth_once(Self::create_dragons_mouth_filter(
-                            disable_accounts,
-                        ))
-                        .await?
-                        .boxed(),
+                    ConfigGrpcClientSource::DragonsMouth => {
+                        let version = connection
+                            .get_version()
+                            .await
+                            .map_err(|error| ConnectError::Grpc(error.into()))?;
+                        info!(name, version = version.version, "connected");
+                        connection
+                            .subscribe_dragons_mouth_once(Self::create_dragons_mouth_filter(
+                                disable_accounts,
+                            ))
+                            .await?
+                            .boxed()
+                    }
                     ConfigGrpcClientSource::Richat => connection
                         .subscribe_richat(GrpcSubscribeRequest {
                             replay_from_slot: None,
@@ -164,6 +168,7 @@ impl Subscription {
                 }
             }
         };
+        info!(name, "subscribed");
 
         Ok(Self {
             stream,
@@ -235,21 +240,21 @@ impl Backoff {
     }
 }
 
-pub async fn subscribe(
+async fn subscribe(
     config: ConfigChannelSource,
     index: usize,
-) -> anyhow::Result<BoxStream<'static, Result<(usize, ParsedMessage), ReceiveError>>> {
+) -> anyhow::Result<BoxStream<'static, Result<(usize, Message), ReceiveError>>> {
     let (subscription_config, mut config) = SubscriptionConfig::new(config);
 
     let Some(reconnect) = config.reconnect.take() else {
         let stream = Subscription::new(
+            &config.name,
             subscription_config,
             config.disable_accounts,
             config.parser,
             index,
         )
         .await?;
-        info!(name = config.name, "connected");
         return Ok(stream.boxed());
     };
 
@@ -277,6 +282,7 @@ pub async fn subscribe(
                     state.0.sleep().await;
                 } else {
                     match Subscription::new(
+                        &state.2.name,
                         state.1.clone(),
                         state.2.disable_accounts,
                         state.2.parser,
@@ -285,7 +291,6 @@ pub async fn subscribe(
                     .await
                     {
                         Ok(stream) => {
-                            info!(name = state.2.name, "connected");
                             state.3 = Some(stream);
                             state.0.reset();
                         }
@@ -299,4 +304,55 @@ pub async fn subscribe(
         },
     );
     Ok(stream.boxed())
+}
+
+pub struct Subscriptions {
+    streams: Vec<BoxStream<'static, Result<(usize, Message), ReceiveError>>>,
+    last_polled: usize,
+}
+
+impl fmt::Debug for Subscriptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subscriptions")
+            .field("streams", &self.streams.len())
+            .field("last_polled", &self.last_polled)
+            .finish()
+    }
+}
+
+impl Subscriptions {
+    pub async fn new(sources: Vec<ConfigChannelSource>) -> anyhow::Result<Self> {
+        let streams = try_join_all(sources.into_iter().enumerate().map(
+            |(index, config)| async move {
+                subscribe(config, index)
+                    .await
+                    .context("failed to subscribe")
+            },
+        ))
+        .await?;
+
+        Ok(Self {
+            streams,
+            last_polled: 0,
+        })
+    }
+}
+
+impl Stream for Subscriptions {
+    type Item = Result<(usize, Message), ReceiveError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let init_index = self.last_polled;
+        loop {
+            let index = self.last_polled;
+            if let Poll::Ready(value) = self.streams[index].poll_next_unpin(cx) {
+                return Poll::Ready(value);
+            }
+
+            self.last_polled = (self.last_polled + 1) % self.streams.len();
+            if self.last_polled == init_index {
+                return Poll::Pending;
+            }
+        }
+    }
 }

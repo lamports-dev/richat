@@ -15,6 +15,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - richat: impl `SubscribeReplayInfo` ([#109](https://github.com/lamports-dev/richat/pull/109))
+- richat: faster account messages deduper ([#110](https://github.com/lamports-dev/richat/pull/110))
 
 ### Breaking
 
