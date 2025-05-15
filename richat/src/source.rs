@@ -1,10 +1,7 @@
 use {
-    crate::{
-        channel::ParsedMessage,
-        config::{
-            ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
-            ConfigGrpcClientSource,
-        },
+    crate::config::{
+        ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
+        ConfigGrpcClientSource,
     },
     anyhow::Context as _,
     futures::{
@@ -108,14 +105,14 @@ impl fmt::Debug for Subscription {
 }
 
 impl Stream for Subscription {
-    type Item = Result<(usize, ParsedMessage), ReceiveError>;
+    type Item = Result<(usize, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             let value = ready!(self.stream.poll_next_unpin(cx));
             return Poll::Ready(match value {
                 Some(Ok(data)) => match Message::parse(data, self.parser) {
-                    Ok(message) => Some(Ok((self.index, message.into()))),
+                    Ok(message) => Some(Ok((self.index, message))),
                     Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
                     Err(error) => Some(Err(error.into())),
                 },
@@ -246,7 +243,7 @@ impl Backoff {
 async fn subscribe(
     config: ConfigChannelSource,
     index: usize,
-) -> anyhow::Result<BoxStream<'static, Result<(usize, ParsedMessage), ReceiveError>>> {
+) -> anyhow::Result<BoxStream<'static, Result<(usize, Message), ReceiveError>>> {
     let (subscription_config, mut config) = SubscriptionConfig::new(config);
 
     let Some(reconnect) = config.reconnect.take() else {
@@ -310,7 +307,7 @@ async fn subscribe(
 }
 
 pub struct Subscriptions {
-    streams: Vec<BoxStream<'static, Result<(usize, ParsedMessage), ReceiveError>>>,
+    streams: Vec<BoxStream<'static, Result<(usize, Message), ReceiveError>>>,
     last_polled: usize,
 }
 
@@ -342,7 +339,7 @@ impl Subscriptions {
 }
 
 impl Stream for Subscriptions {
-    type Item = Result<(usize, ParsedMessage), ReceiveError>;
+    type Item = Result<(usize, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let init_index = self.last_polled;
