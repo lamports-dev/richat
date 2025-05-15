@@ -18,7 +18,8 @@ use {
             CommitmentLevel, GetBlockHeightRequest, GetBlockHeightResponse,
             GetLatestBlockhashRequest, GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse,
             GetVersionRequest, GetVersionResponse, IsBlockhashValidRequest,
-            IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeRequest,
+            IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeReplayInfoRequest,
+            SubscribeReplayInfoResponse, SubscribeRequest,
         },
         richat::GrpcSubscribeRequest,
     },
@@ -440,6 +441,13 @@ impl<F: Interceptor> GrpcClient<F> {
     }
 
     // RPC calls
+    pub async fn subscribe_replay_info(&mut self) -> Result<SubscribeReplayInfoResponse, Status> {
+        let message = SubscribeReplayInfoRequest {};
+        let request = tonic::Request::new(message);
+        let response = self.geyser.subscribe_replay_info(request).await?;
+        Ok(response.into_inner())
+    }
+
     pub async fn ping(&mut self, count: i32) -> Result<PongResponse, Status> {
         let message = PingRequest { count };
         let request = Request::new(message);
