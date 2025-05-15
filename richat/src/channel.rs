@@ -253,7 +253,8 @@ impl Sender {
         let slot = message.slot();
 
         // get or create slot info
-        let messages = if let Some((index, streams)) = index_info {
+        let mut messages = SmallVec::<[ParsedMessage; 16]>::new();
+        let mut dedup_info = if let Some((index, streams_total)) = index_info {
             // return if we already processed and removed dedup for finalized slots
             if slot <= self.finalized_slot {
                 return;
@@ -278,24 +279,22 @@ impl Sender {
             let dedup = self
                 .dedup
                 .entry(slot)
-                .or_insert_with(|| DedupInfo::new(streams));
+                .or_insert_with(|| DedupInfo::new(streams_total));
 
-            let message = match message {
+            match message {
                 ParsedMessage::Slot(msg) => {
                     let index = msg.status() as i32 as usize;
-                    if dedup.slots[index] {
-                        return;
+                    if !dedup.slots[index] {
+                        dedup.slots[index] = true;
+                        messages.push(ParsedMessage::Slot(msg));
                     }
-                    dedup.slots[index] = true;
-                    ParsedMessage::Slot(msg)
                 }
                 ParsedMessage::Account(msg) => {
                     let msg = ParsedMessage::Account(msg);
                     if dedup.block_index == Some(index) {
-                        msg // send to SlotInfo to generate error
+                        messages.push(msg); // send to SlotInfo to generate error
                     } else {
                         dedup.accounts[index].push(msg);
-                        return;
                     }
                 }
                 ParsedMessage::Transaction(msg) => {
@@ -305,128 +304,130 @@ impl Sender {
                             .transactions
                             .resize(dedup.transactions.len() * 2, false);
                     }
-                    if dedup.transactions[index] {
-                        return;
+                    if !dedup.transactions[index] {
+                        dedup.transactions[index] = true;
+                        messages.push(ParsedMessage::Transaction(msg));
                     }
-                    dedup.transactions[index] = true;
-                    ParsedMessage::Transaction(msg)
                 }
                 ParsedMessage::Entry(msg) => {
                     let index = msg.index() as usize;
                     if dedup.entries.len() <= index {
                         dedup.entries.resize(dedup.entries.len() * 2, false);
                     }
-                    if dedup.entries[index] {
-                        return;
+                    if !dedup.entries[index] {
+                        dedup.entries[index] = true;
+                        messages.push(ParsedMessage::Entry(msg));
                     }
-                    dedup.entries[index] = true;
-                    ParsedMessage::Entry(msg)
                 }
                 ParsedMessage::BlockMeta(msg) => {
-                    if dedup.block_meta {
-                        return;
+                    if !dedup.block_meta {
+                        dedup.block_meta = true;
+                        messages.push(ParsedMessage::BlockMeta(msg));
                     }
-                    dedup.block_meta = true;
-                    ParsedMessage::BlockMeta(msg)
                 }
                 ParsedMessage::Block(_) => unreachable!(),
             };
 
-            let messages = self
-                .slots
-                .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(&message, Some(&mut dedup.accounts[index]));
-            if messages.is_some() {
-                dedup.block_index = Some(index);
-            }
-            MessagesWithBlockIter::new(message, messages)
+            Some((index, dedup))
         } else {
-            let messages = self
-                .slots
-                .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(&message, None);
-            MessagesWithBlockIter::new(message, messages)
+            messages.push(message);
+            None
         };
 
         // push messages
         for message in messages {
-            // push messages to confirmed / finalized
-            if let ParsedMessage::Slot(msg) = &message {
-                // update metrics
-                if let Some(commitment) = match msg.status() {
-                    SlotStatus::SlotProcessed => Some("processed"),
-                    SlotStatus::SlotConfirmed => Some("confirmed"),
-                    SlotStatus::SlotFinalized => Some("finalized"),
-                    _ => None,
-                } {
-                    gauge!(metrics::CHANNEL_SLOT, "commitment" => commitment).set(msg.slot() as f64)
-                }
-                if msg.status() == SlotStatus::SlotProcessed {
-                    let processed_slots_len = self.processed.shared.slots_lock().len();
-                    debug!(
-                        "new processed {slot} / {} messages / {} slots / {} bytes",
-                        self.processed.tail - self.processed.head,
-                        processed_slots_len,
-                        self.processed.bytes_total
-                    );
+            let messages_with_block = self
+                .slots
+                .entry(slot)
+                .or_insert_with(|| SlotInfo::new(slot))
+                .get_messages_with_block(
+                    &message,
+                    dedup_info
+                        .as_mut()
+                        .map(|(index, dedup)| &mut dedup.accounts[*index]),
+                );
+            if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &messages_with_block) {
+                dedup.block_index = Some(*index);
+            }
 
-                    gauge!(metrics::CHANNEL_MESSAGES_TOTAL)
-                        .set((self.processed.tail - self.processed.head) as f64);
-                    gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(processed_slots_len as f64);
-                    gauge!(metrics::CHANNEL_BYTES_TOTAL).set(self.processed.bytes_total as f64);
+            for message in MessagesWithBlockIter::new(message, messages_with_block) {
+                // push messages to confirmed / finalized
+                if let ParsedMessage::Slot(msg) = &message {
+                    // update metrics
+                    if let Some(commitment) = match msg.status() {
+                        SlotStatus::SlotProcessed => Some("processed"),
+                        SlotStatus::SlotConfirmed => Some("confirmed"),
+                        SlotStatus::SlotFinalized => Some("finalized"),
+                        _ => None,
+                    } {
+                        gauge!(metrics::CHANNEL_SLOT, "commitment" => commitment)
+                            .set(msg.slot() as f64)
+                    }
+                    if msg.status() == SlotStatus::SlotProcessed {
+                        let processed_slots_len = self.processed.shared.slots_lock().len();
+                        debug!(
+                            "new processed {slot} / {} messages / {} slots / {} bytes",
+                            self.processed.tail - self.processed.head,
+                            processed_slots_len,
+                            self.processed.bytes_total
+                        );
+
+                        gauge!(metrics::CHANNEL_MESSAGES_TOTAL)
+                            .set((self.processed.tail - self.processed.head) as f64);
+                        gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(processed_slots_len as f64);
+                        gauge!(metrics::CHANNEL_BYTES_TOTAL).set(self.processed.bytes_total as f64);
+                    }
+
+                    if msg.status() == SlotStatus::SlotConfirmed {
+                        self.slot_confirmed = slot;
+                        if let Some(shared) = self.confirmed.as_mut() {
+                            if let Some(slot_info) = self.slots.get(&slot) {
+                                for message in slot_info.get_messages_cloned() {
+                                    shared.push(slot, message);
+                                }
+                            }
+                        }
+                    }
+
+                    if msg.status() == SlotStatus::SlotFinalized {
+                        self.slot_finalized = slot;
+                        if let Some(shared) = self.finalized.as_mut() {
+                            if let Some(mut slot_info) = self.slots.remove(&slot) {
+                                for message in slot_info.get_messages_owned() {
+                                    shared.push(slot, message);
+                                }
+                            }
+                        }
+                    }
+
+                    // remove slot info
+                    if msg.status() == SlotStatus::SlotFinalized {
+                        loop {
+                            match self.slots.keys().next().copied() {
+                                Some(slot_min) if slot_min <= slot => {
+                                    self.slots.remove(&slot_min);
+                                }
+                                _ => break,
+                            }
+                        }
+                    }
                 }
 
-                if msg.status() == SlotStatus::SlotConfirmed {
-                    self.slot_confirmed = slot;
+                // push to confirmed and finalized (if we received SlotStatus or message after it)
+                if slot <= self.slot_confirmed {
                     if let Some(shared) = self.confirmed.as_mut() {
-                        if let Some(slot_info) = self.slots.get(&slot) {
-                            for message in slot_info.get_messages_cloned() {
-                                shared.push(slot, message);
-                            }
-                        }
+                        shared.push(slot, message.clone());
                     }
                 }
-
-                if msg.status() == SlotStatus::SlotFinalized {
-                    self.slot_finalized = slot;
+                if slot <= self.slot_finalized {
                     if let Some(shared) = self.finalized.as_mut() {
-                        if let Some(mut slot_info) = self.slots.remove(&slot) {
-                            for message in slot_info.get_messages_owned() {
-                                shared.push(slot, message);
-                            }
-                        }
+                        shared.push(slot, message.clone());
                     }
                 }
 
-                // remove slot info
-                if msg.status() == SlotStatus::SlotFinalized {
-                    loop {
-                        match self.slots.keys().next().copied() {
-                            Some(slot_min) if slot_min <= slot => {
-                                self.slots.remove(&slot_min);
-                            }
-                            _ => break,
-                        }
-                    }
-                }
+                // push to processed
+                self.processed.push(slot, message);
             }
-
-            // push to confirmed and finalized (if we received SlotStatus or message after it)
-            if slot <= self.slot_confirmed {
-                if let Some(shared) = self.confirmed.as_mut() {
-                    shared.push(slot, message.clone());
-                }
-            }
-            if slot <= self.slot_finalized {
-                if let Some(shared) = self.finalized.as_mut() {
-                    shared.push(slot, message.clone());
-                }
-            }
-
-            // push to processed
-            self.processed.push(slot, message);
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
