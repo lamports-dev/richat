@@ -4,7 +4,7 @@ use {
         UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
         UpdateOneofLimitedDecodeSlot, UpdateOneofLimitedDecodeTransaction,
     },
-    prost::Message as _,
+    prost::{encoding::decode_varint, Message as _},
     prost_types::Timestamp,
     richat_proto::{
         convert_from,
@@ -227,7 +227,7 @@ impl MessageParserLimited {
                         rent_epoch: message.rent_epoch,
                         data: data_range,
                         txn_signature_offset: message.txn_signature_offset,
-                        write_version: message.write_version,
+                        write_version: message.write_version + range.start,
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
@@ -613,7 +613,7 @@ pub enum MessageAccount {
         rent_epoch: Epoch,
         data: Range<usize>,
         txn_signature_offset: Option<usize>,
-        write_version: u64,
+        write_version: usize,
         slot: Slot,
         is_startup: bool,
         created_at: Timestamp,
@@ -667,9 +667,16 @@ impl MessageAccount {
         }
     }
 
-    pub const fn write_version(&self) -> u64 {
+    pub fn write_version(&self) -> u64 {
         match self {
-            Self::Limited { write_version, .. } => *write_version,
+            Self::Limited {
+                write_version,
+                buffer,
+                ..
+            } => {
+                let mut buffer = &buffer.as_slice()[*write_version..];
+                decode_varint(&mut buffer).expect("already verified")
+            }
             Self::Prost { account, .. } => account.write_version,
         }
     }

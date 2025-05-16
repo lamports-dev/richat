@@ -17,7 +17,7 @@ use {
         },
     },
     arrayvec::ArrayVec,
-    prost::Message as _,
+    prost::{encoding::decode_varint, Message as _},
     richat_proto::geyser::{
         subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdateAccount,
         SubscribeUpdateAccountInfo, SubscribeUpdateBlock, SubscribeUpdateSlot,
@@ -810,7 +810,10 @@ impl FilteredUpdate<'_> {
                                 rent_epoch: *rent_epoch,
                                 data: data_slices
                                     .get_slice(&buffer.as_slice()[data.start..data.end]),
-                                write_version: *write_version,
+                                write_version: {
+                                    let mut buffer = &buffer.as_slice()[*write_version..];
+                                    decode_varint(&mut buffer).expect("already verified")
+                                },
                                 txn_signature: txn_signature_offset
                                     .map(|offset| &buffer.as_slice()[offset..offset + 64]),
                             },
@@ -1025,7 +1028,10 @@ impl FilteredUpdate<'_> {
                                         rent_epoch: *rent_epoch,
                                         data: data_slices
                                             .get_slice(&buffer.as_slice()[data.start..data.end]),
-                                        write_version: *write_version,
+                                        write_version: {
+                                            let mut buffer = &buffer.as_slice()[*write_version..];
+                                            decode_varint(&mut buffer).expect("already verified")
+                                        },
                                         txn_signature: txn_signature_offset
                                             .map(|offset| &buffer.as_slice()[offset..offset + 64]),
                                     },

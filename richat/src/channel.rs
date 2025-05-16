@@ -1045,7 +1045,9 @@ enum DedupInfoTransactionIndex {
 fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
     match msg {
         MessageAccount::Limited {
+            data,
             write_version,
+            range,
             buffer,
             ..
         } => {

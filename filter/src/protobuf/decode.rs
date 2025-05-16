@@ -212,7 +212,7 @@ pub struct UpdateOneofLimitedDecodeAccount {
     pub rent_epoch: Epoch,
     pub data: Range<usize>,
     pub txn_signature_offset: Option<usize>,
-    pub write_version: u64,
+    pub write_version: usize,
     pub slot: Slot,
     pub is_startup: bool,
 }
@@ -354,8 +354,9 @@ impl UpdateOneofLimitedDecodeAccount {
                 Ok(())
             }
             7u32 => {
-                let value = &mut self.write_version;
-                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                self.write_version = buf_len - buf.remaining();
+                let mut value = 0;
+                encoding::uint64::merge(wire_type, &mut value, buf, ctx).map_err(|mut error| {
                     error.push(STRUCT_NAME, "write_version");
                     error
                 })
