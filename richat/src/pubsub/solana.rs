@@ -678,7 +678,7 @@ mod test {
     };
 
     #[test]
-    fn parse() {
+    fn test_parse() {
         #[derive(Debug, Deserialize)]
         struct ReqParams {
             pubkey: String,

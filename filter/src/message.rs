@@ -79,7 +79,7 @@ impl<'a> From<&'a Message> for MessageRef<'a> {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Slot(MessageSlot),
     Account(MessageAccount),
@@ -526,7 +526,7 @@ impl MessageParserProst {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageSlot {
     Limited {
         slot: Slot,
@@ -603,7 +603,7 @@ impl MessageSlot {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageAccount {
     Limited {
         pubkey: Pubkey,
@@ -723,7 +723,7 @@ impl ReadableAccount for MessageAccount {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageTransaction {
     Limited {
         signature: Signature,
@@ -889,7 +889,7 @@ impl MessageTransaction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageEntry {
     Limited {
         slot: Slot,
@@ -953,7 +953,7 @@ impl MessageEntry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageBlockMeta {
     Limited {
         block_meta: SubscribeUpdateBlockMeta,
@@ -1028,7 +1028,7 @@ impl MessageBlockMeta {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MessageBlock {
     pub accounts: Vec<Arc<MessageAccount>>,
     pub transactions: Vec<Arc<MessageTransaction>>,

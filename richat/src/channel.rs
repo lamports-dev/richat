@@ -1056,3 +1056,97 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use {
+        super::update_write_version,
+        maplit::hashmap,
+        richat_filter::{
+            config::{ConfigFilter, ConfigFilterAccounts},
+            filter::Filter,
+            message::{Message, MessageAccount, MessageParserEncoding, MessageRef},
+        },
+        solana_sdk::commitment_config::CommitmentLevel,
+    };
+
+    static MESSAGE: &'static str = "0a0012af010aa6010a2088f1ffa3a2dfe617bdc4e3573251a322e3fcae81e5a457390e64751c00a465e210e0d54a1a2006aa09548b50476ad462f91f89a3015033264fc9abd5270020a9d142334742fb28ffffffffffffffffff013208c921f474e044612838e3e1acc2b53042405bd620fab28d3c0b78b3ead9f04d1c4d6dffeac4ffa7c679a6570b0226557c10b4c4016d937e06044b4e49d9d7916524d5dfa26297c5f638c3d11f846410bc0510e5ddaca2015a0c08e1c79ec10610ebef838601";
+
+    fn encode_decode(msg: &MessageAccount, parser: MessageParserEncoding) -> MessageAccount {
+        let filter = Filter::new(&ConfigFilter {
+            accounts: hashmap! { "".to_owned() => ConfigFilterAccounts::default() },
+            ..Default::default()
+        });
+
+        let message = Message::Account(msg.clone());
+        let message_ref: MessageRef = (&message).into();
+
+        let updates = filter.get_updates_ref(message_ref, CommitmentLevel::Processed);
+        assert_eq!(updates.len(), 1, "unexpected number of updates");
+        parse(updates[0].encode(), parser)
+    }
+
+    fn parse(data: Vec<u8>, parser: MessageParserEncoding) -> MessageAccount {
+        if let Message::Account(msg) = Message::parse(data, parser).expect("valid message") {
+            assert!(
+                match parser {
+                    MessageParserEncoding::Prost => matches!(msg, MessageAccount::Prost { .. }),
+                    MessageParserEncoding::Limited => matches!(msg, MessageAccount::Limited { .. }),
+                },
+                "unexpected msg encoding"
+            );
+
+            msg
+        } else {
+            panic!("expected account message");
+        }
+    }
+
+    #[test]
+    fn test_limited() {
+        let mut msg = parse(
+            const_hex::decode(MESSAGE).expect("valid hex"),
+            MessageParserEncoding::Limited,
+        );
+        assert_eq!(msg.write_version(), 1663633666275, "valid write version");
+
+        update_write_version(&mut msg, 1);
+        assert_eq!(msg.write_version(), 1, "dec valid write version");
+        let msg2 = encode_decode(&msg, MessageParserEncoding::Limited);
+        assert_eq!(msg, msg2, "write version update failed");
+
+        update_write_version(&mut msg, u64::MAX);
+        assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
+        let msg2 = encode_decode(&msg, MessageParserEncoding::Limited);
+        assert_eq!(msg, msg2, "write version update failed");
+    }
+
+    #[test]
+    fn test_prost() {
+        let mut msg = parse(
+            const_hex::decode(MESSAGE).expect("valid hex"),
+            MessageParserEncoding::Prost,
+        );
+        assert_eq!(msg.write_version(), 1663633666275, "valid write version");
+
+        update_write_version(&mut msg, 1);
+        assert_eq!(msg.write_version(), 1, "dec valid write version");
+        let mut msg2 = encode_decode(&msg, MessageParserEncoding::Prost);
+        if let (MessageAccount::Prost { size, .. }, MessageAccount::Prost { size: size2, .. }) =
+            (&msg, &mut msg2)
+        {
+            *size2 = *size; // ignore size field
+        }
+        assert_eq!(msg, msg2, "write version update failed");
+
+        update_write_version(&mut msg, u64::MAX);
+        assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
+        let mut msg2 = encode_decode(&msg, MessageParserEncoding::Prost);
+        if let (MessageAccount::Prost { size, .. }, MessageAccount::Prost { size: size2, .. }) =
+            (&msg, &mut msg2)
+        {
+            *size2 = *size; // ignore size field
+        }
+        assert_eq!(msg, msg2, "write version update failed");
+    }
+}

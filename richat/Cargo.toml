@@ -54,6 +54,9 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
 
+[dev-dependencies]
+const-hex = { workspace = true }
+
 [build-dependencies]
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
