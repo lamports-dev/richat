@@ -3,14 +3,6 @@ all-features = true
 
 [advisories]
 ignore = [
-    # net2 0.2.39
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2020-0016
-    "RUSTSEC-2020-0016",
-
-    # ansi_term 0.12.1
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2021-0139
-    "RUSTSEC-2021-0139",
-
     # atty 0.2.14
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2021-0145
     "RUSTSEC-2021-0145",
@@ -27,23 +19,11 @@ ignore = [
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0375
     "RUSTSEC-2024-0375",
 
-    # instant 0.1.13
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0384
-    "RUSTSEC-2024-0384",
-
     # derivative 2.2.0
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0388
     "RUSTSEC-2024-0388",
 
-    # idna 0.1.5
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0421
-    "RUSTSEC-2024-0421",
-
     # paste 1.0.15
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
-
-    # backoff 0.4.0
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2025-0012
-    "RUSTSEC-2025-0012",
 ]
