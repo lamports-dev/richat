@@ -308,14 +308,14 @@ async fn subscribe(
 
 pub struct Subscriptions {
     streams: Vec<BoxStream<'static, Result<(usize, Message), ReceiveError>>>,
-    last_polled: usize,
+    next_stream: usize,
 }
 
 impl fmt::Debug for Subscriptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Subscriptions")
             .field("streams", &self.streams.len())
-            .field("last_polled", &self.last_polled)
+            .field("next_stream", &self.next_stream)
             .finish()
     }
 }
@@ -333,7 +333,7 @@ impl Subscriptions {
 
         Ok(Self {
             streams,
-            last_polled: 0,
+            next_stream: 0,
         })
     }
 }
@@ -342,15 +342,17 @@ impl Stream for Subscriptions {
     type Item = Result<(usize, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let init_index = self.last_polled;
+        let init_index = self.next_stream;
         loop {
-            let index = self.last_polled;
-            if let Poll::Ready(value) = self.streams[index].poll_next_unpin(cx) {
+            let index = self.next_stream;
+            let result = self.streams[index].poll_next_unpin(cx);
+            self.next_stream = (self.next_stream + 1) % self.streams.len();
+
+            if let Poll::Ready(value) = result {
                 return Poll::Ready(value);
             }
 
-            self.last_polled = (self.last_polled + 1) % self.streams.len();
-            if self.last_polled == init_index {
+            if self.next_stream == init_index {
                 return Poll::Pending;
             }
         }
