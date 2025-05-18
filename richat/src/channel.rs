@@ -2,6 +2,10 @@ use {
     crate::{config::ConfigChannelInner, metrics},
     ::metrics::gauge,
     futures::stream::{Stream, StreamExt},
+    prost::{
+        bytes::Buf,
+        encoding::{decode_varint, encode_varint, encoded_len_varint},
+    },
     richat_filter::{
         filter::FilteredUpdate,
         message::{
@@ -1045,15 +1049,80 @@ enum DedupInfoTransactionIndex {
 fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
     match msg {
         MessageAccount::Limited {
-            data,
-            write_version,
-            range,
             buffer,
+            range,
+            account_offset,
+            write_version: write_version_position,
+            data,
+            txn_signature_offset,
             ..
         } => {
-            // todo: adjust buffer
+            // calculate current and new len of write_version
+            let mut buf = &mut &buffer.as_slice()[*write_version_position..];
+            let start = buf.remaining();
+            decode_varint(&mut buf).expect("already verified");
+            let wv_size_current = start - buf.remaining();
+            let wv_size_new = encoded_len_varint(write_version);
+
+            // calculate current and new len of account msg
+            let mut buf = &mut &buffer.as_slice()[*account_offset..];
+            let start = buf.remaining();
+            let msg_size = decode_varint(&mut buf).expect("already verified");
+            let msg_size_current = start - buf.remaining();
+            let msg_size = msg_size - wv_size_current as u64 + wv_size_new as u64;
+            let msg_size_new = encoded_len_varint(msg_size);
+
+            // resize if required
+            let new_end =
+                range.end + msg_size_new - msg_size_current + wv_size_new - wv_size_current;
+            if new_end > buffer.len() {
+                buffer.resize(new_end, 0);
+            }
+
+            // copy data before write_version
+            unsafe {
+                let end_current = *account_offset + msg_size_current;
+                let end_new = *account_offset + msg_size_new;
+                std::ptr::copy(
+                    buffer.as_ptr().add(end_current),
+                    buffer.as_mut_ptr().add(end_new),
+                    *write_version_position - end_new,
+                );
+            }
+
+            // copy data after write_version
+            unsafe {
+                let end_current = *write_version_position + wv_size_current;
+                let end_new = *write_version_position + wv_size_new;
+                std::ptr::copy(
+                    buffer.as_ptr().add(end_current),
+                    buffer.as_mut_ptr().add(end_new),
+                    range.end - end_current,
+                );
+            }
+
+            // save new message size and write_version
+            encode_varint(msg_size, &mut &mut buffer.as_mut_slice()[*account_offset..]);
+            encode_varint(
+                write_version,
+                &mut &mut buffer.as_mut_slice()[*write_version_position..],
+            );
+
+            // update offsets
+            range.end = new_end;
+            if data.start > *write_version_position {
+                data.start = data.start - wv_size_current + wv_size_new;
+                data.end = data.end - wv_size_current + wv_size_new;
+            }
+            if let Some(txn_signature_offset) = txn_signature_offset {
+                if txn_signature_offset > write_version_position {
+                    *txn_signature_offset = *txn_signature_offset - wv_size_current + wv_size_new;
+                }
+            }
         }
-        MessageAccount::Prost { account, .. } => {
+        MessageAccount::Prost { account, size, .. } => {
+            *size = *size - encoded_len_varint(account.write_version)
+                + encoded_len_varint(write_version);
             account.write_version = write_version;
         }
     }
@@ -1072,21 +1141,7 @@ mod test {
         solana_sdk::commitment_config::CommitmentLevel,
     };
 
-    static MESSAGE: &'static str = "0a0012af010aa6010a2088f1ffa3a2dfe617bdc4e3573251a322e3fcae81e5a457390e64751c00a465e210e0d54a1a2006aa09548b50476ad462f91f89a3015033264fc9abd5270020a9d142334742fb28ffffffffffffffffff013208c921f474e044612838e3e1acc2b53042405bd620fab28d3c0b78b3ead9f04d1c4d6dffeac4ffa7c679a6570b0226557c10b4c4016d937e06044b4e49d9d7916524d5dfa26297c5f638c3d11f846410bc0510e5ddaca2015a0c08e1c79ec10610ebef838601";
-
-    fn encode_decode(msg: &MessageAccount, parser: MessageParserEncoding) -> MessageAccount {
-        let filter = Filter::new(&ConfigFilter {
-            accounts: hashmap! { "".to_owned() => ConfigFilterAccounts::default() },
-            ..Default::default()
-        });
-
-        let message = Message::Account(msg.clone());
-        let message_ref: MessageRef = (&message).into();
-
-        let updates = filter.get_updates_ref(message_ref, CommitmentLevel::Processed);
-        assert_eq!(updates.len(), 1, "unexpected number of updates");
-        parse(updates[0].encode(), parser)
-    }
+    static MESSAGE: &str = "0a0012af010aa6010a2088f1ffa3a2dfe617bdc4e3573251a322e3fcae81e5a457390e64751c00a465e210e0d54a1a2006aa09548b50476ad462f91f89a3015033264fc9abd5270020a9d142334742fb28ffffffffffffffffff013208c921f474e044612838e3e1acc2b53042405bd620fab28d3c0b78b3ead9f04d1c4d6dffeac4ffa7c679a6570b0226557c10b4c4016d937e06044b4e49d9d7916524d5dfa26297c5f638c3d11f846410bc0510e5ddaca2015a0c08e1c79ec10610ebef838601";
 
     fn parse(data: Vec<u8>, parser: MessageParserEncoding) -> MessageAccount {
         if let Message::Account(msg) = Message::parse(data, parser).expect("valid message") {
@@ -1104,6 +1159,20 @@ mod test {
         }
     }
 
+    fn encode(msg: &MessageAccount) -> Vec<u8> {
+        let filter = Filter::new(&ConfigFilter {
+            accounts: hashmap! { "".to_owned() => ConfigFilterAccounts::default() },
+            ..Default::default()
+        });
+
+        let message = Message::Account(msg.clone());
+        let message_ref: MessageRef = (&message).into();
+
+        let updates = filter.get_updates_ref(message_ref, CommitmentLevel::Processed);
+        assert_eq!(updates.len(), 1, "unexpected number of updates");
+        updates[0].encode()
+    }
+
     #[test]
     fn test_limited() {
         let mut msg = parse(
@@ -1114,12 +1183,30 @@ mod test {
 
         update_write_version(&mut msg, 1);
         assert_eq!(msg.write_version(), 1, "dec valid write version");
-        let msg2 = encode_decode(&msg, MessageParserEncoding::Limited);
+        let mut msg2 = parse(encode(&msg), MessageParserEncoding::Limited);
+        if let (
+            MessageAccount::Limited { buffer, .. },
+            MessageAccount::Limited {
+                buffer: buffer2, ..
+            },
+        ) = (&msg, &mut msg2)
+        {
+            *buffer2 = buffer.clone(); // ignore buffer
+        }
         assert_eq!(msg, msg2, "write version update failed");
 
         update_write_version(&mut msg, u64::MAX);
         assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
-        let msg2 = encode_decode(&msg, MessageParserEncoding::Limited);
+        let mut msg2 = parse(encode(&msg), MessageParserEncoding::Limited);
+        if let (
+            MessageAccount::Limited { buffer, .. },
+            MessageAccount::Limited {
+                buffer: buffer2, ..
+            },
+        ) = (&msg, &mut msg2)
+        {
+            *buffer2 = buffer.clone(); // ignore buffer
+        }
         assert_eq!(msg, msg2, "write version update failed");
     }
 
@@ -1133,22 +1220,12 @@ mod test {
 
         update_write_version(&mut msg, 1);
         assert_eq!(msg.write_version(), 1, "dec valid write version");
-        let mut msg2 = encode_decode(&msg, MessageParserEncoding::Prost);
-        if let (MessageAccount::Prost { size, .. }, MessageAccount::Prost { size: size2, .. }) =
-            (&msg, &mut msg2)
-        {
-            *size2 = *size; // ignore size field
-        }
+        let msg2 = parse(encode(&msg), MessageParserEncoding::Prost);
         assert_eq!(msg, msg2, "write version update failed");
 
         update_write_version(&mut msg, u64::MAX);
         assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
-        let mut msg2 = encode_decode(&msg, MessageParserEncoding::Prost);
-        if let (MessageAccount::Prost { size, .. }, MessageAccount::Prost { size: size2, .. }) =
-            (&msg, &mut msg2)
-        {
-            *size2 = *size; // ignore size field
-        }
+        let msg2 = parse(encode(&msg), MessageParserEncoding::Prost);
         assert_eq!(msg, msg2, "write version update failed");
     }
 }

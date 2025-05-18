@@ -793,6 +793,7 @@ impl FilteredUpdate<'_> {
                     is_startup,
                     created_at,
                     buffer,
+                    account_offset: _,
                     range,
                 } => SubscribeUpdateMessageLimited {
                     filters: &self.filters,

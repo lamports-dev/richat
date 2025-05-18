@@ -211,7 +211,7 @@ impl MessageParserLimited {
                         &data.as_slice()[range.start..range.end],
                     )?;
 
-                    if !message.account {
+                    if message.account == usize::MAX {
                         return Err(MessageParseError::FieldNotDefined("account"));
                     }
 
@@ -226,12 +226,15 @@ impl MessageParserLimited {
                         executable: message.executable,
                         rent_epoch: message.rent_epoch,
                         data: data_range,
-                        txn_signature_offset: message.txn_signature_offset,
+                        txn_signature_offset: message
+                            .txn_signature_offset
+                            .map(|offset| offset + range.start),
                         write_version: message.write_version + range.start,
                         slot: message.slot,
                         is_startup: message.is_startup,
                         created_at,
                         buffer: data,
+                        account_offset: message.account + range.start,
                         range,
                     })
                 }
@@ -618,6 +621,7 @@ pub enum MessageAccount {
         is_startup: bool,
         created_at: Timestamp,
         buffer: Vec<u8>,
+        account_offset: usize,
         range: Range<usize>,
     },
     Prost {
