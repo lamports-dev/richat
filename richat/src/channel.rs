@@ -1134,10 +1134,11 @@ mod test {
         super::update_write_version,
         maplit::hashmap,
         richat_filter::{
-            config::{ConfigFilter, ConfigFilterAccounts},
+            config::{ConfigFilter, ConfigFilterAccounts, ConfigFilterAccountsDataSlice},
             filter::Filter,
             message::{Message, MessageAccount, MessageParserEncoding, MessageRef},
         },
+        solana_account::ReadableAccount,
         solana_sdk::commitment_config::CommitmentLevel,
     };
 
@@ -1159,9 +1160,12 @@ mod test {
         }
     }
 
-    fn encode(msg: &MessageAccount) -> Vec<u8> {
+    fn encode(msg: &MessageAccount, data_slice: Option<(u64, u64)>) -> Vec<u8> {
         let filter = Filter::new(&ConfigFilter {
             accounts: hashmap! { "".to_owned() => ConfigFilterAccounts::default() },
+            accounts_data_slice: data_slice
+                .map(|(offset, length)| vec![ConfigFilterAccountsDataSlice { offset, length }])
+                .unwrap_or_default(),
             ..Default::default()
         });
 
@@ -1183,7 +1187,7 @@ mod test {
 
         update_write_version(&mut msg, 1);
         assert_eq!(msg.write_version(), 1, "dec valid write version");
-        let mut msg2 = parse(encode(&msg), MessageParserEncoding::Limited);
+        let mut msg2 = parse(encode(&msg, None), MessageParserEncoding::Limited);
         if let (
             MessageAccount::Limited { buffer, .. },
             MessageAccount::Limited {
@@ -1194,10 +1198,46 @@ mod test {
             *buffer2 = buffer.clone(); // ignore buffer
         }
         assert_eq!(msg, msg2, "write version update failed");
+        // check with data slice
+        let mut msg2 = parse(encode(&msg, Some((1, 3))), MessageParserEncoding::Limited);
+        assert_eq!(msg.write_version(), msg2.write_version());
+        assert_eq!(&msg.data()[1..4], msg2.data());
+        if let (
+            MessageAccount::Limited {
+                buffer,
+                txn_signature_offset,
+                write_version,
+                data,
+                range,
+                ..
+            },
+            MessageAccount::Limited {
+                buffer: buffer2,
+                txn_signature_offset: txn_signature_offset2,
+                write_version: write_version2,
+                data: data2,
+                range: range2,
+                ..
+            },
+        ) = (&msg, &mut msg2)
+        {
+            let txn_offset = txn_signature_offset.unwrap();
+            let txn_offset2 = txn_signature_offset2.unwrap();
+            assert_eq!(
+                &buffer[txn_offset..txn_offset + 64],
+                &buffer2[txn_offset2..txn_offset2 + 64]
+            );
+            *buffer2 = buffer.clone(); // ignore buffer
+            *txn_signature_offset2 = *txn_signature_offset;
+            *write_version2 = *write_version;
+            *data2 = data.clone();
+            *range2 = range.clone();
+        }
+        assert_eq!(msg, msg2, "write version update failed");
 
         update_write_version(&mut msg, u64::MAX);
         assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
-        let mut msg2 = parse(encode(&msg), MessageParserEncoding::Limited);
+        let mut msg2 = parse(encode(&msg, None), MessageParserEncoding::Limited);
         if let (
             MessageAccount::Limited { buffer, .. },
             MessageAccount::Limited {
@@ -1206,6 +1246,42 @@ mod test {
         ) = (&msg, &mut msg2)
         {
             *buffer2 = buffer.clone(); // ignore buffer
+        }
+        assert_eq!(msg, msg2, "write version update failed");
+        // check with data slice
+        let mut msg2 = parse(encode(&msg, Some((1, 3))), MessageParserEncoding::Limited);
+        assert_eq!(msg.write_version(), msg2.write_version());
+        assert_eq!(&msg.data()[1..4], msg2.data());
+        if let (
+            MessageAccount::Limited {
+                buffer,
+                txn_signature_offset,
+                write_version,
+                data,
+                range,
+                ..
+            },
+            MessageAccount::Limited {
+                buffer: buffer2,
+                txn_signature_offset: txn_signature_offset2,
+                write_version: write_version2,
+                data: data2,
+                range: range2,
+                ..
+            },
+        ) = (&msg, &mut msg2)
+        {
+            let txn_offset = txn_signature_offset.unwrap();
+            let txn_offset2 = txn_signature_offset2.unwrap();
+            assert_eq!(
+                &buffer[txn_offset..txn_offset + 64],
+                &buffer2[txn_offset2..txn_offset2 + 64]
+            );
+            *buffer2 = buffer.clone(); // ignore buffer
+            *txn_signature_offset2 = *txn_signature_offset;
+            *write_version2 = *write_version;
+            *data2 = data.clone();
+            *range2 = range.clone();
         }
         assert_eq!(msg, msg2, "write version update failed");
     }
@@ -1220,12 +1296,12 @@ mod test {
 
         update_write_version(&mut msg, 1);
         assert_eq!(msg.write_version(), 1, "dec valid write version");
-        let msg2 = parse(encode(&msg), MessageParserEncoding::Prost);
+        let msg2 = parse(encode(&msg, None), MessageParserEncoding::Prost);
         assert_eq!(msg, msg2, "write version update failed");
 
         update_write_version(&mut msg, u64::MAX);
         assert_eq!(msg.write_version(), u64::MAX, "inc valid write version");
-        let msg2 = parse(encode(&msg), MessageParserEncoding::Prost);
+        let msg2 = parse(encode(&msg, None), MessageParserEncoding::Prost);
         assert_eq!(msg, msg2, "write version update failed");
     }
 }
