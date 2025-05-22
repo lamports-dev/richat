@@ -1052,13 +1052,13 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             buffer,
             range,
             account_offset,
-            write_version: write_version_position,
+            write_version: write_version_current,
             data,
             txn_signature_offset,
             ..
         } => {
             // calculate current and new len of write_version
-            let mut buf = &mut &buffer.as_slice()[*write_version_position..];
+            let mut buf = &mut &buffer.as_slice()[*write_version_current..];
             let start = buf.remaining();
             decode_varint(&mut buf).expect("already verified");
             let wv_size_current = start - buf.remaining();
@@ -1086,14 +1086,16 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
                 std::ptr::copy(
                     buffer.as_ptr().add(end_current),
                     buffer.as_mut_ptr().add(end_new),
-                    *write_version_position - end_new,
+                    *write_version_current - end_current,
                 );
             }
 
             // copy data after write_version
+            let write_version_new = *write_version_current + msg_size_new - msg_size_current;
             unsafe {
-                let end_current = *write_version_position + wv_size_current;
-                let end_new = *write_version_position + wv_size_new;
+                // write_version_position changed because account len !!
+                let end_current = *write_version_current + wv_size_current;
+                let end_new = write_version_new + wv_size_new;
                 std::ptr::copy(
                     buffer.as_ptr().add(end_current),
                     buffer.as_mut_ptr().add(end_new),
@@ -1105,17 +1107,17 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             encode_varint(msg_size, &mut &mut buffer.as_mut_slice()[*account_offset..]);
             encode_varint(
                 write_version,
-                &mut &mut buffer.as_mut_slice()[*write_version_position..],
+                &mut &mut buffer.as_mut_slice()[write_version_new..],
             );
 
             // update offsets
             range.end = new_end;
-            if data.start > *write_version_position {
+            if data.start > write_version_new {
                 data.start = data.start - wv_size_current + wv_size_new;
                 data.end = data.end - wv_size_current + wv_size_new;
             }
             if let Some(txn_signature_offset) = txn_signature_offset {
-                if txn_signature_offset > write_version_position {
+                if *txn_signature_offset > write_version_new {
                     *txn_signature_offset = *txn_signature_offset - wv_size_current + wv_size_new;
                 }
             }
