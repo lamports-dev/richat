@@ -1069,7 +1069,7 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             let start = buf.remaining();
             let msg_size = decode_varint(&mut buf).expect("already verified");
             let msg_size_current = start - buf.remaining();
-            let msg_size = msg_size - wv_size_current as u64 + wv_size_new as u64;
+            let msg_size = msg_size + wv_size_new as u64 - wv_size_current as u64;
             let msg_size_new = encoded_len_varint(msg_size);
 
             // resize if required
@@ -1093,7 +1093,6 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             // copy data after write_version
             let write_version_new = *write_version_current + msg_size_new - msg_size_current;
             unsafe {
-                // write_version_position changed because account len !!
                 let end_current = *write_version_current + wv_size_current;
                 let end_new = write_version_new + wv_size_new;
                 std::ptr::copy(
@@ -1113,12 +1112,12 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             // update offsets
             range.end = new_end;
             if data.start > write_version_new {
-                data.start = data.start - wv_size_current + wv_size_new;
-                data.end = data.end - wv_size_current + wv_size_new;
+                data.start = data.start + wv_size_new - wv_size_current;
+                data.end = data.end + wv_size_new - wv_size_current;
             }
             if let Some(txn_signature_offset) = txn_signature_offset {
                 if *txn_signature_offset > write_version_new {
-                    *txn_signature_offset = *txn_signature_offset - wv_size_current + wv_size_new;
+                    *txn_signature_offset = *txn_signature_offset + wv_size_new - wv_size_current;
                 }
             }
         }
