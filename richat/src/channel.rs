@@ -1111,15 +1111,20 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
 
             // update offsets
             range.end = new_end;
+            // update msg_size anyway
+            data.start = data.start + msg_size_new - msg_size_current;
+            data.end = data.end + msg_size_new - msg_size_current;
             if data.start > write_version_new {
                 data.start = data.start + wv_size_new - wv_size_current;
                 data.end = data.end + wv_size_new - wv_size_current;
             }
             if let Some(txn_signature_offset) = txn_signature_offset {
+                *txn_signature_offset = *txn_signature_offset + msg_size_new - msg_size_current;
                 if *txn_signature_offset > write_version_new {
                     *txn_signature_offset = *txn_signature_offset + wv_size_new - wv_size_current;
                 }
             }
+            *write_version_current = write_version_new;
         }
         MessageAccount::Prost { account, size, .. } => {
             *size = *size - encoded_len_varint(account.write_version)
