@@ -112,6 +112,21 @@ impl ArgsAppStreamRichat {
                 let pb_multi_stream = Arc::clone(&pb_multi_stream);
                 async move {
                     let msg = SubscribeUpdate::decode(vec.as_slice())?;
+                    if let Some(UpdateOneof::Account(msg)) = &msg.update_oneof {
+                        let msg = msg.account.as_ref().unwrap();
+                        if msg.pubkey
+                            == solana_sdk::pubkey!("account here")
+                                .as_array()
+                                .to_vec()
+                        {
+                            pb_multi_stream.println(format!(
+                                "received update with txn: {:?}",
+                                msg.txn_signature.as_ref().map(|s| {
+                                    solana_sdk::signature::Signature::try_from(s.as_ref()).unwrap()
+                                })
+                            ))?;
+                        }
+                    }
                     if verify {
                         match convert_prost_to_raw(&msg) {
                             Ok(Some(vec_raw)) if vec != vec_raw => pb_multi_stream.println(
