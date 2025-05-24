@@ -1127,8 +1127,8 @@ fn update_write_version(msg: &mut MessageAccount, write_version: u64) {
             *write_version_current = write_version_new;
         }
         MessageAccount::Prost { account, size, .. } => {
-            *size = *size - encoded_len_varint(account.write_version)
-                + encoded_len_varint(write_version);
+            *size = *size + encoded_len_varint(write_version)
+                - encoded_len_varint(account.write_version);
             account.write_version = write_version;
         }
     }
