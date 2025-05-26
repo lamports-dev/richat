@@ -62,7 +62,7 @@ pub struct ConfigQuicServer {
 
 impl ConfigQuicServer {
     pub const fn default_endpoint() -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10100)
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10101)
     }
 
     const fn default_expected_rtt() -> u32 {

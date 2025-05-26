@@ -16,7 +16,7 @@
     "max_bytes": "16_106_127_360"
   },
   "quic": {
-    "endpoint": "127.0.0.1:10100",
+    "endpoint": "127.0.0.1:10101",
     "tls_config": {
       // "cert": "/path/to/cert.cert",
       // "key": "/path/to/key.key",
@@ -28,7 +28,7 @@
     "x_tokens": []
   },
   "grpc": {
-    "endpoint": "127.0.0.1:10101",
+    "endpoint": "127.0.0.1:10100",
     "tls_config": {
       "cert": "/path/to/cert.cert",
       "key": "/path/to/key.key"

@@ -17,7 +17,7 @@ channel:
     #     multiplier: 2
     #   transport: quic
     #   source: richat # valid: richat, dragons_mouth
-    #   endpoint: 127.0.0.1:10100
+    #   endpoint: 127.0.0.1:10101
     #   local_addr: "[::]:0"
     #   expected_rtt: 100
     #   max_stream_bandwidth: 12_500_000 # 100Mbits with 100ms latency
@@ -34,7 +34,7 @@ channel:
       reconnect: null
       source: richat # valid: richat, dragons_mouth
       transport: grpc
-      endpoint: http://127.0.0.1:10101
+      endpoint: http://127.0.0.1:10100
       ca_certificate: null
       connect_timeout: null
       buffer_size: null
@@ -61,7 +61,7 @@ apps:
     affinity: 2-3
   richat:
     quic:
-      endpoint: '127.0.0.1:10100'
+      endpoint: '127.0.0.1:10101'
       tls_config:
         # cert: /path/to/cert.cert
         # key: /path/to/key.key
@@ -72,7 +72,7 @@ apps:
       max_recv_streams: 16
       x_tokens: []
     grpc:
-      endpoint: '127.0.0.1:10101'
+      endpoint: '127.0.0.1:10100'
       tls_config:
         cert: /path/to/cert.cert
         key: /path/to/key.key
@@ -93,7 +93,7 @@ apps:
       server_initial_stream_window_size: null
   grpc:
     server:
-      endpoint: 127.0.0.1:10101
+      endpoint: 127.0.0.1:10000
       tls_config:
         cert: /path/to/cert.cert
         key: /path/to/key.key

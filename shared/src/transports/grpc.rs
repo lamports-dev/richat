@@ -120,7 +120,7 @@ pub struct ConfigGrpcServer {
 impl Default for ConfigGrpcServer {
     fn default() -> Self {
         Self {
-            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10101),
+            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10100),
             tls_config: None,
             compression: ConfigGrpcCompression::default(),
             max_decoding_message_size: 4 * 1024 * 1024, // 4MiB
