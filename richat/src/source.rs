@@ -13,7 +13,6 @@ use {
     richat_client::{
         grpc::{ConfigGrpcClient, GrpcClientBuilderError},
         quic::{ConfigQuicClient, QuicConnectError},
-        tcp::ConfigTcpClient,
     },
     richat_filter::message::{Message, MessageParseError, MessageParserEncoding},
     richat_proto::{
@@ -27,7 +26,7 @@ use {
     },
     std::{
         collections::HashMap,
-        fmt, io,
+        fmt,
         pin::Pin,
         task::{Context, Poll},
     },
@@ -40,8 +39,6 @@ use {
 enum ConnectError {
     #[error(transparent)]
     Quic(QuicConnectError),
-    #[error(transparent)]
-    Tcp(io::Error),
     #[error(transparent)]
     Grpc(GrpcClientBuilderError),
 }
@@ -69,9 +66,6 @@ enum SubscriptionConfig {
     Quic {
         config: ConfigQuicClient,
     },
-    Tcp {
-        config: ConfigTcpClient,
-    },
     Grpc {
         source: ConfigGrpcClientSource,
         config: ConfigGrpcClient,
@@ -82,7 +76,6 @@ impl SubscriptionConfig {
     fn new(config: ConfigChannelSource) -> (Self, ConfigChannelSourceGeneral) {
         match config {
             ConfigChannelSource::Quic { general, config } => (Self::Quic { config }, general),
-            ConfigChannelSource::Tcp { general, config } => (Self::Tcp { config }, general),
             ConfigChannelSource::Grpc {
                 general,
                 source,
@@ -134,11 +127,6 @@ impl Subscription {
         let stream = match config {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
-                let filter = Self::create_richat_filter(disable_accounts);
-                connection.subscribe(None, filter).await?.boxed()
-            }
-            SubscriptionConfig::Tcp { config } => {
-                let connection = config.connect().await.map_err(ConnectError::Tcp)?;
                 let filter = Self::create_richat_filter(disable_accounts);
                 connection.subscribe(None, filter).await?.boxed()
             }

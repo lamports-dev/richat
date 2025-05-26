@@ -45,9 +45,3 @@ enum QuicSubscribeCloseError {
   LAGGED = 0;
   CLOSED = 1;
 }
-
-message TcpSubscribeRequest {
-  optional bytes x_token = 1;
-  optional uint64 replay_from_slot = 2;
-  RichatFilter filter = 3;
-}

@@ -4,7 +4,7 @@ use {
         richat::config::ConfigAppsRichat,
     },
     futures::future::{ready, try_join_all, TryFutureExt},
-    richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient, tcp::ConfigTcpClient},
+    richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
     richat_shared::{
         config::{deserialize_affinity, deserialize_num_str, ConfigMetrics, ConfigTokio},
@@ -67,13 +67,6 @@ pub enum ConfigChannelSource {
         general: ConfigChannelSourceGeneral,
         #[serde(flatten)]
         config: ConfigQuicClient,
-    },
-    #[serde(rename = "tcp")]
-    Tcp {
-        #[serde(flatten)]
-        general: ConfigChannelSourceGeneral,
-        #[serde(flatten)]
-        config: ConfigTcpClient,
     },
     #[serde(rename = "grpc")]
     Grpc {

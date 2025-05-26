@@ -13,7 +13,6 @@ use {
         error::ReceiveError,
         grpc::GrpcClient,
         quic::{QuicClient, QuicClientBuilder},
-        tcp::TcpClient,
     },
     richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     richat_proto::{
@@ -24,9 +23,7 @@ use {
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },
-    richat_shared::transports::{
-        grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer,
-    },
+    richat_shared::transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     solana_sdk::{
         clock::Slot,
         message::{
@@ -90,9 +87,6 @@ impl ArgsAppStreamRichat {
             ArgsAppStreamSelect::Quic(args) => {
                 args.subscribe(replay_from_slot, filter, x_token).await
             }
-            ArgsAppStreamSelect::Tcp(args) => {
-                args.subscribe(replay_from_slot, filter, x_token).await
-            }
             ArgsAppStreamSelect::Grpc(args) => {
                 args.subscribe(replay_from_slot, filter, x_token).await
             }
@@ -136,8 +130,6 @@ impl ArgsAppStreamRichat {
 enum ArgsAppStreamSelect {
     /// Stream over Quic
     Quic(ArgsAppStreamQuic),
-    /// Stream over Tcp
-    Tcp(ArgsAppStreamTcp),
     /// Stream over gRPC
     Grpc(ArgsAppStreamGrpc),
 }
@@ -203,37 +195,6 @@ impl ArgsAppStreamQuic {
         }
         .context("failed to connect")?;
         info!("connected to {} over Quic", self.endpoint);
-
-        let stream = client
-            .subscribe(replay_from_slot, Some(filter))
-            .await
-            .context("failed to subscribe")?;
-        info!("subscribed");
-
-        Ok(stream.boxed())
-    }
-}
-
-#[derive(Debug, Args)]
-struct ArgsAppStreamTcp {
-    /// Richat Geyser plugin Tcp Server endpoint
-    #[clap(default_value_t = ConfigTcpServer::default().endpoint.to_string())]
-    endpoint: String,
-}
-
-impl ArgsAppStreamTcp {
-    async fn subscribe(
-        self,
-        replay_from_slot: Option<Slot>,
-        filter: RichatFilter,
-        x_token: Option<Vec<u8>>,
-    ) -> anyhow::Result<SubscribeStreamInput> {
-        let client = TcpClient::build()
-            .set_x_token(x_token)
-            .connect(&self.endpoint)
-            .await
-            .context("failed to connect")?;
-        info!("connected to {} over Tcp", self.endpoint);
 
         let stream = client
             .subscribe(replay_from_slot, Some(filter))

@@ -9,7 +9,6 @@ use {
     richat_client::{
         grpc::{ConfigGrpcClient, GrpcClient},
         quic::ConfigQuicClient,
-        tcp::ConfigTcpClient,
     },
     richat_proto::{
         geyser::{
@@ -152,8 +151,6 @@ impl ConfigSource {
 enum ConfigSourceRichatPluginAgave {
     #[serde(rename = "quic")]
     Quic(ConfigQuicClient),
-    #[serde(rename = "tcp")]
-    Tcp(ConfigTcpClient),
     #[serde(rename = "grpc")]
     Grpc(ConfigGrpcClient),
 }
@@ -172,10 +169,6 @@ impl ConfigSourceRichatPluginAgave {
 
         let stream = match self {
             Self::Quic(config) => {
-                let stream = config.connect().await?.subscribe(None, filter).await?;
-                stream.into_parsed()
-            }
-            Self::Tcp(config) => {
                 let stream = config.connect().await?.subscribe(None, filter).await?;
                 stream.into_parsed()
             }

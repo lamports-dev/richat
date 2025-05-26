@@ -27,16 +27,8 @@
     "max_recv_streams": 16,
     "x_tokens": []
   },
-  "tcp": {
-    "endpoint": "127.0.0.1:10101",
-    "backlog": 1024,
-    "keepalive": null,
-    "nodelay": true,
-    "send_buffer_size": null,
-    "x_tokens": []
-  },
   "grpc": {
-    "endpoint": "127.0.0.1:10102",
+    "endpoint": "127.0.0.1:10101",
     "tls_config": {
       "cert": "/path/to/cert.cert",
       "key": "/path/to/key.key"

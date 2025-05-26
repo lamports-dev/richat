@@ -84,9 +84,9 @@ flowchart LR
     client2(client)
     client3(client)
 
-    geyser1 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
-    geyser2 -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
-    richat0_server -->|Tcp / gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    geyser1 -->|gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    geyser2 -->|gRPC / Quic<br/>full stream| richat1_tokio1_receiver
+    richat0_server -->|gRPC / Quic<br/>full stream| richat1_tokio1_receiver
     richat1_tokio1_receiver --> richat1_channel
     richat1_channel --> richat1_blockmeta_recv_thread
     richat1_channel --> richat1_grpc_worker1
@@ -99,7 +99,7 @@ flowchart LR
     client1 <--> |gRPC<br/>filtered stream| richat1_grpc1_streaming1
     client1 --> richat1_grpc1_unary
     richat1_channel --> richat_server1_sender
-    richat_server1_sender -->|Tcp / gRPC / Quic<br/>full stream| client2
+    richat_server1_sender -->|gRPC / Quic<br/>full stream| client2
     richat1_channel --> richat1_pubsub1_subscriptions
     richat1_pubsub1_subscriptions <--> richat1_pubsub1_pool_worker1
     richat1_pubsub1_subscriptions <--> richat1_pubsub1_pool_worker2

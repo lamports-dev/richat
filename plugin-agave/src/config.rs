@@ -5,7 +5,7 @@ use {
     },
     richat_shared::{
         config::{deserialize_num_str, ConfigMetrics, ConfigTokio},
-        transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer, tcp::ConfigTcpServer},
+        transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     },
     serde::{
         de::{self, Deserializer},
@@ -23,7 +23,6 @@ pub struct Config {
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
     pub quic: Option<ConfigQuicServer>,
-    pub tcp: Option<ConfigTcpServer>,
     pub grpc: Option<ConfigGrpcServer>,
 }
 

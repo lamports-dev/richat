@@ -4,7 +4,7 @@ use {
     futures::future::{try_join_all, FutureExt, TryFutureExt},
     richat_shared::{
         shutdown::Shutdown,
-        transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
+        transports::{grpc::GrpcServer, quic::QuicServer},
     },
     std::future::Future,
 };
@@ -26,23 +26,6 @@ impl RichatServer {
             let connections_dec = connections_inc.clone();
             tasks.push(
                 QuicServer::spawn(
-                    config,
-                    messages.clone(),
-                    move || connections_inc.increment(1), // on_conn_new_cb
-                    move || connections_dec.decrement(1), // on_conn_drop_cb
-                    shutdown.clone(),
-                )
-                .await?
-                .boxed(),
-            );
-        }
-
-        // Start Tcp
-        if let Some(config) = config.tcp {
-            let connections_inc = gauge!(metrics::RICHAT_CONNECTIONS_TOTAL, "transport" => "tcp");
-            let connections_dec = connections_inc.clone();
-            tasks.push(
-                TcpServer::spawn(
                     config,
                     messages.clone(),
                     move || connections_inc.increment(1), // on_conn_new_cb

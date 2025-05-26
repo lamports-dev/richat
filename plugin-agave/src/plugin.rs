@@ -16,7 +16,7 @@ use {
     log::error,
     richat_shared::{
         shutdown::Shutdown,
-        transports::{grpc::GrpcServer, quic::QuicServer, tcp::TcpServer},
+        transports::{grpc::GrpcServer, quic::QuicServer},
     },
     solana_sdk::clock::Slot,
     std::{fmt, time::Duration},
@@ -84,25 +84,6 @@ impl PluginInner {
                         "Quic Server",
                         PluginTask(Box::pin(
                             QuicServer::spawn(
-                                config,
-                                messages.clone(),
-                                move || connections_inc.increment(1), // on_conn_new_cb
-                                move || connections_dec.decrement(1), // on_conn_drop_cb
-                                shutdown.clone(),
-                            )
-                            .await?,
-                        )),
-                    ));
-                }
-
-                // Start Tcp
-                if let Some(config) = config.tcp {
-                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "tcp");
-                    let connections_dec = connections_inc.clone();
-                    tasks.push((
-                        "Tcp Server",
-                        PluginTask(Box::pin(
-                            TcpServer::spawn(
                                 config,
                                 messages.clone(),
                                 move || connections_inc.increment(1), // on_conn_new_cb
