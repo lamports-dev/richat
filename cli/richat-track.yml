@@ -2,13 +2,6 @@
 accounts: true
 transactions: true
 sources:
-  # richat-plugin-agave-quic:
-  #   source: richat-plugin-agave
-  #   transport: quic
-  #   endpoint: 127.0.0.1:10101
-  #   local_addr: "[::]:0"
-  #   server_name: "localhost"
-  #   insecure: true
   richat-plugin-agave-grpc:
     source: richat-plugin-agave
     transport: grpc
@@ -16,6 +9,13 @@ sources:
     connect_timeout: 3s
     timeout: 3s
     max_decoding_message_size: 134_217_728
+  # richat-plugin-agave-quic:
+  #   source: richat-plugin-agave
+  #   transport: quic
+  #   endpoint: 127.0.0.1:10101
+  #   local_addr: "[::]:0"
+  #   server_name: "localhost"
+  #   insecure: true
   # richat-grpc:
   #   source: richat-grpc
   #   endpoint: http://127.0.0.1:10200
