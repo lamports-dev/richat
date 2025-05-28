@@ -76,25 +76,6 @@ impl PluginInner {
                 let shutdown = Shutdown::new();
                 let mut tasks = Vec::with_capacity(4);
 
-                // Start Quic
-                if let Some(config) = config.quic {
-                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "quic");
-                    let connections_dec = connections_inc.clone();
-                    tasks.push((
-                        "Quic Server",
-                        PluginTask(Box::pin(
-                            QuicServer::spawn(
-                                config,
-                                messages.clone(),
-                                move || connections_inc.increment(1), // on_conn_new_cb
-                                move || connections_dec.decrement(1), // on_conn_drop_cb
-                                shutdown.clone(),
-                            )
-                            .await?,
-                        )),
-                    ));
-                }
-
                 // Start gRPC
                 if let Some(config) = config.grpc {
                     let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "grpc");
@@ -108,6 +89,25 @@ impl PluginInner {
                                 move || connections_inc.increment(1), // on_conn_new_cb
                                 move || connections_dec.decrement(1), // on_conn_drop_cb
                                 VERSION,
+                                shutdown.clone(),
+                            )
+                            .await?,
+                        )),
+                    ));
+                }
+
+                // Start Quic
+                if let Some(config) = config.quic {
+                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "quic");
+                    let connections_dec = connections_inc.clone();
+                    tasks.push((
+                        "Quic Server",
+                        PluginTask(Box::pin(
+                            QuicServer::spawn(
+                                config,
+                                messages.clone(),
+                                move || connections_inc.increment(1), // on_conn_new_cb
+                                move || connections_dec.decrement(1), // on_conn_drop_cb
                                 shutdown.clone(),
                             )
                             .await?,
