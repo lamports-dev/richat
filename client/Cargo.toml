@@ -12,6 +12,7 @@ publish = true
 
 [dependencies]
 bytes = { workspace = true }
+foldhash = { workspace = true }
 futures = { workspace = true }
 humantime-serde = { workspace = true }
 pin-project-lite = { workspace = true }

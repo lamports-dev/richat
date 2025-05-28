@@ -17,6 +17,7 @@ use {
         upgrade::{is_upgrade_request, upgrade, UpgradeFut},
         CloseCode, FragmentCollectorRead, Frame, OpCode, Payload, WebSocketError,
     },
+    foldhash::quality::RandomState,
     futures::future::{ready, try_join_all, FutureExt, TryFutureExt},
     http_body_util::{BodyExt, Empty as BodyEmpty},
     hyper::{body::Incoming as BodyIncoming, service::service_fn, Request, Response, StatusCode},
@@ -293,7 +294,7 @@ impl PubSubServer {
         .and_then(ready);
 
         let write_fut = tokio::spawn(async move {
-            let mut subscriptions = HashMap::<SubscriptionId, SubscribeMethod>::new();
+            let mut subscriptions = HashMap::<SubscriptionId, SubscribeMethod, RandomState>::default();
             let maybe_close_reason = loop {
                 tokio::select! {
                     message = read_rx.recv() => match message {

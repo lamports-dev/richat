@@ -17,6 +17,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: impl `SubscribeReplayInfo` ([#109](https://github.com/lamports-dev/richat/pull/109))
 - richat: faster account messages deduper ([#110](https://github.com/lamports-dev/richat/pull/110))
 - richat: remove tcp ([#111](https://github.com/lamports-dev/richat/pull/111))
+- richat: use foldhash for performance ([#112](https://github.com/lamports-dev/richat/pull/112))
 
 ### Breaking
 

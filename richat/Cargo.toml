@@ -15,8 +15,9 @@ affinity-linux = { workspace = true }
 anyhow = { workspace = true }
 arrayvec = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-futures = { workspace = true }
 fastwebsockets = { workspace = true, features = ["upgrade", "unstable-split"] }
+foldhash = { workspace = true }
+futures = { workspace = true }
 http-body-util = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }

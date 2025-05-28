@@ -1,6 +1,7 @@
 use {
     crate::{channel::ParsedMessage, metrics},
     ::metrics::gauge,
+    foldhash::quality::RandomState,
     futures::future::TryFutureExt,
     richat_proto::geyser::{CommitmentLevel as CommitmentLevelProto, SlotStatus},
     solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
@@ -53,8 +54,8 @@ impl BlockMetaStorage {
         mut messages_rx: mpsc::UnboundedReceiver<ParsedMessage>,
         mut requests_rx: mpsc::Receiver<Request>,
     ) {
-        let mut blocks = HashMap::<Slot, BlockMeta>::new();
-        let mut blockhashes = HashMap::<Arc<String>, BlockStatus>::new();
+        let mut blocks = HashMap::<Slot, BlockMeta, RandomState>::default();
+        let mut blockhashes = HashMap::<Arc<String>, BlockStatus, RandomState>::default();
         let mut processed = 0;
         let mut confirmed = 0;
         let mut finalized = 0;

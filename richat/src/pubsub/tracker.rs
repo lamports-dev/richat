@@ -11,6 +11,7 @@ use {
         },
     },
     ::metrics::gauge,
+    foldhash::quality::RandomState,
     prost_types::Timestamp,
     rayon::{
         iter::{IntoParallelIterator, ParallelIterator},
@@ -66,12 +67,21 @@ struct SubscriptionInfo {
 #[derive(Debug, Default)]
 struct Subscriptions {
     subscription_id: SubscriptionId,
-    subscriptions:
-        HashMap<SubscribeConfigHashId, (CommitmentLevel, SubscribeMethod, SubscriptionId)>,
-    subscriptions_per_client:
-        HashMap<ClientId, HashMap<SubscriptionId, (CommitmentLevel, SubscribeMethod)>>,
-    subscriptions_per_method:
-        HashMap<(CommitmentLevel, SubscribeMethod), HashMap<SubscriptionId, SubscriptionInfo>>,
+    subscriptions: HashMap<
+        SubscribeConfigHashId,
+        (CommitmentLevel, SubscribeMethod, SubscriptionId),
+        RandomState,
+    >,
+    subscriptions_per_client: HashMap<
+        ClientId,
+        HashMap<SubscriptionId, (CommitmentLevel, SubscribeMethod), RandomState>,
+        RandomState,
+    >,
+    subscriptions_per_method: HashMap<
+        (CommitmentLevel, SubscribeMethod),
+        HashMap<SubscriptionId, SubscriptionInfo, RandomState>,
+        RandomState,
+    >,
 }
 
 impl Subscriptions {
@@ -684,7 +694,7 @@ struct CachedSignature {
 
 #[derive(Debug)]
 struct CachedSignatures {
-    signatures: HashMap<Signature, CachedSignature>,
+    signatures: HashMap<Signature, CachedSignature, RandomState>,
     signatures_max: usize,
     slots: BTreeMap<Slot, Vec<Signature>>,
     slots_max: usize,
@@ -695,7 +705,7 @@ struct CachedSignatures {
 impl CachedSignatures {
     fn new(signatures_max: usize, slots_max: usize) -> Self {
         Self {
-            signatures: HashMap::with_capacity(signatures_max),
+            signatures: HashMap::with_capacity_and_hasher(signatures_max, RandomState::default()),
             signatures_max,
             slots: BTreeMap::new(),
             slots_max,

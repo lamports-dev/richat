@@ -1,6 +1,7 @@
 use {
     crate::{config::ConfigChannelInner, metrics},
     ::metrics::gauge,
+    foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
     prost::{
         bytes::Buf,
@@ -760,7 +761,7 @@ struct SlotInfo {
     failed: bool,
     landed: bool,
     messages: Vec<Option<ParsedMessage>>,
-    accounts_dedup: HashMap<Pubkey, (u64, usize)>,
+    accounts_dedup: HashMap<Pubkey, (u64, usize), RandomState>,
     transactions_count: usize,
     entries_count: usize,
     block_meta: Option<Arc<MessageBlockMeta>>,
@@ -802,7 +803,7 @@ impl SlotInfo {
             failed: false,
             landed: false,
             messages: Vec::with_capacity(16_384),
-            accounts_dedup: HashMap::new(),
+            accounts_dedup: HashMap::default(),
             transactions_count: 0,
             entries_count: 0,
             block_meta: None,
@@ -993,8 +994,8 @@ impl MessagesWithBlockIter {
 struct DedupInfo {
     slots: [bool; 7],
     accounts_phantom: Vec<SmallVec<[ParsedMessage; 8]>>,
-    accounts_transactions: HashSet<DedupInfoAccountTransactionKey>,
-    transactions: HashMap<Signature, DedupInfoTransactionIndex>,
+    accounts_transactions: HashSet<DedupInfoAccountTransactionKey, RandomState>,
+    transactions: HashMap<Signature, DedupInfoTransactionIndex, RandomState>,
     entries: Vec<bool>,
     block_meta: bool,
     block_index: Option<usize>,
@@ -1007,8 +1008,8 @@ impl DedupInfo {
             accounts_phantom: std::iter::repeat_with(SmallVec::new)
                 .take(streams_total)
                 .collect(),
-            accounts_transactions: HashSet::with_capacity(8_192),
-            transactions: HashMap::with_capacity(8_192),
+            accounts_transactions: HashSet::with_capacity_and_hasher(8_192, RandomState::default()),
+            transactions: HashMap::with_capacity_and_hasher(8_192, RandomState::default()),
             entries: std::iter::repeat(false).take(256).collect(),
             block_meta: false,
             block_index: None,

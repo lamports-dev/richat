@@ -3,6 +3,7 @@ use {
         error::{ReceiveError, SubscribeError},
         stream::SubscribeStream,
     },
+    foldhash::quality::RandomState,
     futures::{
         future::{BoxFuture, FutureExt},
         stream::{Stream, StreamExt},
@@ -455,7 +456,7 @@ impl QuicClient {
 
         Ok(QuicClientStream {
             conn: self.conn,
-            messages: HashMap::new(),
+            messages: HashMap::default(),
             msg_id: 0,
             readers,
             index: 0,
@@ -488,7 +489,7 @@ impl QuicClient {
 pin_project! {
     pub struct QuicClientStream {
         conn: Connection,
-        messages: HashMap<u64, Vec<u8>>,
+        messages: HashMap<u64, Vec<u8>, RandomState>,
         msg_id: u64,
         #[pin]
         readers: Vec<QuicClientStreamReader>,
