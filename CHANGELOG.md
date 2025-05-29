@@ -12,6 +12,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+- richat: receive all slot statuses for confirmed / finalized ([#113](https://github.com/lamports-dev/richat/pull/113))
+
 ### Features
 
 - richat: impl `SubscribeReplayInfo` ([#109](https://github.com/lamports-dev/richat/pull/109))
