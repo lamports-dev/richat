@@ -456,17 +456,17 @@ impl Sender {
                             }
                         }
                     }
-                }
-
-                // push to confirmed and finalized (if we received SlotStatus or message after it)
-                if slot <= self.slot_confirmed {
-                    if let Some(shared) = self.confirmed.as_mut() {
-                        shared.push(slot, message.clone());
+                } else {
+                    // push to confirmed and finalized (if we received SlotStatus or message after it)
+                    if slot <= self.slot_confirmed {
+                        if let Some(shared) = self.confirmed.as_mut() {
+                            shared.push(slot, message.clone());
+                        }
                     }
-                }
-                if slot <= self.slot_finalized {
-                    if let Some(shared) = self.finalized.as_mut() {
-                        shared.push(slot, message.clone());
+                    if slot <= self.slot_finalized {
+                        if let Some(shared) = self.finalized.as_mut() {
+                            shared.push(slot, message.clone());
+                        }
                     }
                 }
 
