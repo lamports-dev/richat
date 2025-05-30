@@ -302,20 +302,28 @@ pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
         }
     }
 
-    if !set.is_empty() {
-        if let Some(core_ids) = affinity_linux::get_thread_affinity()
+    let mut vec = set.into_iter().collect::<Vec<usize>>();
+    vec.sort();
+
+    if !vec.is_empty() {
+        if let Some(cores) = affinity_linux::get_thread_affinity()
             .map_err(|error| format!("failed to get allowed cpus: {error:?}"))?
         {
-            if !set.is_subset(&core_ids) {
-                return Err(format!(
-                    "not allowed core index, should be set of: {core_ids:?}"
-                ));
+            let mut cores = cores.into_iter().collect::<Vec<_>>();
+            cores.sort();
+
+            for core in vec.iter_mut() {
+                if let Some(actual_core) = cores.get(*core) {
+                    *core = *actual_core;
+                } else {
+                    return Err(format!(
+                        "we don't have core {core}, available cores: {:?}",
+                        (0..cores.len()).collect::<Vec<_>>()
+                    ));
+                }
             }
         }
     }
-
-    let mut vec = set.into_iter().collect::<Vec<usize>>();
-    vec.sort();
 
     Ok(vec)
 }
