@@ -12,6 +12,22 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+### Features
+
+### Breaking
+
+## 2025-05-30
+
+- richat-cli-v4.5.0
+- richat-client-v3.5.0
+- richat-filter-v3.5.0
+- richat-plugin-agave-v3.5.0
+- richat-proto-v3.1.0
+- richat-v3.6.0
+- richat-shared-v3.5.0
+
+### Fixes
+
 - richat: receive all slot statuses for confirmed / finalized ([#113](https://github.com/lamports-dev/richat/pull/113))
 
 ### Features
@@ -21,8 +37,6 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: remove tcp ([#111](https://github.com/lamports-dev/richat/pull/111))
 - richat: use foldhash for performance ([#112](https://github.com/lamports-dev/richat/pull/112))
 - shared: affinity by relative cores ([#114](https://github.com/lamports-dev/richat/pull/114))
-
-### Breaking
 
 ## 2025-05-03
 
