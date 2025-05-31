@@ -201,6 +201,7 @@ impl ArgsAppStreamQuic {
             .await
             .context("failed to subscribe")?;
         info!("subscribed");
+        info!("version: {}", stream.get_version());
 
         Ok(stream.boxed())
     }
@@ -322,6 +323,9 @@ impl ArgsAppStreamGrpc {
         let endpoint = self.endpoint.clone();
         let mut client = self.connect(x_token).await.context("failed to connect")?;
         info!("connected to {endpoint} over gRPC");
+
+        let version = client.get_version().await?;
+        info!("version: {}", version.version);
 
         let stream = client
             .subscribe_richat(GrpcSubscribeRequest {

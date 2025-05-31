@@ -40,7 +40,7 @@ pub enum SubscribeError {
 impl SubscribeError {
     pub(crate) async fn parse_quic_response<R: AsyncRead + Unpin>(
         recv: &mut R,
-    ) -> Result<(), Self> {
+    ) -> Result<String, Self> {
         let size = recv.read_u64().await?;
         let mut buf = vec![0; size as usize];
         recv.read_exact(buf.as_mut_slice()).await?;
@@ -64,7 +64,7 @@ impl SubscribeError {
                 Err(_error) => SubscribeError::Unknown(error),
             })
         } else {
-            Ok(())
+            Ok(response.version)
         }
     }
 }

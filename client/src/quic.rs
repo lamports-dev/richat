@@ -444,7 +444,7 @@ impl QuicClient {
         send.write_all(&message).await?;
         send.flush().await?;
 
-        SubscribeError::parse_quic_response(&mut recv).await?;
+        let version = SubscribeError::parse_quic_response(&mut recv).await?;
 
         let mut readers = Vec::with_capacity(self.recv_streams as usize);
         for _ in 0..self.recv_streams {
@@ -456,6 +456,7 @@ impl QuicClient {
 
         Ok(QuicClientStream {
             conn: self.conn,
+            version,
             messages: HashMap::default(),
             msg_id: 0,
             readers,
@@ -489,6 +490,7 @@ impl QuicClient {
 pin_project! {
     pub struct QuicClientStream {
         conn: Connection,
+        version: String,
         messages: HashMap<u64, Vec<u8>, RandomState>,
         msg_id: u64,
         #[pin]
@@ -506,6 +508,10 @@ impl fmt::Debug for QuicClientStream {
 impl QuicClientStream {
     pub fn into_parsed(self) -> SubscribeStream {
         SubscribeStream::new(self.boxed())
+    }
+
+    pub fn get_version(&self) -> &str {
+        &self.version
     }
 }
 
