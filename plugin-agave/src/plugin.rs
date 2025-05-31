@@ -108,6 +108,7 @@ impl PluginInner {
                                 messages.clone(),
                                 move || connections_inc.increment(1), // on_conn_new_cb
                                 move || connections_dec.decrement(1), // on_conn_drop_cb
+                                VERSION,
                                 shutdown.clone(),
                             )
                             .await?,

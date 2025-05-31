@@ -3,6 +3,7 @@ use {
         config::{deserialize_rustls_server_config, deserialize_x_token_set},
         shutdown::Shutdown,
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
+        version::Version,
     },
     futures::{
         future::{pending, FutureExt},
@@ -155,6 +156,7 @@ impl QuicServer {
         messages: impl Subscribe + Clone + Send + 'static,
         on_conn_new_cb: impl Fn() + Clone + Send + 'static,
         on_conn_drop_cb: impl Fn() + Clone + Send + 'static,
+        version: Version<'static>,
         shutdown: Shutdown,
     ) -> Result<impl Future<Output = Result<(), JoinError>>, CreateEndpointError> {
         let endpoint = config.create_endpoint()?;
@@ -182,7 +184,13 @@ impl QuicServer {
                         tokio::spawn(async move {
                             on_conn_new_cb();
                             if let Err(error) = Self::handle_incoming(
-                                id, incoming, messages, max_recv_streams, max_request_size, x_tokens
+                                id,
+                                incoming,
+                                messages,
+                                max_recv_streams,
+                                max_request_size,
+                                x_tokens,
+                                version.create_grpc_version_info().json(),
                             ).await {
                                 error!("#{id}: connection failed: {error}");
                             } else {
@@ -209,6 +217,7 @@ impl QuicServer {
         max_recv_streams: u32,
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
+        version: String,
     ) -> Result<(), ConnectionError> {
         let conn = incoming.await?;
         info!("#{id}: new connection from {:?}", conn.remote_address());
@@ -221,6 +230,7 @@ impl QuicServer {
             max_recv_streams,
             max_request_size,
             x_tokens,
+            version,
         )
         .await?;
 
@@ -339,6 +349,7 @@ impl QuicServer {
         max_recv_streams: u32,
         max_request_size: u64,
         x_tokens: Arc<HashSet<Vec<u8>>>,
+        version: String,
     ) -> Result<
         (
             SendStream,
@@ -354,6 +365,7 @@ impl QuicServer {
         if size > max_request_size {
             let msg = QuicSubscribeResponse {
                 error: Some(QuicSubscribeResponseError::RequestSizeTooLarge as i32),
+                version,
                 ..Default::default()
             };
             return Ok((send, msg, None));
@@ -381,6 +393,7 @@ impl QuicServer {
             } {
                 let msg = QuicSubscribeResponse {
                     error: Some(error),
+                    version,
                     ..Default::default()
                 };
                 return Ok((send, msg, None));
@@ -397,6 +410,7 @@ impl QuicServer {
             let msg = QuicSubscribeResponse {
                 error: Some(code as i32),
                 max_recv_streams: Some(max_recv_streams),
+                version,
                 ..Default::default()
             };
             return Ok((send, msg, None));
@@ -410,7 +424,10 @@ impl QuicServer {
                 info!("#{id}: subscribed from {pos}");
                 (
                     send,
-                    QuicSubscribeResponse::default(),
+                    QuicSubscribeResponse {
+                        version,
+                        ..Default::default()
+                    },
                     Some((
                         recv_streams,
                         max_backlog.map(|x| x as u64).unwrap_or(u64::MAX),
@@ -421,6 +438,7 @@ impl QuicServer {
             Err(SubscribeError::NotInitialized) => {
                 let msg = QuicSubscribeResponse {
                     error: Some(QuicSubscribeResponseError::NotInitialized as i32),
+                    version,
                     ..Default::default()
                 };
                 (send, msg, None)
@@ -429,6 +447,7 @@ impl QuicServer {
                 let msg = QuicSubscribeResponse {
                     error: Some(QuicSubscribeResponseError::SlotNotAvailable as i32),
                     first_available_slot: Some(first_available),
+                    version,
                     ..Default::default()
                 };
                 (send, msg, None)
