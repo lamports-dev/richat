@@ -128,7 +128,9 @@ impl Subscription {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
                 let filter = Self::create_richat_filter(disable_accounts);
-                connection.subscribe(None, filter).await?.boxed()
+                let stream = connection.subscribe(None, filter).await?;
+                info!(name, version = stream.get_version(), "connected");
+                stream.boxed()
             }
             SubscriptionConfig::Grpc { source, config } => {
                 let mut connection = config.connect().await.map_err(ConnectError::Grpc)?;
