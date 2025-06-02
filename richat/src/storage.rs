@@ -1,12 +1,22 @@
 use {
     crate::{channel::ParsedMessage, config::ConfigChannelStorage},
     anyhow::Context,
+    foldhash::quality::{FixedState, FoldHasher},
+    richat_filter::{
+        filter::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateType},
+        message::MessageRef,
+    },
     rocksdb::{
         ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
         WriteBatch, DB,
     },
     solana_sdk::clock::Slot,
-    std::sync::Arc,
+    std::{
+        borrow::Cow,
+        hash::{BuildHasher, Hash, Hasher},
+        sync::Arc,
+    },
+    tokio::io::AsyncWriteExt,
 };
 
 trait ColumnName {
@@ -59,6 +69,7 @@ impl MessageIndex {
 #[derive(Debug, Clone)]
 pub struct Storage {
     // db: Arc<>
+    hasher: FixedState,
 }
 
 impl Storage {
@@ -73,6 +84,7 @@ impl Storage {
 
         Ok(Self {
             // db,
+            hasher: FixedState::with_seed(42),
         })
     }
 
@@ -128,6 +140,53 @@ impl Storage {
     }
 
     pub fn push_msg(&self, index: u64, message: ParsedMessage) {
+        let (key, bytes) = serialize(message, self.hasher.build_hasher());
+
         //
     }
+}
+
+fn serialize(message: ParsedMessage, mut hasher: FoldHasher) -> (Vec<u8>, Vec<u8>) {
+    let mut key = vec![];
+    match &message {
+        ParsedMessage::Slot(msg) => {
+            key.push(0);
+            hasher.write_u64(msg.slot());
+            msg.status().hash(&mut hasher);
+        }
+        ParsedMessage::Account(msg) => {
+            key.push(1);
+            hasher.write_u64(msg.slot());
+            msg.pubkey().hash(&mut hasher);
+            if let Some(signature) = msg.txn_signature() {
+                hasher.write(signature);
+            }
+        }
+        ParsedMessage::Transaction(msg) => {
+            key.push(2);
+            hasher.write_u64(msg.slot());
+            hasher.write(msg.signature().as_ref());
+        }
+        ParsedMessage::Entry(msg) => {
+            key.push(3);
+            hasher.write_u64(msg.slot());
+            hasher.write_u64(msg.index());
+        }
+        ParsedMessage::BlockMeta(msg) => {
+            key.push(4);
+            hasher.write_u64(msg.slot());
+        }
+        ParsedMessage::Block(_msg) => return (vec![5], vec![]),
+    }
+    key.extend_from_slice(&hasher.finish().to_be_bytes());
+
+    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+    let message_ref: MessageRef = message.as_ref().into();
+    let bytes = FilteredUpdate {
+        filters: FilteredUpdateFilters::new(),
+        filtered_update: message_ref.into(),
+    }
+    .encode();
+
+    (key, bytes)
 }
