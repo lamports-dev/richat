@@ -11,7 +11,11 @@ use {
         shutdown::Shutdown,
     },
     serde::Deserialize,
-    std::{fs, path::Path, thread::Builder},
+    std::{
+        fs,
+        path::{Path, PathBuf},
+        thread::Builder,
+    },
     tokio::time::{sleep, Duration},
 };
 
@@ -134,6 +138,7 @@ pub struct ConfigChannelInner {
     pub max_messages: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
+    pub storage: Option<ConfigChannelStorage>,
 }
 
 impl Default for ConfigChannelInner {
@@ -141,8 +146,15 @@ impl Default for ConfigChannelInner {
         Self {
             max_messages: 2_097_152, // aligned to power of 2, ~20k/slot should give us ~100 slots
             max_bytes: 15 * 1024 * 1024 * 1024, // 15GiB with ~150MiB/slot should give us ~100 slots
+            storage: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigChannelStorage {
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
