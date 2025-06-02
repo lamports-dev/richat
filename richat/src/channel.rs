@@ -1069,16 +1069,7 @@ struct DedupInfoAccountTransactionKey {
 
 impl DedupInfoAccountTransactionKey {
     fn try_create(msg: &MessageAccount) -> Option<Self> {
-        let signature = match msg {
-            MessageAccount::Limited {
-                txn_signature_offset,
-                buffer,
-                ..
-            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
-            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
-        };
-
-        signature.map(|signature| Self {
+        msg.txn_signature().map(|signature| Self {
             signature: signature.try_into().expect("valid signature"),
             pubkey: *msg.pubkey(),
         })
