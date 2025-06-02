@@ -1,5 +1,5 @@
 use {
-    crate::{config::ConfigChannelInner, metrics},
+    crate::{config::ConfigChannelInner, metrics, storage::Storage},
     ::metrics::gauge,
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
@@ -163,18 +163,25 @@ pub struct Messages {
     shared_finalized: Option<Arc<Shared>>,
     max_messages: usize,
     max_bytes: usize,
+    storage: Option<Storage>,
 }
 
 impl Messages {
-    pub fn new(config: ConfigChannelInner, richat: bool, grpc: bool, pubsub: bool) -> Self {
+    pub fn new(
+        config: ConfigChannelInner,
+        richat: bool,
+        grpc: bool,
+        pubsub: bool,
+    ) -> anyhow::Result<Self> {
         let max_messages = config.max_messages.next_power_of_two();
-        Self {
+        Ok(Self {
             shared_processed: Arc::new(Shared::new(max_messages, richat)),
             shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
             shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
-        }
+            storage: config.storage.map(Storage::open).transpose()?,
+        })
     }
 
     pub fn to_sender(&self) -> Sender {
@@ -192,6 +199,8 @@ impl Messages {
                 .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
             slot_confirmed: 0,
             slot_finalized: 0,
+            storage: self.storage.clone(),
+            index: 0,
         }
     }
 
@@ -293,6 +302,8 @@ pub struct Sender {
     finalized: Option<SenderShared>,
     slot_confirmed: Slot,
     slot_finalized: Slot,
+    storage: Option<Storage>,
+    index: u64,
 }
 
 impl Sender {
@@ -478,6 +489,12 @@ impl Sender {
                             shared.push(slot, message.clone());
                         }
                     }
+                }
+
+                // push to storage
+                if let Some(storage) = &self.storage {
+                    self.index += 1;
+                    storage.push_msg(self.index, message.clone());
                 }
 
                 // push to processed
