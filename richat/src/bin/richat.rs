@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
         config.apps.pubsub.is_some(),
-    );
+    )?;
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
