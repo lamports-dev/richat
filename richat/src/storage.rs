@@ -1,49 +1,27 @@
 use {
-    crate::{channel::ParsedMessage, config::ConfigChannelStorage},
+    crate::{
+        channel::ParsedMessage,
+        config::ConfigChannelStorage,
+        metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_PREPARE_INDEX},
+        SpawnedThreads,
+    },
+    ::metrics::counter,
     anyhow::Context,
-    foldhash::quality::{FixedState, FoldHasher},
     richat_filter::{
-        filter::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateType},
+        filter::{FilteredUpdate, FilteredUpdateFilters},
         message::MessageRef,
     },
-    rocksdb::{
-        ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
-        WriteBatch, DB,
-    },
+    rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
     solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
-        hash::{BuildHasher, Hash, Hasher},
-        sync::Arc,
+        sync::{mpsc, Arc},
+        thread,
     },
-    tokio::io::AsyncWriteExt,
 };
 
 trait ColumnName {
     const NAME: &'static str;
-}
-
-#[derive(Debug)]
-struct MessageInfoIndex;
-
-impl ColumnName for MessageInfoIndex {
-    const NAME: &'static str = "message_info_index";
-}
-
-impl MessageInfoIndex {
-    fn key(slot: Slot, key: u64) -> [u8; 16] {
-        let mut index = [0; 16];
-        index[0..8].copy_from_slice(&slot.to_be_bytes());
-        index[8..16].copy_from_slice(&key.to_be_bytes());
-        index
-    }
-
-    fn decode(slice: &[u8]) -> anyhow::Result<(Slot, u64)> {
-        let (slot, key) = slice.split_at(8);
-        let slot = Slot::from_be_bytes(slot.try_into().context("invalid slice size")?);
-        let key = Slot::from_be_bytes(key.try_into().context("invalid slice size")?);
-        Ok((slot, key))
-    }
 }
 
 #[derive(Debug)]
@@ -68,12 +46,11 @@ impl MessageIndex {
 
 #[derive(Debug, Clone)]
 pub struct Storage {
-    // db: Arc<>
-    hasher: FixedState,
+    tx: mpsc::Sender<(u64, ParsedMessage)>,
 }
 
 impl Storage {
-    pub fn open(config: ConfigChannelStorage) -> anyhow::Result<Self> {
+    pub fn open(config: ConfigChannelStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
         let db_options = Self::get_db_options();
         let cf_descriptors = Self::cf_descriptors();
 
@@ -82,10 +59,33 @@ impl Storage {
                 .with_context(|| format!("failed to open rocksdb with path: {:?}", config.path))?,
         );
 
-        Ok(Self {
-            // db,
-            hasher: FixedState::with_seed(42),
-        })
+        let (pre_tx, pre_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(1);
+
+        let storage = Self { tx: pre_tx };
+
+        let write_pre_jh = thread::Builder::new()
+            .name("richatStrgPrWrt".to_owned())
+            .spawn({
+                let db = Arc::clone(&db);
+                || {
+                    if let Some(cpus) = config.thread_write_serialize_affinity {
+                        affinity_linux::set_thread_affinity(cpus.into_iter())
+                            .expect("failed to set affinity");
+                    }
+                    Self::spawn_pre_write(db, pre_rx, tx);
+                    Ok(())
+                }
+            })?;
+        let write_jh = thread::Builder::new()
+            .name("richatStrgWrt".to_owned())
+            .spawn(|| Self::spawn_write(db, rx))?;
+        let threads = vec![
+            ("write_serialize", Some(write_pre_jh)),
+            ("write", Some(write_jh)),
+        ];
+
+        Ok((storage, threads))
     }
 
     fn get_db_options() -> Options {
@@ -124,10 +124,7 @@ impl Storage {
     }
 
     fn cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
-        vec![
-            Self::cf_descriptor::<MessageInfoIndex>(DBCompressionType::None),
-            Self::cf_descriptor::<MessageIndex>(DBCompressionType::None),
-        ]
+        vec![Self::cf_descriptor::<MessageIndex>(DBCompressionType::None)]
     }
 
     fn cf_descriptor<C: ColumnName>(compression: DBCompressionType) -> ColumnFamilyDescriptor {
@@ -139,54 +136,99 @@ impl Storage {
             .expect("should never get an unknown column")
     }
 
-    pub fn push_msg(&self, index: u64, message: ParsedMessage) {
-        let (key, bytes) = serialize(message, self.hasher.build_hasher());
+    fn spawn_pre_write(
+        db: Arc<DB>,
+        rx: mpsc::Receiver<(u64, ParsedMessage)>,
+        tx: mpsc::SyncSender<(u64, WriteBatch)>,
+    ) {
+        let mut buf = Vec::with_capacity(16 * 1024 * 1024);
+        let mut batch = WriteBatch::new();
+        while let Ok((index, message)) = rx.recv() {
+            let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+            let message_ref: MessageRef = message.as_ref().into();
+            let message = FilteredUpdate {
+                filters: FilteredUpdateFilters::new(),
+                filtered_update: message_ref.into(),
+            };
 
-        //
-    }
-}
+            buf.clear();
+            message.encode(&mut buf);
+            batch.put_cf(
+                Self::cf_handle::<MessageIndex>(&db),
+                MessageIndex::key(index),
+                &buf,
+            );
 
-fn serialize(message: ParsedMessage, mut hasher: FoldHasher) -> (Vec<u8>, Vec<u8>) {
-    let mut key = vec![];
-    match &message {
-        ParsedMessage::Slot(msg) => {
-            key.push(0);
-            hasher.write_u64(msg.slot());
-            msg.status().hash(&mut hasher);
-        }
-        ParsedMessage::Account(msg) => {
-            key.push(1);
-            hasher.write_u64(msg.slot());
-            msg.pubkey().hash(&mut hasher);
-            if let Some(signature) = msg.txn_signature() {
-                hasher.write(signature);
+            counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
+
+            match tx.try_send((index, batch)) {
+                Ok(()) => {
+                    batch = WriteBatch::new();
+                }
+                Err(mpsc::TrySendError::Full((_index, value))) => {
+                    batch = value;
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    break;
+                }
             }
         }
-        ParsedMessage::Transaction(msg) => {
-            key.push(2);
-            hasher.write_u64(msg.slot());
-            hasher.write(msg.signature().as_ref());
-        }
-        ParsedMessage::Entry(msg) => {
-            key.push(3);
-            hasher.write_u64(msg.slot());
-            hasher.write_u64(msg.index());
-        }
-        ParsedMessage::BlockMeta(msg) => {
-            key.push(4);
-            hasher.write_u64(msg.slot());
-        }
-        ParsedMessage::Block(_msg) => return (vec![5], vec![]),
     }
-    key.extend_from_slice(&hasher.finish().to_be_bytes());
 
-    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
-    let message_ref: MessageRef = message.as_ref().into();
-    let bytes = FilteredUpdate {
-        filters: FilteredUpdateFilters::new(),
-        filtered_update: message_ref.into(),
+    fn spawn_write(db: Arc<DB>, rx: mpsc::Receiver<(u64, WriteBatch)>) -> anyhow::Result<()> {
+        while let Ok((index, batch)) = rx.recv() {
+            db.write(batch)?;
+            counter!(CHANNEL_STORAGE_WRITE_INDEX).absolute(index);
+        }
+        Ok(())
     }
-    .encode();
 
-    (key, bytes)
+    pub fn push_msg(&self, index: u64, message: ParsedMessage) {
+        let _ = self.tx.send((index, message));
+    }
 }
+
+// fn hash(message: ParsedMessage, mut hasher: FoldHasher) -> Vec<u8>, Vec<u8>) {
+//     let mut key = vec![];
+//     match &message {
+//         ParsedMessage::Slot(msg) => {
+//             key.push(0);
+//             hasher.write_u64(msg.slot());
+//             msg.status().hash(&mut hasher);
+//         }
+//         ParsedMessage::Account(msg) => {
+//             key.push(1);
+//             hasher.write_u64(msg.slot());
+//             msg.pubkey().hash(&mut hasher);
+//             if let Some(signature) = msg.txn_signature() {
+//                 hasher.write(signature);
+//             }
+//         }
+//         ParsedMessage::Transaction(msg) => {
+//             key.push(2);
+//             hasher.write_u64(msg.slot());
+//             hasher.write(msg.signature().as_ref());
+//         }
+//         ParsedMessage::Entry(msg) => {
+//             key.push(3);
+//             hasher.write_u64(msg.slot());
+//             hasher.write_u64(msg.index());
+//         }
+//         ParsedMessage::BlockMeta(msg) => {
+//             key.push(4);
+//             hasher.write_u64(msg.slot());
+//         }
+//         ParsedMessage::Block(_msg) => return (vec![5], vec![]),
+//     }
+//     key.extend_from_slice(&hasher.finish().to_be_bytes());
+
+//     let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+//     let message_ref: MessageRef = message.as_ref().into();
+//     let bytes = FilteredUpdate {
+//         filters: FilteredUpdateFilters::new(),
+//         filtered_update: message_ref.into(),
+//     }
+//     .encode();
+
+//     (key, bytes)
+// }
