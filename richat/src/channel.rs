@@ -26,6 +26,7 @@ use {
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         fmt,
+        hash::{Hash, Hasher},
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -68,6 +69,44 @@ impl<'a> From<&'a ParsedMessage> for MessageRef<'a> {
             ParsedMessage::Entry(msg) => Self::Entry(msg.as_ref()),
             ParsedMessage::BlockMeta(msg) => Self::BlockMeta(msg.as_ref()),
             ParsedMessage::Block(msg) => Self::Block(msg.as_ref()),
+        }
+    }
+}
+
+impl Hash for ParsedMessage {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            ParsedMessage::Slot(msg) => {
+                state.write_u8(0);
+                state.write_u64(msg.slot());
+                msg.status().hash(state);
+            }
+            ParsedMessage::Account(msg) => {
+                state.write_u8(1);
+                state.write_u64(msg.slot());
+                state.write(msg.pubkey().as_ref());
+                if let Some(signature) = msg.txn_signature() {
+                    state.write(signature);
+                }
+            }
+            ParsedMessage::Transaction(msg) => {
+                state.write_u8(2);
+                state.write_u64(msg.slot());
+                state.write(msg.signature().as_ref());
+            }
+            ParsedMessage::Entry(msg) => {
+                state.write_u8(3);
+                state.write_u64(msg.slot());
+                state.write_u64(msg.index());
+            }
+            ParsedMessage::BlockMeta(msg) => {
+                state.write_u8(4);
+                state.write_u64(msg.slot());
+            }
+            ParsedMessage::Block(msg) => {
+                state.write_u8(5);
+                state.write_u64(msg.slot());
+            }
         }
     }
 }
