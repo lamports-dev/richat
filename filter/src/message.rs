@@ -685,6 +685,17 @@ impl MessageAccount {
         }
     }
 
+    pub fn txn_signature(&self) -> Option<&[u8]> {
+        match self {
+            MessageAccount::Limited {
+                txn_signature_offset,
+                buffer,
+                ..
+            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
+            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
+        }
+    }
+
     pub const fn nonempty_txn_signature(&self) -> bool {
         match self {
             Self::Limited {
