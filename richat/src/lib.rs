@@ -8,3 +8,8 @@ pub mod richat;
 pub mod source;
 pub mod storage;
 pub mod version;
+
+pub type SpawnedThreads = Vec<(
+    &'static str,
+    Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+)>;

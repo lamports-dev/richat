@@ -155,6 +155,10 @@ impl Default for ConfigChannelInner {
 #[serde(deny_unknown_fields)]
 pub struct ConfigChannelStorage {
     pub path: PathBuf,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub thread_write_serialize_affinity: Option<Vec<usize>>,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub thread_write_affinity: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

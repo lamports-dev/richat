@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages = Messages::new(
+    let (messages, mut threads) = Messages::new(
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
@@ -101,6 +101,7 @@ fn main() -> anyhow::Result<()> {
                 })
             }
         })?;
+    threads.push(("source", Some(source_jh)));
 
     // Create runtime for incoming connections
     let apps_jh = thread::Builder::new().name("richatApp".to_owned()).spawn({
@@ -145,9 +146,9 @@ fn main() -> anyhow::Result<()> {
             })
         }
     })?;
+    threads.push(("apps", Some(apps_jh)));
 
     let mut signals = Signals::new([SIGINT])?;
-    let mut threads = [("source", Some(source_jh)), ("apps", Some(apps_jh))];
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {

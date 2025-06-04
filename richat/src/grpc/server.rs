@@ -361,7 +361,7 @@ impl GrpcServer {
                     let items = filter
                         .get_updates_ref(message_ref, state.commitment)
                         .iter()
-                        .map(|msg| ((&msg.filtered_update).into(), msg.encode()))
+                        .map(|msg| ((&msg.filtered_update).into(), msg.encode_to_vec()))
                         .collect::<SmallVec<[(GrpcSubscribeMessage, Vec<u8>); 2]>>();
 
                     for (message, data) in items {

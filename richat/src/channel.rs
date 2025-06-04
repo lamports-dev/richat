@@ -1,5 +1,5 @@
 use {
-    crate::{config::ConfigChannelInner, metrics, storage::Storage},
+    crate::{config::ConfigChannelInner, metrics, storage::Storage, SpawnedThreads},
     ::metrics::gauge,
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
@@ -175,16 +175,22 @@ impl Messages {
         richat: bool,
         grpc: bool,
         pubsub: bool,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, SpawnedThreads)> {
+        let (storage, threads) = match config.storage.map(Storage::open).transpose()? {
+            Some((storage, threads)) => (Some(storage), threads),
+            None => (None, vec![]),
+        };
+
         let max_messages = config.max_messages.next_power_of_two();
-        Ok(Self {
+        let messages = Self {
             shared_processed: Arc::new(Shared::new(max_messages, richat)),
             shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
             shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
-            storage: config.storage.map(Storage::open).transpose()?,
-        })
+            storage,
+        };
+        Ok((messages, threads))
     }
 
     pub fn to_sender(&self) -> Sender {
@@ -664,7 +670,7 @@ impl ReceiverAsync {
                 filters: SmallVec::new_const(),
                 filtered_update: MessageRef::from(item).into(),
             }
-            .encode();
+            .encode_to_vec();
             return Ok(Some(Arc::new(data)));
         }
 
@@ -1216,7 +1222,7 @@ mod test {
 
         let updates = filter.get_updates_ref(message_ref, CommitmentLevel::Processed);
         assert_eq!(updates.len(), 1, "unexpected number of updates");
-        updates[0].encode()
+        updates[0].encode_to_vec()
     }
 
     #[test]
