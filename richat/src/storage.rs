@@ -11,6 +11,7 @@ use {
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::MessageRef,
     },
+    richat_proto::geyser::SlotStatus,
     rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
     solana_sdk::clock::Slot,
     std::{
@@ -44,9 +45,29 @@ impl MessageIndex {
     }
 }
 
+#[derive(Debug)]
+struct SlotIndex;
+
+impl ColumnName for SlotIndex {
+    const NAME: &'static str = "slot_index";
+}
+
+impl SlotIndex {
+    // const fn key(key: u64) -> [u8; 8] {
+    //     key.to_be_bytes()
+    // }
+
+    // fn decode(slice: &[u8]) -> anyhow::Result<u64> {
+    //     slice
+    //         .try_into()
+    //         .map(Slot::from_be_bytes)
+    //         .context("invalid slice size")
+    // }
+}
+
 #[derive(Debug, Clone)]
 pub struct Storage {
-    tx: mpsc::Sender<(u64, ParsedMessage)>,
+    tx: mpsc::Sender<StorageMessage>,
 }
 
 impl Storage {
@@ -138,30 +159,45 @@ impl Storage {
 
     fn spawn_pre_write(
         db: Arc<DB>,
-        rx: mpsc::Receiver<(u64, ParsedMessage)>,
+        rx: mpsc::Receiver<StorageMessage>,
         tx: mpsc::SyncSender<(u64, WriteBatch)>,
     ) {
         let mut buf = Vec::with_capacity(16 * 1024 * 1024);
+        let mut global_index = 0;
         let mut batch = WriteBatch::new();
-        while let Ok((index, message)) = rx.recv() {
-            let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
-            let message_ref: MessageRef = message.as_ref().into();
-            let message = FilteredUpdate {
-                filters: FilteredUpdateFilters::new(),
-                filtered_update: message_ref.into(),
-            };
 
-            buf.clear();
-            message.encode(&mut buf);
-            batch.put_cf(
-                Self::cf_handle::<MessageIndex>(&db),
-                MessageIndex::key(index),
-                &buf,
-            );
+        while let Ok(message) = rx.recv() {
+            match message {
+                StorageMessage::Message { index, message } => {
+                    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+                    let message_ref: MessageRef = message.as_ref().into();
+                    let message = FilteredUpdate {
+                        filters: FilteredUpdateFilters::new(),
+                        filtered_update: message_ref.into(),
+                    };
 
-            counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
+                    buf.clear();
+                    message.encode(&mut buf);
+                    batch.put_cf(
+                        Self::cf_handle::<MessageIndex>(&db),
+                        MessageIndex::key(index),
+                        &buf,
+                    );
 
-            match tx.try_send((index, batch)) {
+                    global_index = index;
+                    counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
+                }
+                StorageMessage::Slot { index, status } => {
+                    //
+
+                    if let Some(index) = index {
+                        global_index = index;
+                        counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
+                    }
+                }
+            }
+
+            match tx.try_send((global_index, batch)) {
                 Ok(()) => {
                     batch = WriteBatch::new();
                 }
@@ -183,9 +219,25 @@ impl Storage {
         Ok(())
     }
 
-    pub fn push_msg(&self, index: u64, message: ParsedMessage) {
-        let _ = self.tx.send((index, message));
+    pub fn push_message(&self, index: u64, message: ParsedMessage) {
+        let _ = self.tx.send(StorageMessage::Message { index, message });
     }
+
+    pub fn push_slot(&self, index: Option<u64>, status: SlotStatus) {
+        let _ = self.tx.send(StorageMessage::Slot { index, status });
+    }
+}
+
+#[derive(Debug)]
+enum StorageMessage {
+    Message {
+        index: u64,
+        message: ParsedMessage,
+    },
+    Slot {
+        index: Option<u64>,
+        status: SlotStatus,
+    },
 }
 
 // fn hash(message: ParsedMessage, mut hasher: FoldHasher) -> Vec<u8>, Vec<u8>) {

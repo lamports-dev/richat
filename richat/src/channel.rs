@@ -500,7 +500,7 @@ impl Sender {
                 // push to storage
                 if let Some(storage) = &self.storage {
                     self.index += 1;
-                    storage.push_msg(self.index, message.clone());
+                    storage.push_message(self.index, message.clone());
                 }
 
                 // push to processed
