@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::ParsedMessage,
-        config::ConfigChannelStorage,
+        config::ConfigStorage,
         metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_PREPARE_INDEX},
         SpawnedThreads,
     },
@@ -13,7 +13,6 @@ use {
     },
     richat_proto::geyser::SlotStatus,
     rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
-    solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
         sync::{mpsc, Arc},
@@ -37,12 +36,12 @@ impl MessageIndex {
         key.to_be_bytes()
     }
 
-    fn decode(slice: &[u8]) -> anyhow::Result<u64> {
-        slice
-            .try_into()
-            .map(Slot::from_be_bytes)
-            .context("invalid slice size")
-    }
+    // fn decode(slice: &[u8]) -> anyhow::Result<u64> {
+    //     slice
+    //         .try_into()
+    //         .map(Slot::from_be_bytes)
+    //         .context("invalid slice size")
+    // }
 }
 
 #[derive(Debug)]
@@ -53,7 +52,7 @@ impl ColumnName for SlotIndex {
 }
 
 impl SlotIndex {
-    // const fn key(key: u64) -> [u8; 8] {
+    // const fn key(key: Slot) -> [u8; 8] {
     //     key.to_be_bytes()
     // }
 
@@ -65,15 +64,29 @@ impl SlotIndex {
     // }
 }
 
+// #[derive(Debug)]
+// struct SlotIndexValue {
+//     index: u64,
+//     status: SlotStatus,
+// }
+
+// impl SlotIndexValue {
+//     fn encode(&self, buf: &mut Vec<u8>) {
+//         //
+//     }
+
+//     // fn decode
+// }
+
 #[derive(Debug, Clone)]
 pub struct Storage {
     tx: mpsc::Sender<StorageMessage>,
 }
 
 impl Storage {
-    pub fn open(config: ConfigChannelStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
+    pub fn open(config: ConfigStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
         let db_options = Self::get_db_options();
-        let cf_descriptors = Self::cf_descriptors();
+        let cf_descriptors = Self::cf_descriptors(config.messages_compression.into());
 
         let db = Arc::new(
             DB::open_cf_descriptors(&db_options, &config.path, cf_descriptors)
@@ -144,8 +157,11 @@ impl Storage {
         options
     }
 
-    fn cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
-        vec![Self::cf_descriptor::<MessageIndex>(DBCompressionType::None)]
+    fn cf_descriptors(message_compression: DBCompressionType) -> Vec<ColumnFamilyDescriptor> {
+        vec![
+            Self::cf_descriptor::<MessageIndex>(message_compression),
+            Self::cf_descriptor::<SlotIndex>(DBCompressionType::None),
+        ]
     }
 
     fn cf_descriptor<C: ColumnName>(compression: DBCompressionType) -> ColumnFamilyDescriptor {
@@ -187,8 +203,22 @@ impl Storage {
                     global_index = index;
                     counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
                 }
-                StorageMessage::Slot { index, status } => {
-                    //
+                StorageMessage::Slot {
+                    index,
+                    status: _status,
+                } => {
+                    // let message = SlotIndexValue {
+                    //     index,
+                    //     status,
+                    // };
+
+                    // buf.clear();
+                    // message.encode(&mut buf);
+                    // batch.put_cf(
+                    //     Self::cf_handle::<SlotIndex>(&db),
+                    //     SlotIndex::key(slot),
+                    //     &buf,
+                    // );
 
                     if let Some(index) = index {
                         global_index = index;

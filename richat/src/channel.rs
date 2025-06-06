@@ -112,6 +112,17 @@ impl Hash for ParsedMessage {
 }
 
 impl ParsedMessage {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Slot(_) => "slot",
+            Self::Account(_) => "account",
+            Self::Transaction(_) => "transaction",
+            Self::Entry(_) => "entry",
+            Self::BlockMeta(_) => "blockmeta",
+            Self::Block(_) => "block",
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         match self {
             Self::Slot(msg) => msg.slot(),
@@ -420,16 +431,16 @@ impl Sender {
         // push messages
         let mut clean_after_finalized = false;
         for message in messages {
-            let messages_with_block = self
+            let slot_info = self
                 .slots
                 .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(
-                    &message,
-                    dedup_info
-                        .as_mut()
-                        .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
-                );
+                .or_insert_with(|| SlotInfo::new(slot));
+            let messages_with_block = slot_info.get_messages_with_block(
+                &message,
+                dedup_info
+                    .as_mut()
+                    .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
+            );
             if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &messages_with_block) {
                 dedup.block_index = Some(*index);
             }
@@ -505,8 +516,18 @@ impl Sender {
 
                 // push to storage
                 if let Some(storage) = &self.storage {
-                    self.index += 1;
                     storage.push_message(self.index, message.clone());
+                    if let ParsedMessage::Slot(msg) = &message {
+                        if let Some(index) = match msg.status() {
+                            SlotStatus::SlotProcessed => Some(Some(self.index)),
+                            SlotStatus::SlotConfirmed => Some(None),
+                            SlotStatus::SlotFinalized => Some(None),
+                            _ => None,
+                        } {
+                            storage.push_slot(index, msg.status());
+                        }
+                    }
+                    self.index += 1;
                 }
 
                 // push to processed
