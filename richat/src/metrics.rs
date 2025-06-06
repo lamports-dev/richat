@@ -61,7 +61,10 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     );
     describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
     describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
-    describe_counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX, "Storage write prepare index");
+    describe_counter!(
+        CHANNEL_STORAGE_WRITE_PREPARE_INDEX,
+        "Storage write prepare index"
+    );
     describe_counter!(CHANNEL_STORAGE_WRITE_INDEX, "Storage write index");
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(

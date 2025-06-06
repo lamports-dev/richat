@@ -10,6 +10,7 @@ use {
         config::{deserialize_affinity, deserialize_num_str, ConfigMetrics, ConfigTokio},
         shutdown::Shutdown,
     },
+    rocksdb::DBCompressionType,
     serde::Deserialize,
     std::{
         fs,
@@ -138,7 +139,7 @@ pub struct ConfigChannelInner {
     pub max_messages: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
-    pub storage: Option<ConfigChannelStorage>,
+    pub storage: Option<ConfigStorage>,
 }
 
 impl Default for ConfigChannelInner {
@@ -153,12 +154,41 @@ impl Default for ConfigChannelInner {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConfigChannelStorage {
+pub struct ConfigStorage {
     pub path: PathBuf,
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub thread_write_serialize_affinity: Option<Vec<usize>>,
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub thread_write_affinity: Option<Vec<usize>>,
+    #[serde(default)]
+    pub messages_compression: ConfigStorageRocksdbCompression,
+}
+
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+pub enum ConfigStorageRocksdbCompression {
+    #[default]
+    None,
+    Snappy,
+    Zlib,
+    Bz2,
+    Lz4,
+    Lz4hc,
+    Zstd,
+}
+
+impl From<ConfigStorageRocksdbCompression> for DBCompressionType {
+    fn from(value: ConfigStorageRocksdbCompression) -> Self {
+        match value {
+            ConfigStorageRocksdbCompression::None => Self::None,
+            ConfigStorageRocksdbCompression::Snappy => Self::Snappy,
+            ConfigStorageRocksdbCompression::Zlib => Self::Zlib,
+            ConfigStorageRocksdbCompression::Bz2 => Self::Bz2,
+            ConfigStorageRocksdbCompression::Lz4 => Self::Lz4,
+            ConfigStorageRocksdbCompression::Lz4hc => Self::Lz4hc,
+            ConfigStorageRocksdbCompression::Zstd => Self::Zstd,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
