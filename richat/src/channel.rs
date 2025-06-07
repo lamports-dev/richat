@@ -220,7 +220,6 @@ impl Messages {
             slot_confirmed: 0,
             slot_finalized: 0,
             storage: self.storage.clone(),
-            index: 0,
         }
     }
 
@@ -323,7 +322,6 @@ pub struct Sender {
     slot_confirmed: Slot,
     slot_finalized: Slot,
     storage: Option<Storage>,
-    index: u64,
 }
 
 impl Sender {
@@ -515,19 +513,19 @@ impl Sender {
                 }
 
                 // push to storage
-                if let Some(storage) = &self.storage {
-                    storage.push_message(self.index, message.clone());
-                    if let ParsedMessage::Slot(msg) = &message {
-                        if let Some(index) = match msg.status() {
-                            SlotStatus::SlotProcessed => Some(Some(self.index)),
-                            SlotStatus::SlotConfirmed => Some(None),
-                            SlotStatus::SlotFinalized => Some(None),
-                            _ => None,
-                        } {
-                            storage.push_slot(index, msg.status());
-                        }
-                    }
-                    self.index += 1;
+                if let Some(_storage) = &self.storage {
+                    // storage.push_message(self.index, message.clone());
+                    // if let ParsedMessage::Slot(msg) = &message {
+                    //     if let Some(index) = match msg.status() {
+                    //         SlotStatus::SlotProcessed => Some(Some(self.index)),
+                    //         SlotStatus::SlotConfirmed => Some(None),
+                    //         SlotStatus::SlotFinalized => Some(None),
+                    //         _ => None,
+                    //     } {
+                    //         storage.push_slot(index, msg.status());
+                    //     }
+                    // }
+                    // self.index += 1;
                 }
 
                 // push to processed
