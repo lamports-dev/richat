@@ -248,11 +248,7 @@ impl GrpcServer {
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let receiver = messages.to_receiver();
-        let mut head = messages
-            .get_current_tail(CommitmentLevel::Processed, None)
-            .ok_or(anyhow::anyhow!(
-                "failed to get head position for block meta worker"
-            ))?;
+        let mut head = messages.get_current_tail(CommitmentLevel::Processed);
 
         const COUNTER_LIMIT: i32 = 10_000;
         let mut counter = 0;
@@ -450,14 +446,16 @@ impl gen::geyser_server::Geyser for GrpcServer {
 
                                 let mut state = client.state_lock();
                                 if let Err(error) = new_filter.map(|filter| {
+                                    if filter.contains_blocks() && subscribe_from_slot.is_some() {
+                                        return Err(Status::invalid_argument("blocks are not possible to replay"))
+                                    }
+
                                     let commitment_prev = state.commitment;
                                     state.commitment = filter.commitment().into();
                                     if state.filter.is_none() || state.commitment != commitment_prev {
                                         state.head = messages
-                                            .get_current_tail(state.commitment, subscribe_from_slot)
-                                            .ok_or(Status::invalid_argument(format!(
-                                                "failed to get slot {subscribe_from_slot:?}"
-                                            )))?;
+                                            .get_current_tail_with_replay(state.commitment, subscribe_from_slot)
+                                            .map_err(Status::invalid_argument)?;
                                     }
                                     state.filter = Some(filter);
                                     Ok::<(), Status>(())

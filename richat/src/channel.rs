@@ -164,44 +164,47 @@ impl Messages {
         }
     }
 
-    pub fn get_current_tail(
+    const fn get_shared(&self, commitment: CommitmentLevel) -> &Arc<Shared> {
+        match commitment {
+            CommitmentLevel::Processed => &self.shared_processed,
+            CommitmentLevel::Confirmed => {
+                self.shared_confirmed.as_ref().expect("should be defined")
+            }
+            CommitmentLevel::Finalized => {
+                self.shared_finalized.as_ref().expect("should be defined")
+            }
+        }
+    }
+
+    pub fn get_current_tail(&self, commitment: CommitmentLevel) -> u64 {
+        self.get_shared(commitment).tail.load(Ordering::Relaxed)
+    }
+
+    pub fn get_current_tail_with_replay(
         &self,
         commitment: CommitmentLevel,
         replay_from_slot: Option<Slot>,
-    ) -> Option<u64> {
-        let shared = (match commitment {
-            CommitmentLevel::Processed => Some(&self.shared_processed),
-            CommitmentLevel::Confirmed => self.shared_confirmed.as_ref(),
-            CommitmentLevel::Finalized => self.shared_finalized.as_ref(),
-        })?;
-
+    ) -> Result<u64, String> {
         if let Some(replay_from_slot) = replay_from_slot {
-            shared
-                .slots_lock()
-                .get(&replay_from_slot)
-                .map(|obj| obj.head)
+            if commitment == CommitmentLevel::Processed {
+                self.get_shared(commitment)
+                    .slots_lock()
+                    .get(&replay_from_slot)
+                    .map(|obj| obj.head)
+                    .ok_or_else(|| {
+                        format!("failed to get replay position for slot {replay_from_slot}")
+                    })
+            } else {
+                Err("replay `from_slot` available only for `processed` commitment".to_owned())
+            }
         } else {
-            Some(shared.tail.load(Ordering::Relaxed))
+            Ok(self.get_shared(commitment).tail.load(Ordering::Relaxed))
         }
     }
 
     pub fn get_first_available_slot(&self) -> Option<Slot> {
-        let slot = self
-            .shared_processed
-            .slots_lock()
-            .first_key_value()
-            .map(|(slot, _head)| *slot)?;
-        if let Some(shared) = self.shared_confirmed.as_ref() {
-            if !shared.slots_lock().contains_key(&slot) {
-                return None;
-            }
-        }
-        if let Some(shared) = self.shared_finalized.as_ref() {
-            if !shared.slots_lock().contains_key(&slot) {
-                return None;
-            }
-        }
-        Some(slot)
+        let slots = self.shared_processed.slots_lock();
+        slots.first_key_value().map(|(slot, _head)| *slot)
     }
 }
 

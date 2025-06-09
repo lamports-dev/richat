@@ -301,15 +301,9 @@ pub fn subscriptions_worker(
 
     // Messages head
     let receiver = messages.to_receiver();
-    let mut head_processed = messages
-        .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for processed"))?;
-    let mut head_confirmed = messages
-        .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for confirmed"))?;
-    let mut head_finalized = messages
-        .get_current_tail(CommitmentLevel::Processed, None)
-        .ok_or(anyhow::anyhow!("failed to get head position for finalized"))?;
+    let mut head_processed = messages.get_current_tail(CommitmentLevel::Processed);
+    let mut head_confirmed = messages.get_current_tail(CommitmentLevel::Processed);
+    let mut head_finalized = messages.get_current_tail(CommitmentLevel::Processed);
 
     // Subscriptions filters pool
     let workers = ThreadPoolBuilder::new()

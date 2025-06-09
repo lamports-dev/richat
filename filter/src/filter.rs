@@ -131,6 +131,10 @@ impl Filter {
         }
     }
 
+    pub fn contains_blocks(&self) -> bool {
+        !self.blocks.filters.is_empty()
+    }
+
     pub const fn commitment(&self) -> ConfigFilterCommitment {
         self.commitment
     }
