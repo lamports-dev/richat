@@ -18,6 +18,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+- richat: replay only processed commitment ([#116](https://github.com/lamports-dev/richat/pull/116))
+
 ## 2025-05-30
 
 - richat-cli-v4.5.0
