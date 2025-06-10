@@ -2,17 +2,18 @@ use {
     crate::{
         channel::ParsedMessage,
         config::ConfigStorage,
-        metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_PREPARE_INDEX},
+        metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX},
         SpawnedThreads,
     },
     ::metrics::counter,
     anyhow::Context,
+    prost::{bytes::BufMut, encoding::encode_varint},
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::MessageRef,
     },
-    richat_proto::geyser::SlotStatus,
     rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
+    solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
         sync::{mpsc, Arc},
@@ -32,16 +33,26 @@ impl ColumnName for MessageIndex {
 }
 
 impl MessageIndex {
-    const fn key(key: u64) -> [u8; 8] {
+    const fn encode(key: u64) -> [u8; 8] {
         key.to_be_bytes()
     }
 
     // fn decode(slice: &[u8]) -> anyhow::Result<u64> {
     //     slice
     //         .try_into()
-    //         .map(Slot::from_be_bytes)
+    //         .map(u64::from_be_bytes)
     //         .context("invalid slice size")
     // }
+}
+
+#[derive(Debug)]
+struct MessageIndexValue;
+
+impl MessageIndexValue {
+    fn encode(slot: Slot, message: FilteredUpdate, buf: &mut impl BufMut) {
+        encode_varint(slot, buf);
+        message.encode(buf);
+    }
 }
 
 #[derive(Debug)]
@@ -52,11 +63,11 @@ impl ColumnName for SlotIndex {
 }
 
 impl SlotIndex {
-    // const fn key(key: Slot) -> [u8; 8] {
-    //     key.to_be_bytes()
-    // }
+    const fn encode(key: Slot) -> [u8; 8] {
+        key.to_be_bytes()
+    }
 
-    // fn decode(slice: &[u8]) -> anyhow::Result<u64> {
+    // fn decode(slice: &[u8]) -> anyhow::Result<Slot> {
     //     slice
     //         .try_into()
     //         .map(Slot::from_be_bytes)
@@ -64,19 +75,20 @@ impl SlotIndex {
     // }
 }
 
-// #[derive(Debug)]
-// struct SlotIndexValue {
-//     index: u64,
-//     status: SlotStatus,
-// }
+#[derive(Debug)]
+struct SlotIndexValue;
 
-// impl SlotIndexValue {
-//     fn encode(&self, buf: &mut Vec<u8>) {
-//         //
-//     }
+impl SlotIndexValue {
+    fn encode(index: u64, buf: &mut impl BufMut) {
+        encode_varint(index, buf);
+    }
 
-//     // fn decode
-// }
+    // fn decode(mut slice: &[u8]) -> anyhow::Result<Self> {
+    //     Ok(Self {
+    //         index: decode_varint(&mut slice).context("failed to read index")?,
+    //     })
+    // }
+}
 
 #[derive(Debug, Clone)]
 pub struct Storage {
@@ -93,13 +105,13 @@ impl Storage {
                 .with_context(|| format!("failed to open rocksdb with path: {:?}", config.path))?,
         );
 
-        let (pre_tx, pre_rx) = mpsc::channel();
+        let (ser_tx, ser_rx) = mpsc::channel();
         let (tx, rx) = mpsc::sync_channel(1);
 
-        let storage = Self { tx: pre_tx };
+        let storage = Self { tx: ser_tx };
 
-        let write_pre_jh = thread::Builder::new()
-            .name("richatStrgPrWrt".to_owned())
+        let write_ser_jh = thread::Builder::new()
+            .name("richatStrgSerW".to_owned())
             .spawn({
                 let db = Arc::clone(&db);
                 || {
@@ -107,15 +119,15 @@ impl Storage {
                         affinity_linux::set_thread_affinity(cpus.into_iter())
                             .expect("failed to set affinity");
                     }
-                    Self::spawn_pre_write(db, pre_rx, tx);
+                    Self::spawn_ser_write(db, ser_rx, tx);
                     Ok(())
                 }
             })?;
         let write_jh = thread::Builder::new()
-            .name("richatStrgWrt".to_owned())
+            .name("richatStrgW".to_owned())
             .spawn(|| Self::spawn_write(db, rx))?;
         let threads = vec![
-            ("write_serialize", Some(write_pre_jh)),
+            ("write_serialize", Some(write_ser_jh)),
             ("write", Some(write_jh)),
         ];
 
@@ -173,61 +185,54 @@ impl Storage {
             .expect("should never get an unknown column")
     }
 
-    fn spawn_pre_write(
+    fn spawn_ser_write(
         db: Arc<DB>,
         rx: mpsc::Receiver<StorageMessage>,
         tx: mpsc::SyncSender<(u64, WriteBatch)>,
     ) {
         let mut buf = Vec::with_capacity(16 * 1024 * 1024);
-        let mut global_index = 0;
         let mut batch = WriteBatch::new();
 
         while let Ok(message) = rx.recv() {
-            match message {
-                StorageMessage::Message { index, message } => {
+            let index = match message {
+                StorageMessage::Message {
+                    slot,
+                    index,
+                    message,
+                } => {
                     let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
                     let message_ref: MessageRef = message.as_ref().into();
                     let message = FilteredUpdate {
                         filters: FilteredUpdateFilters::new(),
                         filtered_update: message_ref.into(),
                     };
-
                     buf.clear();
-                    message.encode(&mut buf);
+                    MessageIndexValue::encode(slot, message, &mut buf);
+
                     batch.put_cf(
                         Self::cf_handle::<MessageIndex>(&db),
-                        MessageIndex::key(index),
+                        MessageIndex::encode(index),
                         &buf,
                     );
 
-                    global_index = index;
-                    counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
+                    index
                 }
-                StorageMessage::Slot {
-                    index,
-                    status: _status,
-                } => {
-                    // let message = SlotIndexValue {
-                    //     index,
-                    //     status,
-                    // };
+                StorageMessage::Slot { slot, index } => {
+                    buf.clear();
+                    SlotIndexValue::encode(index, &mut buf);
 
-                    // buf.clear();
-                    // message.encode(&mut buf);
-                    // batch.put_cf(
-                    //     Self::cf_handle::<SlotIndex>(&db),
-                    //     SlotIndex::key(slot),
-                    //     &buf,
-                    // );
+                    batch.put_cf(
+                        Self::cf_handle::<SlotIndex>(&db),
+                        SlotIndex::encode(slot),
+                        &buf,
+                    );
 
-                    if let Some(index) = index {
-                        global_index = index;
-                        counter!(CHANNEL_STORAGE_WRITE_PREPARE_INDEX).absolute(index);
-                    }
+                    index
                 }
-            }
+            };
+            counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
 
-            match tx.try_send((global_index, batch)) {
+            match tx.try_send((index, batch)) {
                 Ok(()) => {
                     batch = WriteBatch::new();
                 }
@@ -249,23 +254,28 @@ impl Storage {
         Ok(())
     }
 
-    pub fn push_message(&self, index: u64, message: ParsedMessage) {
-        let _ = self.tx.send(StorageMessage::Message { index, message });
+    pub fn push_message(&self, slot: Slot, index: u64, message: ParsedMessage) {
+        let _ = self.tx.send(StorageMessage::Message {
+            slot,
+            index,
+            message,
+        });
     }
 
-    pub fn push_slot(&self, index: Option<u64>, status: SlotStatus) {
-        let _ = self.tx.send(StorageMessage::Slot { index, status });
+    pub fn push_slot(&self, slot: Slot, index: u64) {
+        let _ = self.tx.send(StorageMessage::Slot { slot, index });
     }
 }
 
 #[derive(Debug)]
 enum StorageMessage {
     Message {
+        slot: Slot,
         index: u64,
         message: ParsedMessage,
     },
     Slot {
-        index: Option<u64>,
-        status: SlotStatus,
+        slot: Slot,
+        index: u64,
     },
 }

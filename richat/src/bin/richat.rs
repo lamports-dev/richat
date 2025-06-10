@@ -7,7 +7,7 @@ use {
     },
     richat::{
         channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
-        richat::server::RichatServer, source::Subscriptions,
+        richat::server::RichatServer, source::Subscriptions, version::VERSION,
     },
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
@@ -58,6 +58,7 @@ fn main() -> anyhow::Result<()> {
 
     // Setup logs
     richat::log::setup(config.logs.json)?;
+    info!("version: {} / {}", VERSION.version, VERSION.git);
 
     // Shutdown channel/flag
     let shutdown = Shutdown::new();
