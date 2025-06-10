@@ -428,13 +428,12 @@ impl Sender {
         // push messages
         let mut clean_after_finalized = false;
         for message in messages {
+            let mut slot_init = false;
             let slot_info = self.slots.entry(slot).or_insert_with(|| {
-                if let Some(storage) = &self.storage {
-                    storage.push_slot(slot, self.index);
-                }
-
-                SlotInfo::new(slot)
+                slot_init = true;
+                SlotInfo::new(slot, self.index)
             });
+            let slot_index_head = slot_info.index;
             let messages_with_block = slot_info.get_messages_with_block(
                 &message,
                 dedup_info
@@ -516,7 +515,14 @@ impl Sender {
 
                 // push to storage
                 if let Some(storage) = &self.storage {
-                    storage.push_message(slot, self.index, message.clone());
+                    storage.push_message(
+                        slot_init,
+                        slot,
+                        slot_index_head,
+                        self.index,
+                        message.clone(),
+                    );
+                    slot_init = false;
                     self.index += 1;
                 }
 
@@ -826,6 +832,7 @@ struct SlotInfo {
     transactions_count: usize,
     entries_count: usize,
     block_meta: Option<Arc<MessageBlockMeta>>,
+    index: u64,
 }
 
 impl Drop for SlotInfo {
@@ -857,7 +864,7 @@ impl Drop for SlotInfo {
 }
 
 impl SlotInfo {
-    fn new(slot: Slot) -> Self {
+    fn new(slot: Slot, index: u64) -> Self {
         Self {
             slot,
             block_created: false,
@@ -868,6 +875,7 @@ impl SlotInfo {
             transactions_count: 0,
             entries_count: 0,
             block_meta: None,
+            index,
         }
     }
 
