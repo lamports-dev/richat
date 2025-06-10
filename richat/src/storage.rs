@@ -12,6 +12,7 @@ use {
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::MessageRef,
     },
+    richat_proto::geyser::SlotStatus,
     rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
     solana_sdk::clock::Slot,
     std::{
@@ -79,7 +80,8 @@ impl SlotIndex {
 struct SlotIndexValue;
 
 impl SlotIndexValue {
-    fn encode(index: u64, buf: &mut impl BufMut) {
+    fn encode(finalized: bool, index: u64, buf: &mut impl BufMut) {
+        buf.put_u8(if finalized { 1 } else { 0 });
         encode_varint(index, buf);
     }
 
@@ -92,7 +94,7 @@ impl SlotIndexValue {
 
 #[derive(Debug, Clone)]
 pub struct Storage {
-    tx: mpsc::Sender<StorageMessage>,
+    tx: mpsc::Sender<WriteRequest>,
 }
 
 impl Storage {
@@ -187,51 +189,60 @@ impl Storage {
 
     fn spawn_ser_write(
         db: Arc<DB>,
-        rx: mpsc::Receiver<StorageMessage>,
+        rx: mpsc::Receiver<WriteRequest>,
         tx: mpsc::SyncSender<(u64, WriteBatch)>,
     ) {
         let mut buf = Vec::with_capacity(16 * 1024 * 1024);
         let mut batch = WriteBatch::new();
 
-        while let Ok(message) = rx.recv() {
-            let index = match message {
-                StorageMessage::Message {
-                    slot,
-                    index,
-                    message,
-                } => {
-                    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
-                    let message_ref: MessageRef = message.as_ref().into();
-                    let message = FilteredUpdate {
-                        filters: FilteredUpdateFilters::new(),
-                        filtered_update: message_ref.into(),
-                    };
+        while let Ok(WriteRequest {
+            init,
+            slot,
+            head,
+            index,
+            message,
+        }) = rx.recv()
+        {
+            // initialize slot index
+            if init {
+                buf.clear();
+                SlotIndexValue::encode(false, index, &mut buf);
+                batch.put_cf(
+                    Self::cf_handle::<SlotIndex>(&db),
+                    SlotIndex::encode(slot),
+                    &buf,
+                );
+            }
+
+            // make as finalized in slot index
+            if let ParsedMessage::Slot(message) = &message {
+                if message.status() == SlotStatus::SlotFinalized {
                     buf.clear();
-                    MessageIndexValue::encode(slot, message, &mut buf);
-
-                    batch.put_cf(
-                        Self::cf_handle::<MessageIndex>(&db),
-                        MessageIndex::encode(index),
-                        &buf,
-                    );
-
-                    index
-                }
-                StorageMessage::Slot { slot, index } => {
-                    buf.clear();
-                    SlotIndexValue::encode(index, &mut buf);
-
+                    SlotIndexValue::encode(true, head, &mut buf);
                     batch.put_cf(
                         Self::cf_handle::<SlotIndex>(&db),
                         SlotIndex::encode(slot),
                         &buf,
                     );
-
-                    index
                 }
-            };
-            counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
+            }
 
+            // push message
+            let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+            let message_ref: MessageRef = message.as_ref().into();
+            let message = FilteredUpdate {
+                filters: FilteredUpdateFilters::new(),
+                filtered_update: message_ref.into(),
+            };
+            buf.clear();
+            MessageIndexValue::encode(slot, message, &mut buf);
+            batch.put_cf(
+                Self::cf_handle::<MessageIndex>(&db),
+                MessageIndex::encode(index),
+                &buf,
+            );
+
+            counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
             match tx.try_send((index, batch)) {
                 Ok(()) => {
                     batch = WriteBatch::new();
@@ -254,28 +265,29 @@ impl Storage {
         Ok(())
     }
 
-    pub fn push_message(&self, slot: Slot, index: u64, message: ParsedMessage) {
-        let _ = self.tx.send(StorageMessage::Message {
+    pub fn push_message(
+        &self,
+        init: bool,
+        slot: Slot,
+        head: u64,
+        index: u64,
+        message: ParsedMessage,
+    ) {
+        let _ = self.tx.send(WriteRequest {
+            init,
             slot,
+            head,
             index,
             message,
         });
     }
-
-    pub fn push_slot(&self, slot: Slot, index: u64) {
-        let _ = self.tx.send(StorageMessage::Slot { slot, index });
-    }
 }
 
 #[derive(Debug)]
-enum StorageMessage {
-    Message {
-        slot: Slot,
-        index: u64,
-        message: ParsedMessage,
-    },
-    Slot {
-        slot: Slot,
-        index: u64,
-    },
+struct WriteRequest {
+    init: bool,
+    slot: Slot,
+    head: u64,
+    index: u64,
+    message: ParsedMessage,
 }
