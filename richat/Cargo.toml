@@ -49,6 +49,7 @@ solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }
 spl-token-2022 = { workspace = true }
 thiserror = { workspace = true }
+tikv-jemallocator = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tonic = { workspace = true }

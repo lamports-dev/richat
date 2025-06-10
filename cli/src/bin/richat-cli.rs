@@ -10,6 +10,10 @@ use {
     },
 };
 
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Debug, Parser)]
 #[clap(author, version, about = "Richat Cli Tool: pubsub, stream, track")]
 struct Args {

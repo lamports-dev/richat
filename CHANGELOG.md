@@ -15,6 +15,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - proto: add version to quic response ([#115](https://github.com/lamports-dev/richat/pull/115))
+- richat: use jemalloc ([#117](https://github.com/lamports-dev/richat/pull/117))
 
 ### Breaking
 
