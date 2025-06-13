@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
                 })
             }
         })?;
-    threads.push(("source", Some(source_jh)));
+    threads.push(("richatSource".to_owned(), Some(source_jh)));
 
     // Create runtime for incoming connections
     let apps_jh = thread::Builder::new().name("richatApp".to_owned()).spawn({
@@ -147,7 +147,7 @@ fn main() -> anyhow::Result<()> {
             })
         }
     })?;
-    threads.push(("apps", Some(apps_jh)));
+    threads.push(("richatApp".to_owned(), Some(apps_jh)));
 
     let mut signals = Signals::new([SIGINT])?;
     'outer: while threads.iter().any(|th| th.1.is_some()) {
