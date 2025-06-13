@@ -17,7 +17,7 @@ use {
     solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
-        sync::{mpsc, Arc},
+        sync::{mpsc, Arc, Mutex},
         thread,
     },
 };
@@ -94,7 +94,8 @@ impl SlotIndexValue {
 
 #[derive(Debug, Clone)]
 pub struct Storage {
-    tx: mpsc::Sender<WriteRequest>,
+    write_tx: mpsc::Sender<WriteRequest>,
+    read_tx: mpsc::SyncSender<ReadRequest>,
 }
 
 impl Storage {
@@ -108,30 +109,59 @@ impl Storage {
         );
 
         let (ser_tx, ser_rx) = mpsc::channel();
-        let (tx, rx) = mpsc::sync_channel(1);
+        let (write_tx, write_rx) = mpsc::sync_channel(1);
+        let (read_tx, read_rx) = mpsc::sync_channel(config.read_channel_capacity);
 
-        let storage = Self { tx: ser_tx };
+        let storage = Self {
+            write_tx: ser_tx,
+            read_tx,
+        };
 
+        let mut threads = vec![];
         let write_ser_jh = thread::Builder::new()
-            .name("richatStrgSerW".to_owned())
+            .name("richatStrgSer".to_owned())
             .spawn({
                 let db = Arc::clone(&db);
                 || {
-                    if let Some(cpus) = config.thread_write_serialize_affinity {
+                    if let Some(cpus) = config.serialize_affinity {
                         affinity_linux::set_thread_affinity(cpus.into_iter())
                             .expect("failed to set affinity");
                     }
-                    Self::spawn_ser_write(db, ser_rx, tx);
+                    Self::spawn_ser_write(db, ser_rx, write_tx);
                     Ok(())
                 }
             })?;
+        threads.push(("richatStrgSer".to_owned(), Some(write_ser_jh)));
         let write_jh = thread::Builder::new()
-            .name("richatStrgW".to_owned())
-            .spawn(|| Self::spawn_write(db, rx))?;
-        let threads = vec![
-            ("write_serialize", Some(write_ser_jh)),
-            ("write", Some(write_jh)),
-        ];
+            .name("richatStrgWrt".to_owned())
+            .spawn({
+                let db = Arc::clone(&db);
+                || {
+                    if let Some(cpus) = config.write_affinity {
+                        affinity_linux::set_thread_affinity(cpus.into_iter())
+                            .expect("failed to set affinity");
+                    }
+                    Self::spawn_write(db, write_rx)
+                }
+            })?;
+        threads.push(("richatStrgWrt".to_owned(), Some(write_jh)));
+        let read_rx = Arc::new(Mutex::new(read_rx));
+        for index in 0..config.read_threads {
+            let th_name = format!("richatStrgRd{index:02}");
+            let jh = thread::Builder::new().name(th_name.clone()).spawn({
+                let affinity = config.read_affinity.clone();
+                let db = Arc::clone(&db);
+                let read_rx = Arc::clone(&read_rx);
+                move || {
+                    if let Some(cpus) = affinity {
+                        affinity_linux::set_thread_affinity(cpus.into_iter())
+                            .expect("failed to set affinity");
+                    }
+                    Self::spawn_read(db, read_rx)
+                }
+            })?;
+            threads.push((th_name, Some(jh)));
+        }
 
         Ok((storage, threads))
     }
@@ -265,6 +295,21 @@ impl Storage {
         Ok(())
     }
 
+    fn spawn_read(db: Arc<DB>, rx: Arc<Mutex<mpsc::Receiver<ReadRequest>>>) -> anyhow::Result<()> {
+        loop {
+            let rx = rx.lock().expect("unpoisoned mutex");
+            let Ok(message) = rx.recv() else {
+                break;
+            };
+            drop(rx);
+
+            match message {
+                ReadRequest::Slots => {}
+            }
+        }
+        Ok(())
+    }
+
     pub fn push_message(
         &self,
         init: bool,
@@ -273,7 +318,7 @@ impl Storage {
         index: u64,
         message: ParsedMessage,
     ) {
-        let _ = self.tx.send(WriteRequest {
+        let _ = self.write_tx.send(WriteRequest {
             init,
             slot,
             head,
@@ -290,4 +335,9 @@ struct WriteRequest {
     head: u64,
     index: u64,
     message: ParsedMessage,
+}
+
+#[derive(Debug)]
+enum ReadRequest {
+    Slots,
 }

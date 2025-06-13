@@ -518,15 +518,17 @@ impl Sender {
 
                 // push to storage
                 if let Some(storage) = &self.storage {
-                    storage.push_message(
-                        slot_init,
-                        slot,
-                        slot_index_head,
-                        self.index,
-                        message.clone(),
-                    );
-                    slot_init = false;
-                    self.index += 1;
+                    if !matches!(&message, ParsedMessage::Block(_)) {
+                        storage.push_message(
+                            slot_init,
+                            slot,
+                            slot_index_head,
+                            self.index,
+                            message.clone(),
+                        );
+                        slot_init = false;
+                        self.index += 1;
+                    }
                 }
 
                 // push to processed
