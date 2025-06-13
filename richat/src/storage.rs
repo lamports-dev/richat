@@ -7,19 +7,28 @@ use {
     },
     ::metrics::counter,
     anyhow::Context,
-    prost::{bytes::BufMut, encoding::encode_varint},
+    hyper::body::Buf,
+    prost::{
+        bytes::BufMut,
+        encoding::{decode_varint, encode_varint},
+    },
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::MessageRef,
     },
     richat_proto::geyser::SlotStatus,
-    rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Options, WriteBatch, DB},
+    rocksdb::{
+        ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
+        WriteBatch, DB,
+    },
     solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
+        collections::BTreeMap,
         sync::{mpsc, Arc, Mutex},
         thread,
     },
+    tokio::sync::oneshot,
 };
 
 trait ColumnName {
@@ -68,28 +77,36 @@ impl SlotIndex {
         key.to_be_bytes()
     }
 
-    // fn decode(slice: &[u8]) -> anyhow::Result<Slot> {
-    //     slice
-    //         .try_into()
-    //         .map(Slot::from_be_bytes)
-    //         .context("invalid slice size")
-    // }
+    fn decode(slice: &[u8]) -> anyhow::Result<Slot> {
+        slice
+            .try_into()
+            .map(Slot::from_be_bytes)
+            .context("invalid slice size")
+    }
 }
 
-#[derive(Debug)]
-struct SlotIndexValue;
+#[derive(Debug, Clone, Copy)]
+pub struct SlotIndexValue {
+    pub finalized: bool,
+    pub head: u64,
+}
 
 impl SlotIndexValue {
-    fn encode(finalized: bool, index: u64, buf: &mut impl BufMut) {
+    fn encode(finalized: bool, head: u64, buf: &mut impl BufMut) {
         buf.put_u8(if finalized { 1 } else { 0 });
-        encode_varint(index, buf);
+        encode_varint(head, buf);
     }
 
-    // fn decode(mut slice: &[u8]) -> anyhow::Result<Self> {
-    //     Ok(Self {
-    //         index: decode_varint(&mut slice).context("failed to read index")?,
-    //     })
-    // }
+    fn decode(mut slice: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self {
+            finalized: match slice.try_get_u8().context("failed to read finalized")? {
+                0 => false,
+                1 => true,
+                value => anyhow::bail!("failed to read finalized, unknown value: {value}"),
+            },
+            head: decode_varint(&mut slice).context("failed to read head")?,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -304,10 +321,24 @@ impl Storage {
             drop(rx);
 
             match message {
-                ReadRequest::Slots => {}
+                ReadRequest::Slots { tx } => {
+                    let _ = tx.send(Self::spawn_read_slots(&db));
+                }
             }
         }
         Ok(())
+    }
+
+    fn spawn_read_slots(db: &DB) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
+        let mut slots = BTreeMap::new();
+        for item in db.iterator_cf(
+            Self::cf_handle::<SlotIndex>(db),
+            IteratorMode::From(&[], Direction::Forward),
+        ) {
+            let (key, value) = item.context("failed to read next row")?;
+            slots.insert(SlotIndex::decode(&key)?, SlotIndexValue::decode(&value)?);
+        }
+        Ok(slots)
     }
 
     pub fn push_message(
@@ -326,6 +357,15 @@ impl Storage {
             message,
         });
     }
+
+    pub async fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
+        let (tx, rx) = oneshot::channel();
+        self.read_tx
+            .send(ReadRequest::Slots { tx })
+            .context("failed to send ReadRequest::Slots request")?;
+        rx.await
+            .context("failed to receive Read::Request::Slots result")?
+    }
 }
 
 #[derive(Debug)]
@@ -339,5 +379,7 @@ struct WriteRequest {
 
 #[derive(Debug)]
 enum ReadRequest {
-    Slots,
+    Slots {
+        tx: oneshot::Sender<anyhow::Result<BTreeMap<Slot, SlotIndexValue>>>,
+    },
 }
