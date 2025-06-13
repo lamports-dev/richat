@@ -157,11 +157,33 @@ impl Default for ConfigChannelInner {
 pub struct ConfigStorage {
     pub path: PathBuf,
     #[serde(default, deserialize_with = "deserialize_affinity")]
-    pub thread_write_serialize_affinity: Option<Vec<usize>>,
+    pub serialize_affinity: Option<Vec<usize>>,
     #[serde(default, deserialize_with = "deserialize_affinity")]
-    pub thread_write_affinity: Option<Vec<usize>>,
+    pub write_affinity: Option<Vec<usize>>,
     #[serde(default)]
     pub messages_compression: ConfigStorageRocksdbCompression,
+    #[serde(
+        default = "ConfigStorage::default_read_channel_capacity",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub read_channel_capacity: usize,
+    #[serde(
+        default = "ConfigStorage::default_read_threads",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub read_threads: usize,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub read_affinity: Option<Vec<usize>>,
+}
+
+impl ConfigStorage {
+    const fn default_read_channel_capacity() -> usize {
+        1024
+    }
+
+    const fn default_read_threads() -> usize {
+        4
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
