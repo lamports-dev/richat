@@ -1,6 +1,7 @@
 use {
     crate::five8::{pubkey_decode, signature_decode},
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
+    regex::Regex,
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
         de::{self, Deserializer},
@@ -275,30 +276,19 @@ where
 }
 
 pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
+    let re = Regex::new(r"^(\d+)(?:-(\d+)(?::(\d+))?)?$").expect("valid regex");
     let mut set = HashSet::new();
-    for taskset2 in taskset.split(',') {
-        match taskset2.split_once('-') {
-            Some((start, end)) => {
-                let start: usize = start
-                    .parse()
-                    .map_err(|_error| format!("failed to parse {start:?} from {taskset:?}"))?;
-                let end: usize = end
-                    .parse()
-                    .map_err(|_error| format!("failed to parse {end:?} from {taskset:?}"))?;
-                if start > end {
-                    return Err(format!("invalid interval {taskset2:?} in {taskset:?}"));
-                }
-                for idx in start..=end {
-                    set.insert(idx);
-                }
-            }
-            None => {
-                set.insert(
-                    taskset2.parse().map_err(|_error| {
-                        format!("failed to parse {taskset2:?} from {taskset:?}")
-                    })?,
-                );
-            }
+    for cpulist in taskset.split(',') {
+        let Some(caps) = re.captures(cpulist) else {
+            return Err(format!("invalid cpulist: {cpulist}"))
+        };
+
+        let start = caps.get(1).and_then(|m| m.as_str().parse().ok()).expect("valid regex");
+        let end = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(start);
+        let step = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+
+        for cpu in (start..=end).step_by(step) {
+            set.insert(cpu);
         }
     }
 

@@ -4237,6 +4237,7 @@ dependencies = [
  "quanta",
  "quinn",
  "rcgen",
+ "regex",
  "richat-proto",
  "rustls 0.23.23",
  "rustls-pemfile 2.2.0",

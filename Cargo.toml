@@ -61,6 +61,7 @@ quanta = "0.12.5"
 quinn = "0.11.6"
 rayon = "1.10.0"
 rcgen = "0.13.1"
+regex = "1.11.1"
 richat-client = { path = "client", version = "3.5.0" }
 richat-filter = { path = "filter", version = "3.5.0" }
 richat-plugin-agave = { path = "plugin-agave", version = "3.5.0" }

@@ -18,6 +18,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 - proto: add version to quic response ([#115](https://github.com/lamports-dev/richat/pull/115))
 - richat: use jemalloc ([#117](https://github.com/lamports-dev/richat/pull/117))
+- shared: parse affinity with stride in range ([#120](https://github.com/lamports-dev/richat/pull/120))
 
 ### Breaking
 
