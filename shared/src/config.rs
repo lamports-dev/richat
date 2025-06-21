@@ -280,12 +280,21 @@ pub fn parse_taskset(taskset: &str) -> Result<Vec<usize>, String> {
     let mut set = HashSet::new();
     for cpulist in taskset.split(',') {
         let Some(caps) = re.captures(cpulist) else {
-            return Err(format!("invalid cpulist: {cpulist}"))
+            return Err(format!("invalid cpulist: {cpulist}"));
         };
 
-        let start = caps.get(1).and_then(|m| m.as_str().parse().ok()).expect("valid regex");
-        let end = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(start);
-        let step = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+        let start = caps
+            .get(1)
+            .and_then(|m| m.as_str().parse().ok())
+            .expect("valid regex");
+        let end = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(start);
+        let step = caps
+            .get(3)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(1);
 
         for cpu in (start..=end).step_by(step) {
             set.insert(cpu);
