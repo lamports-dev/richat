@@ -13,6 +13,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Fixes
 
 - filter: fix memcmp decode data in the config ([#118](https://github.com/lamports-dev/richat/pull/118))
+- richat: do not send Block message to connected richat ([#122](https://github.com/lamports-dev/richat/pull/122))
 
 ### Features
 

@@ -596,6 +596,7 @@ impl ReceiverAsync {
                     continue
                 }
                 ParsedMessage::Entry(_) if !self.enable_notifications_entries => continue,
+                ParsedMessage::Block(_) => continue,
                 _ => {}
             }
 
