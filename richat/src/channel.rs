@@ -26,7 +26,10 @@ use {
         clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
     },
     std::{
-        collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
+        collections::{
+            btree_map::Entry as BTreeMapEntry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap,
+            HashSet,
+        },
         fmt,
         hash::{BuildHasher, Hash, Hasher},
         pin::Pin,
@@ -222,6 +225,7 @@ impl Messages {
             for (slot, item) in slots.iter() {
                 replay.insert(*slot, ReplayInfo::new(item.head));
             }
+            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay.len() as f64);
 
             if let Some(finalized_slot) = slots
                 .iter()
@@ -487,10 +491,10 @@ impl Sender {
         };
 
         // push messages
-        let replay = self
-            .replay
-            .entry(slot)
-            .or_insert_with(|| ReplayInfo::new(self.index));
+        let (replay, replay_inserted) = match self.replay.entry(slot) {
+            BTreeMapEntry::Vacant(entry) => (entry.insert(ReplayInfo::new(self.index)), true),
+            BTreeMapEntry::Occupied(entry) => (entry.into_mut(), false),
+        };
         let mut clean_after_finalized = false;
         for message in messages {
             let mut slot_init = false;
@@ -635,6 +639,9 @@ impl Sender {
                     }
                 }
             }
+        }
+        if replay_inserted || clean_after_finalized {
+            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(self.replay.len() as f64);
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
