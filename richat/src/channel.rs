@@ -10,8 +10,8 @@ use {
     richat_filter::{
         filter::FilteredUpdate,
         message::{
-            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
-            MessageSlot, MessageTransaction,
+            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry,
+            MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
         },
     },
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
@@ -20,13 +20,14 @@ use {
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     },
     smallvec::SmallVec,
+    solana_nohash_hasher::IntSet,
     solana_sdk::{
         clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
     },
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         fmt,
-        hash::{Hash, Hasher},
+        hash::{BuildHasher, Hash, Hasher},
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -69,44 +70,6 @@ impl<'a> From<&'a ParsedMessage> for MessageRef<'a> {
             ParsedMessage::Entry(msg) => Self::Entry(msg.as_ref()),
             ParsedMessage::BlockMeta(msg) => Self::BlockMeta(msg.as_ref()),
             ParsedMessage::Block(msg) => Self::Block(msg.as_ref()),
-        }
-    }
-}
-
-impl Hash for ParsedMessage {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            ParsedMessage::Slot(msg) => {
-                state.write_u8(0);
-                state.write_u64(msg.slot());
-                msg.status().hash(state);
-            }
-            ParsedMessage::Account(msg) => {
-                state.write_u8(1);
-                state.write_u64(msg.slot());
-                state.write(msg.pubkey().as_ref());
-                if let Some(signature) = msg.txn_signature() {
-                    state.write(signature);
-                }
-            }
-            ParsedMessage::Transaction(msg) => {
-                state.write_u8(2);
-                state.write_u64(msg.slot());
-                state.write(msg.signature().as_ref());
-            }
-            ParsedMessage::Entry(msg) => {
-                state.write_u8(3);
-                state.write_u64(msg.slot());
-                state.write_u64(msg.index());
-            }
-            ParsedMessage::BlockMeta(msg) => {
-                state.write_u8(4);
-                state.write_u64(msg.slot());
-            }
-            ParsedMessage::Block(msg) => {
-                state.write_u8(5);
-                state.write_u64(msg.slot());
-            }
         }
     }
 }
@@ -168,6 +131,43 @@ impl ParsedMessage {
             None
         }
     }
+
+    fn get_id<H: Hasher>(&self, mut state: H) -> u64 {
+        match self {
+            ParsedMessage::Slot(msg) => {
+                state.write_u8(0);
+                state.write_u64(msg.slot());
+                msg.status().hash(&mut state);
+            }
+            ParsedMessage::Account(msg) => {
+                state.write_u8(1);
+                state.write_u64(msg.slot());
+                state.write(msg.pubkey().as_ref());
+                if let Some(signature) = msg.txn_signature() {
+                    state.write(signature);
+                }
+            }
+            ParsedMessage::Transaction(msg) => {
+                state.write_u8(2);
+                state.write_u64(msg.slot());
+                state.write(msg.signature().as_ref());
+            }
+            ParsedMessage::Entry(msg) => {
+                state.write_u8(3);
+                state.write_u64(msg.slot());
+                state.write_u64(msg.index());
+            }
+            ParsedMessage::BlockMeta(msg) => {
+                state.write_u8(4);
+                state.write_u64(msg.slot());
+            }
+            ParsedMessage::Block(msg) => {
+                state.write_u8(5);
+                state.write_u64(msg.slot());
+            }
+        }
+        state.finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +178,7 @@ pub struct Messages {
     max_messages: usize,
     max_bytes: usize,
     storage: Option<Storage>,
+    storage_max_slots: usize,
 }
 
 impl Messages {
@@ -187,6 +188,11 @@ impl Messages {
         grpc: bool,
         pubsub: bool,
     ) -> anyhow::Result<(Self, SpawnedThreads)> {
+        let storage_max_slots = config
+            .storage
+            .as_ref()
+            .map(|config| config.max_slots)
+            .unwrap_or_default();
         let (storage, threads) = match config.storage.map(Storage::open).transpose()? {
             Some((storage, threads)) => (Some(storage), threads),
             None => (None, vec![]),
@@ -200,12 +206,63 @@ impl Messages {
             max_messages,
             max_bytes: config.max_bytes,
             storage,
+            storage_max_slots,
         };
         Ok((messages, threads))
     }
 
-    pub fn to_sender(&self) -> Sender {
-        Sender {
+    pub fn to_sender(
+        &self,
+        parser: MessageParserEncoding,
+    ) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
+        let mut slot_finalized = 0;
+        let hasher = RandomState::default();
+        let mut replay_for_storage = false;
+        let mut replay_from_slot = None;
+        let mut replay = BTreeMap::new();
+        let mut index = 0;
+        if let Some(storage) = &self.storage {
+            replay_for_storage = true;
+            let slots = storage.read_slots()?;
+
+            for (slot, item) in slots.iter() {
+                replay.insert(*slot, ReplayInfo::new(item.head));
+            }
+
+            if let Some(finalized_slot) = slots
+                .iter()
+                .filter(|(_slot, value)| value.finalized)
+                .map(|(slot, _value)| *slot)
+                .max()
+            {
+                slot_finalized = finalized_slot;
+                let Some(replay_index) = slots.get(&(finalized_slot + 1)).map(|item| item.head)
+                else {
+                    anyhow::bail!("failed to get replay index");
+                };
+                for item in storage.read_messages_from_index(replay_index, parser) {
+                    let (msg_index, msg) = item?;
+                    if msg.slot() <= finalized_slot {
+                        continue;
+                    }
+
+                    let Some(replay) = replay.get_mut(&msg.slot()) else {
+                        anyhow::bail!(
+                            "failed to get replay info for existed message, slot#{}",
+                            msg.slot()
+                        );
+                    };
+                    let messages = replay.messages.get_or_insert_default();
+                    messages.insert(msg.get_id(hasher.build_hasher()));
+                    index = msg_index + 1;
+                }
+                replay_from_slot = Some(finalized_slot + 1);
+            } else {
+                anyhow::ensure!(slots.is_empty(), "no finalized slot in existed db");
+            }
+        }
+
+        let sender = Sender {
             slots: BTreeMap::new(),
             dedup: BTreeMap::new(),
             processed: SenderShared::new(&self.shared_processed, self.max_messages, self.max_bytes),
@@ -218,10 +275,14 @@ impl Messages {
                 .as_ref()
                 .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
             slot_confirmed: 0,
-            slot_finalized: 0,
+            slot_finalized,
             storage: self.storage.clone(),
-            index: 0,
-        }
+            storage_max_slots: self.storage_max_slots,
+            hasher,
+            replay,
+            index,
+        };
+        Ok((sender, replay_for_storage, replay_from_slot))
     }
 
     pub fn to_receiver(&self) -> ReceiverSync {
@@ -323,7 +384,10 @@ pub struct Sender {
     slot_confirmed: Slot,
     slot_finalized: Slot,
     storage: Option<Storage>,
+    storage_max_slots: usize,
     index: u64,
+    hasher: RandomState,
+    replay: BTreeMap<Slot, ReplayInfo>,
 }
 
 impl Sender {
@@ -429,6 +493,10 @@ impl Sender {
         };
 
         // push messages
+        let replay = self
+            .replay
+            .entry(slot)
+            .or_insert_with(|| ReplayInfo::new(self.index));
         let mut clean_after_finalized = false;
         for message in messages {
             let mut slot_init = false;
@@ -448,6 +516,12 @@ impl Sender {
             }
 
             for message in MessagesWithBlockIter::new(message, messages_with_block) {
+                if let Some(messages) = &mut replay.messages {
+                    if !messages.insert(message.get_id(self.hasher.build_hasher())) {
+                        continue;
+                    }
+                }
+
                 // update metrics, push messages to confirmed / finalized
                 if let ParsedMessage::Slot(msg) = &message {
                     // update metrics
@@ -551,6 +625,20 @@ impl Sender {
                         self.dedup.remove(&slot_min);
                     }
                     _ => break,
+                }
+            }
+            while self.replay.len() > self.storage_max_slots {
+                if let Some((slot, _replay)) = self.replay.pop_first() {
+                    if let Some(storage) = &self.storage {
+                        let until = self
+                            .replay
+                            .values()
+                            .take(300)
+                            .map(|replay| replay.head)
+                            .min();
+
+                        storage.remove_replay(slot, until);
+                    }
                 }
             }
         }
@@ -1018,6 +1106,21 @@ impl SlotInfo {
 
     fn get_messages_owned(&mut self) -> impl Iterator<Item = ParsedMessage> + '_ {
         self.messages.drain(..).flatten()
+    }
+}
+
+#[derive(Debug)]
+struct ReplayInfo {
+    head: u64,
+    messages: Option<IntSet<u64>>,
+}
+
+impl ReplayInfo {
+    const fn new(head: u64) -> Self {
+        Self {
+            head,
+            messages: None,
+        }
     }
 }
 

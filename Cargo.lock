@@ -4024,6 +4024,7 @@ dependencies = [
  "smallvec",
  "solana-account",
  "solana-account-decoder",
+ "solana-nohash-hasher",
  "solana-rpc-client-api",
  "solana-sdk",
  "solana-transaction-status",
@@ -5530,6 +5531,12 @@ dependencies = [
  "tokio",
  "url",
 ]
+
+[[package]]
+name = "solana-nohash-hasher"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b8a731ed60e89177c8a7ab05fe0f1511cedd3e70e773f288f9de33a9cfdc21e"
 
 [[package]]
 name = "solana-nonce"

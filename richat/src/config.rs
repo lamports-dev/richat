@@ -13,6 +13,7 @@ use {
     rocksdb::DBCompressionType,
     serde::Deserialize,
     std::{
+        collections::HashSet,
         fs,
         path::{Path, PathBuf},
         thread::Builder,
@@ -61,6 +62,23 @@ pub struct ConfigChannel {
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
     pub config: ConfigChannelInner,
+}
+
+impl ConfigChannel {
+    pub fn get_messages_parser(&self) -> anyhow::Result<MessageParserEncoding> {
+        let mut set = HashSet::new();
+        for source in self.sources.iter() {
+            set.insert(match source {
+                ConfigChannelSource::Quic { general, .. } => general.parser,
+                ConfigChannelSource::Grpc { general, .. } => general.parser,
+            });
+        }
+        anyhow::ensure!(
+            set.len() == 1,
+            "multiple messages parsers: {set:?} (only same parser can be used)"
+        );
+        Ok(set.into_iter().next().unwrap())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +174,11 @@ impl Default for ConfigChannelInner {
 #[serde(deny_unknown_fields)]
 pub struct ConfigStorage {
     pub path: PathBuf,
+    #[serde(
+        default = "ConfigStorage::default_max_slots",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub max_slots: usize,
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
     #[serde(default, deserialize_with = "deserialize_affinity")]
@@ -177,6 +200,10 @@ pub struct ConfigStorage {
 }
 
 impl ConfigStorage {
+    const fn default_max_slots() -> usize {
+        1024
+    }
+
     const fn default_read_channel_capacity() -> usize {
         1024
     }

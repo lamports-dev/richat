@@ -14,7 +14,7 @@ use {
     },
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
-        message::MessageRef,
+        message::{Message, MessageParserEncoding, MessageRef},
     },
     richat_proto::geyser::SlotStatus,
     rocksdb::{
@@ -28,7 +28,6 @@ use {
         sync::{mpsc, Arc, Mutex},
         thread,
     },
-    tokio::sync::oneshot,
 };
 
 trait ColumnName {
@@ -47,12 +46,12 @@ impl MessageIndex {
         key.to_be_bytes()
     }
 
-    // fn decode(slice: &[u8]) -> anyhow::Result<u64> {
-    //     slice
-    //         .try_into()
-    //         .map(u64::from_be_bytes)
-    //         .context("invalid slice size")
-    // }
+    fn decode(slice: &[u8]) -> anyhow::Result<u64> {
+        slice
+            .try_into()
+            .map(u64::from_be_bytes)
+            .context("invalid slice size")
+    }
 }
 
 #[derive(Debug)]
@@ -111,6 +110,7 @@ impl SlotIndexValue {
 
 #[derive(Debug, Clone)]
 pub struct Storage {
+    db: Arc<DB>,
     write_tx: mpsc::Sender<WriteRequest>,
     read_tx: mpsc::SyncSender<ReadRequest>,
 }
@@ -130,6 +130,7 @@ impl Storage {
         let (read_tx, read_rx) = mpsc::sync_channel(config.read_channel_capacity);
 
         let storage = Self {
+            db: Arc::clone(&db),
             write_tx: ser_tx,
             read_tx,
         };
@@ -239,58 +240,75 @@ impl Storage {
         rx: mpsc::Receiver<WriteRequest>,
         tx: mpsc::SyncSender<(u64, WriteBatch)>,
     ) {
+        let mut gindex = 0;
         let mut buf = Vec::with_capacity(16 * 1024 * 1024);
         let mut batch = WriteBatch::new();
 
-        while let Ok(WriteRequest {
-            init,
-            slot,
-            head,
-            index,
-            message,
-        }) = rx.recv()
-        {
-            // initialize slot index
-            if init {
-                buf.clear();
-                SlotIndexValue::encode(false, index, &mut buf);
-                batch.put_cf(
-                    Self::cf_handle::<SlotIndex>(&db),
-                    SlotIndex::encode(slot),
-                    &buf,
-                );
-            }
+        while let Ok(message) = rx.recv() {
+            match message {
+                WriteRequest::PushMessage {
+                    init,
+                    slot,
+                    head,
+                    index,
+                    message,
+                } => {
+                    // initialize slot index
+                    if init {
+                        buf.clear();
+                        SlotIndexValue::encode(false, index, &mut buf);
+                        batch.put_cf(
+                            Self::cf_handle::<SlotIndex>(&db),
+                            SlotIndex::encode(slot),
+                            &buf,
+                        );
+                    }
 
-            // make as finalized in slot index
-            if let ParsedMessage::Slot(message) = &message {
-                if message.status() == SlotStatus::SlotFinalized {
+                    // make as finalized in slot index
+                    if let ParsedMessage::Slot(message) = &message {
+                        if message.status() == SlotStatus::SlotFinalized {
+                            buf.clear();
+                            SlotIndexValue::encode(true, head, &mut buf);
+                            batch.put_cf(
+                                Self::cf_handle::<SlotIndex>(&db),
+                                SlotIndex::encode(slot),
+                                &buf,
+                            );
+                        }
+                    }
+
+                    // push message
+                    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
+                    let message_ref: MessageRef = message.as_ref().into();
+                    let message = FilteredUpdate {
+                        filters: FilteredUpdateFilters::new(),
+                        filtered_update: message_ref.into(),
+                    };
                     buf.clear();
-                    SlotIndexValue::encode(true, head, &mut buf);
+                    MessageIndexValue::encode(slot, message, &mut buf);
                     batch.put_cf(
-                        Self::cf_handle::<SlotIndex>(&db),
-                        SlotIndex::encode(slot),
+                        Self::cf_handle::<MessageIndex>(&db),
+                        MessageIndex::encode(index),
                         &buf,
                     );
+
+                    counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
+                    gindex = index;
+                }
+                WriteRequest::RemoveReplay { slot, until } => {
+                    batch.delete_cf(Self::cf_handle::<SlotIndex>(&db), SlotIndex::encode(slot));
+                    if let Some(until) = until {
+                        // remove range `[begin_key, end_key)`
+                        batch.delete_range_cf(
+                            Self::cf_handle::<MessageIndex>(&db),
+                            MessageIndex::encode(0),     // begin_key
+                            MessageIndex::encode(until), // end_key
+                        );
+                    }
                 }
             }
 
-            // push message
-            let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
-            let message_ref: MessageRef = message.as_ref().into();
-            let message = FilteredUpdate {
-                filters: FilteredUpdateFilters::new(),
-                filtered_update: message_ref.into(),
-            };
-            buf.clear();
-            MessageIndexValue::encode(slot, message, &mut buf);
-            batch.put_cf(
-                Self::cf_handle::<MessageIndex>(&db),
-                MessageIndex::encode(index),
-                &buf,
-            );
-
-            counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
-            match tx.try_send((index, batch)) {
+            match tx.try_send((gindex, batch)) {
                 Ok(()) => {
                     batch = WriteBatch::new();
                 }
@@ -313,32 +331,18 @@ impl Storage {
     }
 
     fn spawn_read(db: Arc<DB>, rx: Arc<Mutex<mpsc::Receiver<ReadRequest>>>) -> anyhow::Result<()> {
-        loop {
-            let rx = rx.lock().expect("unpoisoned mutex");
-            let Ok(message) = rx.recv() else {
-                break;
-            };
-            drop(rx);
+        // loop {
+        //     let rx = rx.lock().expect("unpoisoned mutex");
+        //     let Ok(message) = rx.recv() else {
+        //         break;
+        //     };
+        //     drop(rx);
 
-            match message {
-                ReadRequest::Slots { tx } => {
-                    let _ = tx.send(Self::spawn_read_slots(&db));
-                }
-            }
-        }
+        //     match message {
+        //         //
+        //     }
+        // }
         Ok(())
-    }
-
-    fn spawn_read_slots(db: &DB) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
-        let mut slots = BTreeMap::new();
-        for item in db.iterator_cf(
-            Self::cf_handle::<SlotIndex>(db),
-            IteratorMode::From(&[], Direction::Forward),
-        ) {
-            let (key, value) = item.context("failed to read next row")?;
-            slots.insert(SlotIndex::decode(&key)?, SlotIndexValue::decode(&value)?);
-        }
-        Ok(slots)
     }
 
     pub fn push_message(
@@ -349,7 +353,7 @@ impl Storage {
         index: u64,
         message: ParsedMessage,
     ) {
-        let _ = self.write_tx.send(WriteRequest {
+        let _ = self.write_tx.send(WriteRequest::PushMessage {
             init,
             slot,
             head,
@@ -358,28 +362,63 @@ impl Storage {
         });
     }
 
-    pub async fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
-        let (tx, rx) = oneshot::channel();
-        self.read_tx
-            .send(ReadRequest::Slots { tx })
-            .context("failed to send ReadRequest::Slots request")?;
-        rx.await
-            .context("failed to receive Read::Request::Slots result")?
+    pub fn remove_replay(&self, slot: Slot, until: Option<u64>) {
+        let _ = self
+            .write_tx
+            .send(WriteRequest::RemoveReplay { slot, until });
+    }
+
+    pub fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
+        let mut slots = BTreeMap::new();
+        for item in self
+            .db
+            .iterator_cf(Self::cf_handle::<SlotIndex>(&self.db), IteratorMode::Start)
+        {
+            let (key, value) = item.context("failed to read next row")?;
+            slots.insert(
+                SlotIndex::decode(&key).context("failed to decode key")?,
+                SlotIndexValue::decode(&value).context("failed to decode value")?,
+            );
+        }
+        Ok(slots)
+    }
+
+    pub fn read_messages_from_index(
+        &self,
+        index: u64,
+        parser: MessageParserEncoding,
+    ) -> impl Iterator<Item = anyhow::Result<(u64, ParsedMessage)>> + use<'_> {
+        self.db
+            .iterator_cf(
+                Self::cf_handle::<MessageIndex>(&self.db),
+                IteratorMode::From(&MessageIndex::encode(index), Direction::Forward),
+            )
+            .map(move |item| {
+                let (key, value) = item.context("failed to read next row")?;
+                let index = MessageIndex::decode(&key).context("failed to decode key")?;
+                let message =
+                    Message::parse(value.to_vec(), parser).context("failed to parse message")?;
+                Ok((index, message.into()))
+            })
     }
 }
 
 #[derive(Debug)]
-struct WriteRequest {
-    init: bool,
-    slot: Slot,
-    head: u64,
-    index: u64,
-    message: ParsedMessage,
+enum WriteRequest {
+    PushMessage {
+        init: bool,
+        slot: Slot,
+        head: u64,
+        index: u64,
+        message: ParsedMessage,
+    },
+    RemoveReplay {
+        slot: Slot,
+        until: Option<u64>,
+    },
 }
 
 #[derive(Debug)]
 enum ReadRequest {
-    Slots {
-        tx: oneshot::Sender<anyhow::Result<BTreeMap<Slot, SlotIndexValue>>>,
-    },
+    //
 }
