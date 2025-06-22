@@ -20,6 +20,7 @@ pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
 pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
 pub const CHANNEL_STORAGE_WRITE_SER_INDEX: &str = "channel_storage_write_ser_index";
 pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
+pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -66,6 +67,10 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
         "Storage write serialize index"
     );
     describe_counter!(CHANNEL_STORAGE_WRITE_INDEX, "Storage write index");
+    describe_gauge!(
+        CHANNEL_STORAGE_SLOTS_TOTAL,
+        "Total number of slots in storage"
+    );
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(
         GRPC_BLOCK_META_QUEUE_SIZE,
