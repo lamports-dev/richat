@@ -20,6 +20,7 @@ use {
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     },
     smallvec::SmallVec,
+    solana_account::ReadableAccount,
     solana_nohash_hasher::IntSet,
     solana_sdk::{
         clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
@@ -75,17 +76,6 @@ impl<'a> From<&'a ParsedMessage> for MessageRef<'a> {
 }
 
 impl ParsedMessage {
-    pub const fn kind(&self) -> &'static str {
-        match self {
-            Self::Slot(_) => "slot",
-            Self::Account(_) => "account",
-            Self::Transaction(_) => "transaction",
-            Self::Entry(_) => "entry",
-            Self::BlockMeta(_) => "blockmeta",
-            Self::Block(_) => "block",
-        }
-    }
-
     pub fn slot(&self) -> Slot {
         match self {
             Self::Slot(msg) => msg.slot(),
@@ -145,6 +135,9 @@ impl ParsedMessage {
                 state.write(msg.pubkey().as_ref());
                 if let Some(signature) = msg.txn_signature() {
                     state.write(signature);
+                } else {
+                    // uniq runtime update: validator block reward + epoch reward
+                    state.write_u64(msg.lamports());
                 }
             }
             ParsedMessage::Transaction(msg) => {
@@ -223,6 +216,7 @@ impl Messages {
         let mut index = 0;
         if let Some(storage) = &self.storage {
             replay_for_storage = true;
+
             let slots = storage.read_slots()?;
 
             for (slot, item) in slots.iter() {
@@ -238,7 +232,7 @@ impl Messages {
                 slot_finalized = finalized_slot;
                 let Some(replay_index) = slots.get(&(finalized_slot + 1)).map(|item| item.head)
                 else {
-                    anyhow::bail!("failed to get replay index");
+                    anyhow::bail!("failed to get replay index to load messages");
                 };
                 for item in storage.read_messages_from_index(replay_index, parser) {
                     let (msg_index, msg) = item?;
