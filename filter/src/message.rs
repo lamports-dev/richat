@@ -46,7 +46,7 @@ pub enum MessageParseError {
     IncompatibleEncoding,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageParserEncoding {
     /// Use optimized parser to extract only required fields
