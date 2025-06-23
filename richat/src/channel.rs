@@ -1,9 +1,7 @@
 use {
     crate::{
-        config::ConfigChannelInner,
-        metrics,
-        storage::Storage,
-        util::{mutex_lock, SpawnedThreads},
+        config::ConfigChannelInner, grpc::server::SubscribeClient, metrics, storage::Storage,
+        util::SpawnedThreads,
     },
     ::metrics::gauge,
     foldhash::quality::RandomState,
@@ -180,9 +178,9 @@ pub enum IndexLocation {
 
 #[derive(Debug, Clone)]
 pub struct Messages {
-    shared_processed: Arc<Shared>,
-    shared_confirmed: Option<Arc<Shared>>,
-    shared_finalized: Option<Arc<Shared>>,
+    shared_processed: Arc<SharedChannel>,
+    shared_confirmed: Option<Arc<SharedChannel>>,
+    shared_finalized: Option<Arc<SharedChannel>>,
     max_messages: usize,
     max_bytes: usize,
     storage: Option<Storage>,
@@ -209,9 +207,11 @@ impl Messages {
 
         let max_messages = config.max_messages.next_power_of_two();
         let messages = Self {
-            shared_processed: Arc::new(Shared::new(max_messages, richat)),
-            shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
-            shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
+            shared_processed: Arc::new(SharedChannel::new(max_messages, richat)),
+            shared_confirmed: (grpc || pubsub)
+                .then(|| Arc::new(SharedChannel::new(max_messages, richat))),
+            shared_finalized: (grpc || pubsub)
+                .then(|| Arc::new(SharedChannel::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
             storage,
@@ -308,7 +308,7 @@ impl Messages {
         }
     }
 
-    const fn get_shared(&self, commitment: CommitmentLevel) -> &Arc<Shared> {
+    const fn get_shared(&self, commitment: CommitmentLevel) -> &Arc<SharedChannel> {
         match commitment {
             CommitmentLevel::Processed => &self.shared_processed,
             CommitmentLevel::Confirmed => {
@@ -338,6 +338,13 @@ impl Messages {
                     .map(|obj| obj.head)
                 {
                     Ok(IndexLocation::Memory(index))
+                } else if let Some(index) = self
+                    .replay_info
+                    .as_deref()
+                    .map(mutex_lock)
+                    .and_then(|replay| replay.get(&replay_from_slot).map(|obj| obj.head))
+                {
+                    Ok(IndexLocation::Storage(index))
                 } else {
                     Err(format!(
                         "failed to get replay position for slot {replay_from_slot}"
@@ -355,6 +362,13 @@ impl Messages {
     pub fn get_first_available_slot(&self) -> Option<Slot> {
         let slots = self.shared_processed.slots_lock();
         slots.first_key_value().map(|(slot, _head)| *slot)
+    }
+
+    pub fn replay_from_storage(&self, client: SubscribeClient) -> Result<(), &'static str> {
+        self.storage
+            .as_ref()
+            .ok_or("storage should exists to replay messages")?
+            .replay(client, Arc::clone(&self.shared_processed))
     }
 }
 
@@ -677,7 +691,7 @@ impl Sender {
 
 #[derive(Debug)]
 struct SenderShared {
-    shared: Arc<Shared>,
+    shared: Arc<SharedChannel>,
     head: u64,
     tail: u64,
     bytes_total: usize,
@@ -685,7 +699,7 @@ struct SenderShared {
 }
 
 impl SenderShared {
-    fn new(shared: &Arc<Shared>, max_messages: usize, max_bytes: usize) -> Self {
+    fn new(shared: &Arc<SharedChannel>, max_messages: usize, max_bytes: usize) -> Self {
         Self {
             shared: Arc::clone(shared),
             head: max_messages as u64,
@@ -770,7 +784,7 @@ impl SenderShared {
 
 #[derive(Debug)]
 pub struct ReceiverAsync {
-    shared: Arc<Shared>,
+    shared: Arc<SharedChannel>,
     head: u64,
     finished: bool,
     enable_notifications_accounts: bool,
@@ -837,9 +851,9 @@ impl Stream for ReceiverAsync {
 
 #[derive(Debug)]
 pub struct ReceiverSync {
-    shared_processed: Arc<Shared>,
-    shared_confirmed: Option<Arc<Shared>>,
-    shared_finalized: Option<Arc<Shared>>,
+    shared_processed: Arc<SharedChannel>,
+    shared_confirmed: Option<Arc<SharedChannel>>,
+    shared_finalized: Option<Arc<SharedChannel>>,
 }
 
 impl ReceiverSync {
@@ -871,7 +885,7 @@ impl ReceiverSync {
     }
 }
 
-struct Shared {
+pub struct SharedChannel {
     tail: AtomicU64,
     mask: u64,
     buffer: Box<[Mutex<Item>]>,
@@ -879,13 +893,13 @@ struct Shared {
     wakers: Option<Mutex<Vec<Waker>>>,
 }
 
-impl fmt::Debug for Shared {
+impl fmt::Debug for SharedChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Shared").field("mask", &self.mask).finish()
     }
 }
 
-impl Shared {
+impl SharedChannel {
     fn new(max_messages: usize, richat: bool) -> Self {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
