@@ -1,9 +1,10 @@
 use {
     crate::{
-        channel::ParsedMessage,
+        channel::{ParsedMessage, SharedChannel},
         config::ConfigStorage,
+        grpc::server::SubscribeClient,
         metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX},
-        util::SpawnedThreads,
+        util::{mutex_lock, SpawnedThreads},
     },
     ::metrics::counter,
     anyhow::Context,
@@ -112,7 +113,7 @@ impl SlotIndexValue {
 pub struct Storage {
     db: Arc<DB>,
     write_tx: mpsc::Sender<WriteRequest>,
-    read_tx: mpsc::SyncSender<ReadRequest>,
+    replay_tx: mpsc::SyncSender<ReplayRequest>,
 }
 
 impl Storage {
@@ -127,12 +128,12 @@ impl Storage {
 
         let (ser_tx, ser_rx) = mpsc::channel();
         let (write_tx, write_rx) = mpsc::sync_channel(1);
-        let (read_tx, read_rx) = mpsc::sync_channel(config.read_channel_capacity);
+        let (replay_tx, replay_rx) = mpsc::sync_channel(config.read_channel_capacity);
 
         let storage = Self {
             db: Arc::clone(&db),
             write_tx: ser_tx,
-            read_tx,
+            replay_tx: replay_tx.clone(),
         };
 
         let mut threads = vec![];
@@ -163,19 +164,20 @@ impl Storage {
                 }
             })?;
         threads.push(("richatStrgWrt".to_owned(), Some(write_jh)));
-        let read_rx = Arc::new(Mutex::new(read_rx));
+        let replay_rx = Arc::new(Mutex::new(replay_rx));
         for index in 0..config.read_threads {
-            let th_name = format!("richatStrgRd{index:02}");
+            let th_name = format!("richatStrgRep{index:02}");
             let jh = thread::Builder::new().name(th_name.clone()).spawn({
                 let affinity = config.read_affinity.clone();
                 let db = Arc::clone(&db);
-                let read_rx = Arc::clone(&read_rx);
+                let replay_tx = replay_tx.clone();
+                let replay_rx = Arc::clone(&replay_rx);
                 move || {
                     if let Some(cpus) = affinity {
                         affinity_linux::set_thread_affinity(cpus.into_iter())
                             .expect("failed to set affinity");
                     }
-                    Self::spawn_read(db, read_rx)
+                    Self::spawn_replay(db, replay_tx, replay_rx)
                 }
             })?;
             threads.push((th_name, Some(jh)));
@@ -330,18 +332,20 @@ impl Storage {
         Ok(())
     }
 
-    fn spawn_read(db: Arc<DB>, rx: Arc<Mutex<mpsc::Receiver<ReadRequest>>>) -> anyhow::Result<()> {
-        // loop {
-        //     let rx = rx.lock().expect("unpoisoned mutex"); use mutex_lock
-        //     let Ok(message) = rx.recv() else {
-        //         break;
-        //     };
-        //     drop(rx);
+    fn spawn_replay(
+        db: Arc<DB>,
+        tx: mpsc::SyncSender<ReplayRequest>,
+        rx: Arc<Mutex<mpsc::Receiver<ReplayRequest>>>,
+    ) -> anyhow::Result<()> {
+        loop {
+            let rx = mutex_lock(rx.as_ref());
+            let Ok(req) = rx.recv() else {
+                break;
+            };
+            drop(rx);
 
-        //     match message {
-        //         //
-        //     }
-        // }
+            //
+        }
         Ok(())
     }
 
@@ -401,6 +405,16 @@ impl Storage {
                 Ok((index, message.into()))
             })
     }
+
+    pub fn replay(
+        &self,
+        client: SubscribeClient,
+        shared: Arc<SharedChannel>,
+    ) -> Result<(), &'static str> {
+        self.replay_tx
+            .try_send(ReplayRequest { client, shared })
+            .map_err(|_| "replay queue is full; try again later")
+    }
 }
 
 #[derive(Debug)]
@@ -419,6 +433,7 @@ enum WriteRequest {
 }
 
 #[derive(Debug)]
-enum ReadRequest {
-    //
+struct ReplayRequest {
+    client: SubscribeClient,
+    shared: Arc<SharedChannel>,
 }

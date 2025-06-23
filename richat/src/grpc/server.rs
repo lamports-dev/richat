@@ -456,6 +456,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                         state.head = messages
                                             .get_current_tail_with_replay(state.commitment, subscribe_from_slot)
                                             .map_err(Status::invalid_argument)?;
+                                        if matches!(state.head, IndexLocation::Storage(_)) {
+                                            messages.replay_from_storage(client.clone()).map_err(Status::internal)?;
+                                        }
                                     }
                                     state.filter = Some(filter);
                                     Ok::<(), Status>(())
@@ -609,7 +612,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
 }
 
 #[derive(Debug)]
-struct SubscribeClient {
+pub struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
 }
 
