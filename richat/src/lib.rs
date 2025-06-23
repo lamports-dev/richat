@@ -7,6 +7,5 @@ pub mod pubsub;
 pub mod richat;
 pub mod source;
 pub mod storage;
+pub mod util;
 pub mod version;
-
-pub type SpawnedThreads = Vec<(String, Option<std::thread::JoinHandle<anyhow::Result<()>>>)>;

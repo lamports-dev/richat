@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 
     // Create channel runtime (receive messages from solana node / richat)
     let messages_parser = config.channel.get_messages_parser()?;
-    let (messages, mut threads) = Messages::new(
+    let (mut messages, mut threads) = Messages::new(
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),

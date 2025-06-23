@@ -1,9 +1,10 @@
 use {
     crate::{
-        channel::{Messages, ParsedMessage, ReceiverSync},
+        channel::{IndexLocation, Messages, ParsedMessage, ReceiverSync},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         metrics::{self, GrpcSubscribeMessage},
+        util::mutex_lock,
         version::VERSION,
     },
     ::metrics::{counter, gauge, Gauge},
@@ -288,13 +289,13 @@ impl GrpcServer {
         let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
 
         let receiver = self.messages.to_receiver();
-        const COUNTER_LIMIT: i32 = 10_000;
-        let mut counter = 0;
+        const SHUTDOWN_COUNTER_LIMIT: i32 = 50_000;
+        let mut shutdown_counter = 0;
         let mut prev_client = None;
         loop {
-            counter += 1;
-            if counter > COUNTER_LIMIT {
-                counter = 0;
+            shutdown_counter += 1;
+            if shutdown_counter > SHUTDOWN_COUNTER_LIMIT {
+                shutdown_counter = 0;
                 if shutdown.is_set() {
                     while self.pop_client(None).is_some() {}
                     info!("gRPC worker#{index:02} shutdown");
@@ -304,7 +305,7 @@ impl GrpcServer {
 
             // get client and state
             let Some(client) = self.pop_client(prev_client.take()) else {
-                counter += 9;
+                shutdown_counter += 9;
                 sleep(Duration::from_micros(1));
                 continue;
             };
@@ -322,11 +323,14 @@ impl GrpcServer {
             }
 
             // filter messages
-            if state.filter.is_none() {
-                drop(state);
-                prev_client = Some(client);
-                continue;
-            }
+            let head = match (state.filter.is_some(), state.head) {
+                (true, IndexLocation::Memory(head)) => head,
+                _ => {
+                    drop(state);
+                    prev_client = Some(client);
+                    continue;
+                }
+            };
 
             let messages_cache = match state.commitment {
                 CommitmentLevel::Processed => &mut messages_cache_processed,
@@ -336,11 +340,10 @@ impl GrpcServer {
             let mut errored = false;
             let mut messages_counter = 0;
             while !state.is_full() && messages_counter < messages_max_per_tick {
-                let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
-                {
+                let message = match messages_cache.try_recv(&receiver, state.commitment, head) {
                     Ok(Some(message)) => {
                         messages_counter += 1;
-                        state.head += 1;
+                        state.head = IndexLocation::Memory(head + 1);
                         message
                     }
                     Ok(None) => break,
@@ -628,7 +631,7 @@ struct SubscribeClientState {
     id: u64,
     x_subscription_id: Arc<str>,
     commitment: CommitmentLevel,
-    head: u64,
+    head: IndexLocation,
     filter: Option<Filter>,
     messages_error: Option<Status>,
     messages_len_max: usize,
@@ -671,7 +674,7 @@ impl SubscribeClientState {
             id,
             x_subscription_id,
             commitment: CommitmentLevel::default(),
-            head: 0,
+            head: IndexLocation::Unknown,
             filter: None,
             messages_error: None,
             messages_len_max,

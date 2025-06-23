@@ -3,7 +3,7 @@ use {
         channel::ParsedMessage,
         config::ConfigStorage,
         metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX},
-        SpawnedThreads,
+        util::SpawnedThreads,
     },
     ::metrics::counter,
     anyhow::Context,
@@ -332,7 +332,7 @@ impl Storage {
 
     fn spawn_read(db: Arc<DB>, rx: Arc<Mutex<mpsc::Receiver<ReadRequest>>>) -> anyhow::Result<()> {
         // loop {
-        //     let rx = rx.lock().expect("unpoisoned mutex");
+        //     let rx = rx.lock().expect("unpoisoned mutex"); use mutex_lock
         //     let Ok(message) = rx.recv() else {
         //         break;
         //     };

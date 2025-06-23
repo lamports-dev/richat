@@ -1,5 +1,10 @@
 use {
-    crate::{config::ConfigChannelInner, metrics, storage::Storage, SpawnedThreads},
+    crate::{
+        config::ConfigChannelInner,
+        metrics,
+        storage::Storage,
+        util::{mutex_lock, SpawnedThreads},
+    },
     ::metrics::gauge,
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
@@ -166,6 +171,13 @@ impl ParsedMessage {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IndexLocation {
+    Unknown,
+    Storage(u64),
+    Memory(u64),
+}
+
 #[derive(Debug, Clone)]
 pub struct Messages {
     shared_processed: Arc<Shared>,
@@ -175,6 +187,7 @@ pub struct Messages {
     max_bytes: usize,
     storage: Option<Storage>,
     storage_max_slots: usize,
+    replay_info: Option<Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>>,
 }
 
 impl Messages {
@@ -203,12 +216,13 @@ impl Messages {
             max_bytes: config.max_bytes,
             storage,
             storage_max_slots,
+            replay_info: None,
         };
         Ok((messages, threads))
     }
 
     pub fn to_sender(
-        &self,
+        &mut self,
         parser: MessageParserEncoding,
     ) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
         let mut slot_finalized = 0;
@@ -259,6 +273,9 @@ impl Messages {
                 anyhow::ensure!(slots.is_empty(), "no finalized slot in existed db");
             }
         }
+
+        let replay = Arc::new(Mutex::new(replay));
+        self.replay_info = Some(Arc::clone(&replay));
 
         let sender = Sender {
             slots: BTreeMap::new(),
@@ -311,21 +328,27 @@ impl Messages {
         &self,
         commitment: CommitmentLevel,
         replay_from_slot: Option<Slot>,
-    ) -> Result<u64, String> {
+    ) -> Result<IndexLocation, String> {
         if let Some(replay_from_slot) = replay_from_slot {
             if commitment == CommitmentLevel::Processed {
-                self.get_shared(commitment)
+                if let Some(index) = self
+                    .get_shared(commitment)
                     .slots_lock()
                     .get(&replay_from_slot)
                     .map(|obj| obj.head)
-                    .ok_or_else(|| {
-                        format!("failed to get replay position for slot {replay_from_slot}")
-                    })
+                {
+                    Ok(IndexLocation::Memory(index))
+                } else {
+                    Err(format!(
+                        "failed to get replay position for slot {replay_from_slot}"
+                    ))
+                }
             } else {
                 Err("replay `from_slot` available only for `processed` commitment".to_owned())
             }
         } else {
-            Ok(self.get_shared(commitment).tail.load(Ordering::Relaxed))
+            let index = self.get_shared(commitment).tail.load(Ordering::Relaxed);
+            Ok(IndexLocation::Memory(index))
         }
     }
 
@@ -385,7 +408,7 @@ pub struct Sender {
     storage_max_slots: usize,
     index: u64,
     hasher: RandomState,
-    replay: BTreeMap<Slot, ReplayInfo>,
+    replay: Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>,
 }
 
 impl Sender {
@@ -491,7 +514,8 @@ impl Sender {
         };
 
         // push messages
-        let (replay, replay_inserted) = match self.replay.entry(slot) {
+        let mut replay_lock = mutex_lock(&self.replay);
+        let (replay, replay_inserted) = match replay_lock.entry(slot) {
             BTreeMapEntry::Vacant(entry) => (entry.insert(ReplayInfo::new(self.index)), true),
             BTreeMapEntry::Occupied(entry) => (entry.into_mut(), false),
         };
@@ -625,11 +649,10 @@ impl Sender {
                     _ => break,
                 }
             }
-            while self.replay.len() > self.storage_max_slots {
-                if let Some((slot, _replay)) = self.replay.pop_first() {
+            while replay_lock.len() > self.storage_max_slots {
+                if let Some((slot, _replay)) = replay_lock.pop_first() {
                     if let Some(storage) = &self.storage {
-                        let until = self
-                            .replay
+                        let until = replay_lock
                             .values()
                             .take(300)
                             .map(|replay| replay.head)
@@ -641,7 +664,7 @@ impl Sender {
             }
         }
         if replay_inserted || clean_after_finalized {
-            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(self.replay.len() as f64);
+            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay_lock.len() as f64);
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
