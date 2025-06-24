@@ -186,17 +186,22 @@ pub struct ConfigStorage {
     #[serde(default)]
     pub messages_compression: ConfigStorageRocksdbCompression,
     #[serde(
-        default = "ConfigStorage::default_read_channel_capacity",
+        default = "ConfigStorage::default_replay_channel_capacity",
         deserialize_with = "deserialize_num_str"
     )]
-    pub read_channel_capacity: usize,
+    pub replay_inflight_max: usize,
     #[serde(
-        default = "ConfigStorage::default_read_threads",
+        default = "ConfigStorage::default_replay_threads",
         deserialize_with = "deserialize_num_str"
     )]
-    pub read_threads: usize,
+    pub replay_threads: usize,
     #[serde(default, deserialize_with = "deserialize_affinity")]
-    pub read_affinity: Option<Vec<usize>>,
+    pub replay_affinity: Option<Vec<usize>>,
+    #[serde(
+        default = "ConfigStorage::default_replay_decode_per_tick",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub replay_decode_per_tick: usize,
 }
 
 impl ConfigStorage {
@@ -204,12 +209,16 @@ impl ConfigStorage {
         1024
     }
 
-    const fn default_read_channel_capacity() -> usize {
+    const fn default_replay_channel_capacity() -> usize {
         1024
     }
 
-    const fn default_read_threads() -> usize {
+    const fn default_replay_threads() -> usize {
         4
+    }
+
+    const fn default_replay_decode_per_tick() -> usize {
+        256
     }
 }
 

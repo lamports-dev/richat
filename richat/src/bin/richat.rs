@@ -64,19 +64,19 @@ fn main() -> anyhow::Result<()> {
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages_parser = config.channel.get_messages_parser()?;
     let (mut messages, mut threads) = Messages::new(
+        config.channel.get_messages_parser()?,
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
         config.apps.pubsub.is_some(),
+        shutdown.clone(),
     )?;
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let (mut messages, replay_for_storage, replay_from_slot) =
-                messages.to_sender(messages_parser)?;
+            let (mut messages, replay_for_storage, replay_from_slot) = messages.to_sender()?;
             move || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {

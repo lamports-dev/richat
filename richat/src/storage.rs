@@ -1,9 +1,11 @@
 use {
     crate::{
-        channel::{ParsedMessage, SharedChannel},
+        channel::{IndexLocation, ParsedMessage, SharedChannel},
         config::ConfigStorage,
         grpc::server::SubscribeClient,
-        metrics::{CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX},
+        metrics::{
+            GrpcSubscribeMessage, CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
+        },
         util::SpawnedThreads,
     },
     ::metrics::counter,
@@ -13,23 +15,26 @@ use {
         bytes::BufMut,
         encoding::{decode_varint, encode_varint},
     },
+    quanta::Instant,
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::{Message, MessageParserEncoding, MessageRef},
     },
     richat_proto::geyser::SlotStatus,
-    richat_shared::mutex_lock,
+    richat_shared::{mutex_lock, shutdown::Shutdown},
     rocksdb::{
         ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
         WriteBatch, DB,
     },
-    solana_sdk::clock::Slot,
+    smallvec::SmallVec,
+    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
     std::{
-        borrow::Cow,
-        collections::BTreeMap,
+        collections::{BTreeMap, VecDeque},
         sync::{mpsc, Arc, Mutex},
         thread,
+        time::Duration,
     },
+    tonic::Status,
 };
 
 trait ColumnName {
@@ -114,11 +119,15 @@ impl SlotIndexValue {
 pub struct Storage {
     db: Arc<DB>,
     write_tx: mpsc::Sender<WriteRequest>,
-    replay_tx: mpsc::SyncSender<ReplayRequest>,
+    replay_queue: Arc<Mutex<ReplayQueue>>,
 }
 
 impl Storage {
-    pub fn open(config: ConfigStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
+    pub fn open(
+        config: ConfigStorage,
+        parser: MessageParserEncoding,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<(Self, SpawnedThreads)> {
         let db_options = Self::get_db_options();
         let cf_descriptors = Self::cf_descriptors(config.messages_compression.into());
 
@@ -129,12 +138,12 @@ impl Storage {
 
         let (ser_tx, ser_rx) = mpsc::channel();
         let (write_tx, write_rx) = mpsc::sync_channel(1);
-        let (replay_tx, replay_rx) = mpsc::sync_channel(config.read_channel_capacity);
+        let replay_queue = Arc::new(Mutex::new(ReplayQueue::new(config.replay_inflight_max)));
 
         let storage = Self {
             db: Arc::clone(&db),
             write_tx: ser_tx,
-            replay_tx: replay_tx.clone(),
+            replay_queue: Arc::clone(&replay_queue),
         };
 
         let mut threads = vec![];
@@ -165,20 +174,25 @@ impl Storage {
                 }
             })?;
         threads.push(("richatStrgWrt".to_owned(), Some(write_jh)));
-        let replay_rx = Arc::new(Mutex::new(replay_rx));
-        for index in 0..config.read_threads {
+        for index in 0..config.replay_threads {
             let th_name = format!("richatStrgRep{index:02}");
             let jh = thread::Builder::new().name(th_name.clone()).spawn({
-                let affinity = config.read_affinity.clone();
+                let affinity = config.replay_affinity.clone();
                 let db = Arc::clone(&db);
-                let replay_tx = replay_tx.clone();
-                let replay_rx = Arc::clone(&replay_rx);
+                let replay_queue = Arc::clone(&replay_queue);
+                let shutdown = shutdown.clone();
                 move || {
                     if let Some(cpus) = affinity {
                         affinity_linux::set_thread_affinity(cpus.into_iter())
                             .expect("failed to set affinity");
                     }
-                    Self::spawn_replay(db, replay_tx, replay_rx)
+                    Self::spawn_replay(
+                        db,
+                        replay_queue,
+                        parser,
+                        config.replay_decode_per_tick,
+                        shutdown,
+                    )
                 }
             })?;
             threads.push((th_name, Some(jh)));
@@ -281,8 +295,7 @@ impl Storage {
                     }
 
                     // push message
-                    let message: Cow<'_, ParsedMessage> = Cow::Owned(message);
-                    let message_ref: MessageRef = message.as_ref().into();
+                    let message_ref: MessageRef = (&message).into();
                     let message = FilteredUpdate {
                         filters: FilteredUpdateFilters::new(),
                         filtered_update: message_ref.into(),
@@ -335,18 +348,124 @@ impl Storage {
 
     fn spawn_replay(
         db: Arc<DB>,
-        tx: mpsc::SyncSender<ReplayRequest>,
-        rx: Arc<Mutex<mpsc::Receiver<ReplayRequest>>>,
+        replay_queue: Arc<Mutex<ReplayQueue>>,
+        parser: MessageParserEncoding,
+        messages_decode_per_tick: usize,
+        shutdown: Shutdown,
     ) -> anyhow::Result<()> {
+        let mut shutdown_ts = Instant::now();
+        let mut prev_request = None;
         loop {
-            let rx = mutex_lock(rx.as_ref());
-            let Ok(req) = rx.recv() else {
-                break;
+            // get request and lock state
+            let Some(mut req) = ReplayQueue::pop_next(&replay_queue, prev_request.take()) else {
+                if shutdown.is_set() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(1));
+                continue;
             };
-            drop(rx);
+            let ts = Instant::now();
+            if ts.duration_since(shutdown_ts) > Duration::from_millis(100) {
+                shutdown_ts = ts;
+                if shutdown.is_set() {
+                    break;
+                }
+            }
+            let mut locked_state = req.client.state_lock();
 
-            //
+            // send error
+            if let Some(error) = req.state.read_error.take() {
+                locked_state.push_error(error);
+                ReplayQueue::drop_req(&replay_queue);
+                continue;
+            }
+
+            // check replay head
+            let IndexLocation::Storage(head) = locked_state.head else {
+                ReplayQueue::drop_req(&replay_queue);
+                continue;
+            };
+
+            // check that filter is same
+            let mut current_head = *req.state.head.get_or_insert(head);
+            if current_head != head {
+                req.state.messages.clear();
+            }
+
+            // filter messages
+            while !locked_state.is_full_replay() {
+                let Some((index, message)) = req.state.messages.pop_front() else {
+                    break;
+                };
+
+                let filter = locked_state.filter.as_ref().expect("defined filter");
+                let message_ref: MessageRef = (&message).into();
+                let items = filter
+                    .get_updates_ref(message_ref, CommitmentLevel::Processed)
+                    .iter()
+                    .map(|msg| ((&msg.filtered_update).into(), msg.encode_to_vec()))
+                    .collect::<SmallVec<[(GrpcSubscribeMessage, Vec<u8>); 2]>>();
+
+                for (message, data) in items {
+                    locked_state.push_message(message, data);
+                }
+
+                current_head = index;
+            }
+
+            // check read_finished and empty; update index and drop from replay queue
+            if req.state.read_finished && req.state.messages.is_empty() {
+                // TODO
+            }
+
+            // drop lock and update head
+            drop(locked_state);
+            req.state.head = Some(current_head);
+
+            // read messages
+            if req.state.messages.len() < messages_decode_per_tick {
+                let mut messages_decoded = 0;
+                for item in db.iterator_cf(
+                    Self::cf_handle::<MessageIndex>(&db),
+                    IteratorMode::From(&MessageIndex::encode(current_head), Direction::Forward),
+                ) {
+                    let item = match item {
+                        Ok((key, value)) => {
+                            match (
+                                MessageIndex::decode(&key),
+                                Message::parse(value.to_vec(), parser),
+                            ) {
+                                (Ok(index), Ok(message)) => Ok((index, message.into())),
+                                (Err(_error), _) => Err("failed to decode key"),
+                                (_, Err(_error)) => Err("failed to parse message"),
+                            }
+                        }
+                        Err(_error) => Err("failed to read message from the storage"),
+                    };
+
+                    match item {
+                        Ok(item) => {
+                            req.state.messages.push_back(item);
+                            messages_decoded += 1;
+                            if messages_decoded > messages_decode_per_tick {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            req.state.read_error = Some(Status::internal(error));
+                            break;
+                        }
+                    };
+                }
+
+                if messages_decoded < messages_decode_per_tick {
+                    req.state.read_finished = true;
+                }
+            }
+
+            prev_request = Some(req);
         }
+        ReplayQueue::shutdown(&replay_queue);
         Ok(())
     }
 
@@ -412,9 +531,15 @@ impl Storage {
         client: SubscribeClient,
         shared: Arc<SharedChannel>,
     ) -> Result<(), &'static str> {
-        self.replay_tx
-            .try_send(ReplayRequest { client, shared })
-            .map_err(|_| "replay queue is full; try again later")
+        ReplayQueue::push_new(
+            &self.replay_queue,
+            ReplayRequest {
+                client,
+                shared,
+                state: ReplayState::default(),
+            },
+        )
+        .map_err(|()| "replay queue is full; try again later")
     }
 }
 
@@ -437,4 +562,61 @@ enum WriteRequest {
 struct ReplayRequest {
     client: SubscribeClient,
     shared: Arc<SharedChannel>,
+    state: ReplayState,
+}
+
+#[derive(Debug, Default)]
+struct ReplayState {
+    head: Option<u64>,
+    messages: VecDeque<(u64, ParsedMessage)>,
+    read_error: Option<Status>,
+    read_finished: bool,
+}
+
+#[derive(Debug)]
+struct ReplayQueue {
+    capacity: usize,
+    len: usize,
+    requests: VecDeque<ReplayRequest>,
+}
+
+impl ReplayQueue {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            len: 0,
+            requests: VecDeque::with_capacity(capacity),
+        }
+    }
+
+    fn pop_next(queue: &Mutex<Self>, prev_request: Option<ReplayRequest>) -> Option<ReplayRequest> {
+        let mut locked = mutex_lock(queue);
+        if let Some(request) = prev_request {
+            locked.requests.push_back(request);
+        }
+        locked.requests.pop_front()
+    }
+
+    fn push_new(queue: &Mutex<Self>, request: ReplayRequest) -> Result<(), ()> {
+        let mut locked = mutex_lock(queue);
+        if locked.len < locked.capacity {
+            locked.len += 1;
+            locked.requests.push_back(request);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn drop_req(queue: &Mutex<Self>) {
+        let mut locked = mutex_lock(queue);
+        locked.len -= 1;
+    }
+
+    fn shutdown(queue: &Mutex<Self>) {
+        let mut locked = mutex_lock(queue);
+        locked.capacity = 0;
+        locked.len = 0;
+        locked.requests.clear();
+    }
 }
