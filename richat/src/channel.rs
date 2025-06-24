@@ -593,10 +593,10 @@ impl Sender {
 
                     // push slot message to confirmed / finalized
                     if let Some(shared) = self.confirmed.as_mut() {
-                        shared.push(slot, message.clone());
+                        shared.push(slot, message.clone(), None);
                     }
                     if let Some(shared) = self.finalized.as_mut() {
-                        shared.push(slot, message.clone());
+                        shared.push(slot, message.clone(), None);
                     }
 
                     // push messages to confirmed
@@ -605,7 +605,7 @@ impl Sender {
                         if let Some(shared) = self.confirmed.as_mut() {
                             if let Some(slot_info) = self.slots.get(&slot) {
                                 for message in slot_info.get_messages_cloned() {
-                                    shared.push(slot, message);
+                                    shared.push(slot, message, None);
                                 }
                             }
                         }
@@ -618,21 +618,22 @@ impl Sender {
                         if let Some(shared) = self.finalized.as_mut() {
                             if let Some(mut slot_info) = self.slots.remove(&slot) {
                                 for message in slot_info.get_messages_owned() {
-                                    shared.push(slot, message);
+                                    shared.push(slot, message, None);
                                 }
                             }
                         }
                     }
                 } else {
-                    // push to confirmed and finalized (if we received SlotStatus or message after it)
+                    // push to confirmed (if we received SlotStatus or message after it)
                     if slot <= self.slot_confirmed {
                         if let Some(shared) = self.confirmed.as_mut() {
-                            shared.push(slot, message.clone());
+                            shared.push(slot, message.clone(), None);
                         }
                     }
                 }
 
                 // push to storage
+                let mut replay_index = None;
                 if let Some(storage) = &self.storage {
                     if !matches!(&message, ParsedMessage::Block(_)) {
                         storage.push_message(
@@ -643,12 +644,13 @@ impl Sender {
                             message.clone(),
                         );
                         slot_init = false;
+                        replay_index = Some(self.index);
                         self.index += 1;
                     }
                 }
 
                 // push to processed
-                self.processed.push(slot, message);
+                self.processed.push(slot, message, replay_index);
             }
         }
 
@@ -715,7 +717,7 @@ impl SenderShared {
         }
     }
 
-    fn push(&mut self, slot: Slot, message: ParsedMessage) {
+    fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
         let mut slots_lock = self.shared.slots_lock();
         let mut removed_max_slot = None;
 
@@ -760,6 +762,7 @@ impl SenderShared {
         }
 
         // store new message
+        item.reply_index = replay_index.unwrap_or(u64::MAX);
         item.pos = pos;
         item.slot = slot;
         item.data = Some(message);
@@ -910,6 +913,7 @@ impl SharedChannel {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(Mutex::new(Item {
+                reply_index: u64::MAX,
                 pos: i as u64,
                 slot: 0,
                 data: None,
@@ -923,6 +927,10 @@ impl SharedChannel {
             slots: Mutex::default(),
             wakers: richat.then_some(Mutex::default()),
         }
+    }
+
+    pub fn get_head_by_replay_index(&self, replay_index: u64) -> Option<u64> {
+        todo!()
     }
 
     #[inline]
@@ -948,6 +956,7 @@ impl SharedChannel {
 
 #[derive(Debug)]
 struct Item {
+    reply_index: u64,
     pos: u64,
     slot: Slot,
     data: Option<ParsedMessage>,
