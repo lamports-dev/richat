@@ -21,7 +21,10 @@ use {
         },
     },
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
-    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    richat_shared::{
+        shutdown::Shutdown,
+        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    },
     smallvec::SmallVec,
     solana_account::ReadableAccount,
     solana_nohash_hasher::IntSet,
@@ -183,6 +186,7 @@ pub struct Messages {
     shared_finalized: Option<Arc<SharedChannel>>,
     max_messages: usize,
     max_bytes: usize,
+    parser: MessageParserEncoding,
     storage: Option<Storage>,
     storage_max_slots: usize,
     replay_info: Option<Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>>,
@@ -190,17 +194,23 @@ pub struct Messages {
 
 impl Messages {
     pub fn new(
+        parser: MessageParserEncoding,
         config: ConfigChannelInner,
         richat: bool,
         grpc: bool,
         pubsub: bool,
+        shutdown: Shutdown,
     ) -> anyhow::Result<(Self, SpawnedThreads)> {
         let storage_max_slots = config
             .storage
             .as_ref()
             .map(|config| config.max_slots)
             .unwrap_or_default();
-        let (storage, threads) = match config.storage.map(Storage::open).transpose()? {
+        let (storage, threads) = match config
+            .storage
+            .map(|config| Storage::open(config, parser, shutdown))
+            .transpose()?
+        {
             Some((storage, threads)) => (Some(storage), threads),
             None => (None, vec![]),
         };
@@ -214,6 +224,7 @@ impl Messages {
                 .then(|| Arc::new(SharedChannel::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
+            parser,
             storage,
             storage_max_slots,
             replay_info: None,
@@ -221,10 +232,7 @@ impl Messages {
         Ok((messages, threads))
     }
 
-    pub fn to_sender(
-        &mut self,
-        parser: MessageParserEncoding,
-    ) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
+    pub fn to_sender(&mut self) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
         let mut slot_finalized = 0;
         let hasher = RandomState::default();
         let mut replay_for_storage = false;
@@ -252,7 +260,7 @@ impl Messages {
                 else {
                     anyhow::bail!("failed to get replay index to load messages");
                 };
-                for item in storage.read_messages_from_index(replay_index, parser) {
+                for item in storage.read_messages_from_index(replay_index, self.parser) {
                     let (msg_index, msg) = item?;
                     if msg.slot() <= finalized_slot {
                         continue;

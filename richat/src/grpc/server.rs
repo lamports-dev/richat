@@ -70,6 +70,7 @@ pub struct GrpcServer {
     subscribe_id: Arc<AtomicU64>,
     subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
     subscribe_messages_len_max: usize,
+    subscribe_messages_replay_len_max: usize,
 }
 
 impl GrpcServer {
@@ -113,6 +114,7 @@ impl GrpcServer {
             subscribe_id: Arc::new(AtomicU64::new(0)),
             subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
             subscribe_messages_len_max: config.stream.messages_len_max,
+            subscribe_messages_replay_len_max: config.stream.messages_replay_len_max,
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -404,7 +406,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         .increment(1);
 
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
-        let client = SubscribeClient::new(id, self.subscribe_messages_len_max, x_subscription_id);
+        let client = SubscribeClient::new(
+            id,
+            self.subscribe_messages_len_max,
+            self.subscribe_messages_replay_len_max,
+            x_subscription_id,
+        );
         self.push_client(client.clone());
 
         tokio::spawn({
@@ -632,30 +639,41 @@ impl Drop for SubscribeClient {
 }
 
 impl SubscribeClient {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
-        let state = SubscribeClientState::new(id, messages_len_max, x_subscription_id);
+    fn new(
+        id: u64,
+        messages_len_max: usize,
+        messages_replay_len_max: usize,
+        x_subscription_id: Arc<str>,
+    ) -> Self {
+        let state = SubscribeClientState::new(
+            id,
+            messages_len_max,
+            messages_replay_len_max,
+            x_subscription_id,
+        );
         Self {
             state: Arc::new(Mutex::new(state)),
         }
     }
 
     #[inline]
-    fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
+    pub fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
         mutex_lock(&self.state)
     }
 }
 
 #[derive(Debug)]
-struct SubscribeClientState {
+pub struct SubscribeClientState {
     id: u64,
     x_subscription_id: Arc<str>,
     ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
-    head: IndexLocation,
-    filter: Option<Filter>,
+    pub head: IndexLocation,
+    pub filter: Option<Filter>,
     messages_error: Option<Status>,
-    messages_len_max: usize,
     messages_len_total: usize,
+    messages_len_max: usize,
+    messages_replay_len_max: usize,
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
     ping_ts_latest: Instant,
@@ -675,7 +693,12 @@ impl Drop for SubscribeClientState {
 }
 
 impl SubscribeClientState {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
+    fn new(
+        id: u64,
+        messages_len_max: usize,
+        messages_replay_len_max: usize,
+        x_subscription_id: Arc<str>,
+    ) -> Self {
         info!(
             id,
             x_subscription_id = x_subscription_id.as_ref(),
@@ -697,8 +720,9 @@ impl SubscribeClientState {
             head: IndexLocation::Unknown,
             filter: None,
             messages_error: None,
-            messages_len_max,
             messages_len_total: 0,
+            messages_len_max,
+            messages_replay_len_max,
             messages: LinkedList::new(),
             messages_waker: None,
             ping_ts_latest: Instant::now(),
@@ -730,14 +754,18 @@ impl SubscribeClientState {
         self.messages_len_total > self.messages_len_max
     }
 
-    fn push_error(&mut self, error: Status) {
+    pub const fn is_full_replay(&self) -> bool {
+        self.messages_len_total > self.messages_replay_len_max
+    }
+
+    pub fn push_error(&mut self, error: Status) {
         self.messages_error = Some(error);
         if let Some(waker) = self.messages_waker.take() {
             waker.wake();
         }
     }
 
-    fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
+    pub fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
         self.messages_len_total += data.len();
         self.messages.push_back((message, data));
         if let Some(waker) = self.messages_waker.take() {
