@@ -373,6 +373,12 @@ impl Storage {
             }
             let mut locked_state = req.client.state_lock();
 
+            // drop request if stream is finished
+            if locked_state.finished {
+                ReplayQueue::drop_req(&replay_queue);
+                continue;
+            }
+
             // send error
             if let Some(error) = req.state.read_error.take() {
                 locked_state.push_error(error);
