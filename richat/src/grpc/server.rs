@@ -646,7 +646,7 @@ impl SubscribeClient {
 
 #[derive(Debug)]
 pub struct SubscribeClientState {
-    finished: bool,
+    pub finished: bool, // check in workers with acquired mutex
     id: u64,
     x_subscription_id: Arc<str>,
     commitment: CommitmentLevel,
