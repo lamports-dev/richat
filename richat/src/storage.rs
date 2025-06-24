@@ -421,7 +421,16 @@ impl Storage {
 
             // check read_finished and empty; update index and drop from replay queue
             if req.state.read_finished && req.state.messages.is_empty() {
-                // TODO
+                if let Some(head) = req.messages.get_head_by_replay_index(current_head + 1) {
+                    locked_state.head = IndexLocation::Memory(head);
+                } else {
+                    req.state.read_error = Some(Status::internal(
+                        "failed to connect replay index to memory channel",
+                    ));
+                }
+
+                ReplayQueue::drop_req(&replay_queue);
+                continue;
             }
 
             // drop lock and update head
@@ -429,11 +438,11 @@ impl Storage {
             req.state.head = Some(current_head);
 
             // read messages
-            if req.state.messages.len() < messages_decode_per_tick {
+            if !req.state.read_finished && req.state.messages.len() < messages_decode_per_tick {
                 let mut messages_decoded = 0;
                 for item in db.iterator_cf(
                     Self::cf_handle::<MessageIndex>(&db),
-                    IteratorMode::From(&MessageIndex::encode(current_head), Direction::Forward),
+                    IteratorMode::From(&MessageIndex::encode(current_head + 1), Direction::Forward),
                 ) {
                     let item = match item {
                         Ok((key, value)) => {
@@ -535,14 +544,14 @@ impl Storage {
     pub fn replay(
         &self,
         client: SubscribeClient,
-        shared: Arc<SharedChannel>,
+        messages: Arc<SharedChannel>,
     ) -> Result<(), &'static str> {
         ReplayQueue::push_new(
             &self.replay_queue,
             ReplayRequest {
-                client,
-                shared,
                 state: ReplayState::default(),
+                client,
+                messages,
             },
         )
         .map_err(|()| "replay queue is full; try again later")
@@ -566,9 +575,9 @@ enum WriteRequest {
 
 #[derive(Debug)]
 struct ReplayRequest {
-    client: SubscribeClient,
-    shared: Arc<SharedChannel>,
     state: ReplayState,
+    client: SubscribeClient,
+    messages: Arc<SharedChannel>,
 }
 
 #[derive(Debug, Default)]
