@@ -930,7 +930,55 @@ impl SharedChannel {
     }
 
     pub fn get_head_by_replay_index(&self, replay_index: u64) -> Option<u64> {
-        todo!()
+        // trying to find head
+        let tail = self.tail.load(Ordering::Relaxed);
+        let mut head = tail - self.mask;
+        let mut size = tail - head + 1;
+        while size > 1 {
+            let half = size / 2;
+            let mid = head + half;
+
+            let idx = self.get_idx(mid);
+            let item = self.buffer_idx_read(idx);
+            if item.pos != mid || item.reply_index == u64::MAX {
+                head += half;
+            }
+
+            size -= half;
+        }
+        if head < tail {
+            head += 1;
+        }
+
+        // verify head
+        let idx = self.get_idx(head);
+        let item = self.buffer_idx_read(idx);
+        if item.pos != head || item.reply_index == u64::MAX {
+            return None;
+        }
+        drop(item);
+
+        // trying to find position for replay_index
+        let mut size = tail - head + 1;
+        let mut base = head;
+        while size > 1 {
+            let half = size / 2;
+            let mid = base + half;
+
+            let idx = self.get_idx(mid);
+            let item = self.buffer_idx_read(idx);
+            base = match item.reply_index.cmp(&replay_index) {
+                std::cmp::Ordering::Equal => return Some(item.pos),
+                std::cmp::Ordering::Less => mid,
+                std::cmp::Ordering::Greater => base,
+            };
+
+            size -= half;
+        }
+
+        let idx = self.get_idx(base);
+        let item = self.buffer_idx_read(idx);
+        (item.reply_index == replay_index).then_some(item.pos)
     }
 
     #[inline]
