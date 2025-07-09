@@ -1,9 +1,10 @@
 use {
     crate::{
-        channel::{Messages, ParsedMessage, ReceiverSync},
+        channel::{IndexLocation, Messages, ParsedMessage, ReceiverSync},
         config::ConfigAppsWorkers,
         grpc::{block_meta::BlockMetaStorage, config::ConfigAppsGrpc},
         metrics::{self, GrpcSubscribeMessage},
+        util::mutex_lock,
         version::VERSION,
     },
     ::metrics::{counter, gauge, Gauge},
@@ -69,6 +70,7 @@ pub struct GrpcServer {
     subscribe_id: Arc<AtomicU64>,
     subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
     subscribe_messages_len_max: usize,
+    subscribe_messages_replay_len_max: usize,
 }
 
 impl GrpcServer {
@@ -112,6 +114,7 @@ impl GrpcServer {
             subscribe_id: Arc::new(AtomicU64::new(0)),
             subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
             subscribe_messages_len_max: config.stream.messages_len_max,
+            subscribe_messages_replay_len_max: config.stream.messages_replay_len_max,
         };
 
         let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
@@ -222,10 +225,7 @@ impl GrpcServer {
 
     #[inline]
     fn subscribe_clients_lock(&self) -> MutexGuard<'_, VecDeque<SubscribeClient>> {
-        match self.subscribe_clients.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+        mutex_lock(&self.subscribe_clients)
     }
 
     #[inline]
@@ -292,13 +292,13 @@ impl GrpcServer {
         let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
 
         let receiver = self.messages.to_receiver();
-        const COUNTER_LIMIT: i32 = 10_000;
-        let mut counter = 0;
+        const SHUTDOWN_COUNTER_LIMIT: i32 = 50_000;
+        let mut shutdown_counter = 0;
         let mut prev_client = None;
         loop {
-            counter += 1;
-            if counter > COUNTER_LIMIT {
-                counter = 0;
+            shutdown_counter += 1;
+            if shutdown_counter > SHUTDOWN_COUNTER_LIMIT {
+                shutdown_counter = 0;
                 if shutdown.is_set() {
                     while self.pop_client(None).is_some() {}
                     info!("gRPC worker#{index:02} shutdown");
@@ -308,13 +308,12 @@ impl GrpcServer {
 
             // get client and state
             let Some(client) = self.pop_client(prev_client.take()) else {
-                counter += 9;
+                shutdown_counter += 9;
                 sleep(Duration::from_micros(1));
                 continue;
             };
             let mut state = client.state_lock();
-            // drop client if only 1 instance left
-            if state.ref_count == 1 {
+            if state.finished {
                 continue;
             }
 
@@ -327,11 +326,14 @@ impl GrpcServer {
             }
 
             // filter messages
-            if state.filter.is_none() {
-                drop(state);
-                prev_client = Some(client);
-                continue;
-            }
+            let head = match (state.filter.is_some(), state.head) {
+                (true, IndexLocation::Memory(head)) => head,
+                _ => {
+                    drop(state);
+                    prev_client = Some(client);
+                    continue;
+                }
+            };
 
             let messages_cache = match state.commitment {
                 CommitmentLevel::Processed => &mut messages_cache_processed,
@@ -341,11 +343,10 @@ impl GrpcServer {
             let mut errored = false;
             let mut messages_counter = 0;
             while !state.is_full() && messages_counter < messages_max_per_tick {
-                let message = match messages_cache.try_recv(&receiver, state.commitment, state.head)
-                {
+                let message = match messages_cache.try_recv(&receiver, state.commitment, head) {
                     Ok(Some(message)) => {
                         messages_counter += 1;
-                        state.head += 1;
+                        state.head = IndexLocation::Memory(head + 1);
                         message
                     }
                     Ok(None) => break,
@@ -366,7 +367,7 @@ impl GrpcServer {
                     let items = filter
                         .get_updates_ref(message_ref, state.commitment)
                         .iter()
-                        .map(|msg| ((&msg.filtered_update).into(), msg.encode()))
+                        .map(|msg| ((&msg.filtered_update).into(), msg.encode_to_vec()))
                         .collect::<SmallVec<[(GrpcSubscribeMessage, Vec<u8>); 2]>>();
 
                     for (message, data) in items {
@@ -404,7 +405,12 @@ impl gen::geyser_server::Geyser for GrpcServer {
         .increment(1);
 
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
-        let client = SubscribeClient::new(id, self.subscribe_messages_len_max, x_subscription_id);
+        let client = SubscribeClient::new(
+            id,
+            self.subscribe_messages_len_max,
+            self.subscribe_messages_replay_len_max,
+            x_subscription_id,
+        );
         self.push_client(client.clone());
 
         tokio::spawn({
@@ -456,6 +462,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
                                         state.head = messages
                                             .get_current_tail_with_replay(state.commitment, subscribe_from_slot)
                                             .map_err(Status::invalid_argument)?;
+                                        if matches!(state.head, IndexLocation::Storage(_)) {
+                                            messages.replay_from_storage(client.clone()).map_err(Status::internal)?;
+                                        }
                                     }
                                     state.filter = Some(filter);
                                     Ok::<(), Status>(())
@@ -608,54 +617,47 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug)]
-struct SubscribeClient {
+#[derive(Debug, Clone)]
+pub struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
 }
 
-impl Clone for SubscribeClient {
-    fn clone(&self) -> Self {
-        self.state_lock().ref_count += 1;
-        Self {
-            state: Arc::clone(&self.state),
-        }
-    }
-}
-
-impl Drop for SubscribeClient {
-    fn drop(&mut self) {
-        self.state_lock().ref_count -= 1;
-    }
-}
-
 impl SubscribeClient {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
-        let state = SubscribeClientState::new(id, messages_len_max, x_subscription_id);
+    fn new(
+        id: u64,
+        messages_len_max: usize,
+        messages_replay_len_max: usize,
+        x_subscription_id: Arc<str>,
+    ) -> Self {
+        let state = SubscribeClientState::new(
+            id,
+            messages_len_max,
+            messages_replay_len_max,
+            x_subscription_id,
+        );
         Self {
             state: Arc::new(Mutex::new(state)),
         }
     }
 
     #[inline]
-    fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
-        match self.state.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+    pub fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
+        mutex_lock(&self.state)
     }
 }
 
 #[derive(Debug)]
-struct SubscribeClientState {
+pub struct SubscribeClientState {
+    pub finished: bool, // check in workers with acquired mutex
     id: u64,
     x_subscription_id: Arc<str>,
-    ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
-    head: u64,
-    filter: Option<Filter>,
+    pub head: IndexLocation,
+    pub filter: Option<Filter>,
     messages_error: Option<Status>,
-    messages_len_max: usize,
     messages_len_total: usize,
+    messages_len_max: usize,
+    messages_replay_len_max: usize,
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
     ping_ts_latest: Instant,
@@ -675,7 +677,12 @@ impl Drop for SubscribeClientState {
 }
 
 impl SubscribeClientState {
-    fn new(id: u64, messages_len_max: usize, x_subscription_id: Arc<str>) -> Self {
+    fn new(
+        id: u64,
+        messages_len_max: usize,
+        messages_replay_len_max: usize,
+        x_subscription_id: Arc<str>,
+    ) -> Self {
         info!(
             id,
             x_subscription_id = x_subscription_id.as_ref(),
@@ -690,15 +697,16 @@ impl SubscribeClientState {
         );
 
         Self {
+            finished: false,
             id,
             x_subscription_id,
-            ref_count: 1,
             commitment: CommitmentLevel::default(),
-            head: 0,
+            head: IndexLocation::Unknown,
             filter: None,
             messages_error: None,
-            messages_len_max,
             messages_len_total: 0,
+            messages_len_max,
+            messages_replay_len_max,
             messages: LinkedList::new(),
             messages_waker: None,
             ping_ts_latest: Instant::now(),
@@ -730,14 +738,18 @@ impl SubscribeClientState {
         self.messages_len_total > self.messages_len_max
     }
 
-    fn push_error(&mut self, error: Status) {
+    pub const fn is_full_replay(&self) -> bool {
+        self.messages_len_total > self.messages_replay_len_max
+    }
+
+    pub fn push_error(&mut self, error: Status) {
         self.messages_error = Some(error);
         if let Some(waker) = self.messages_waker.take() {
             waker.wake();
         }
     }
 
-    fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
+    pub fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
         self.messages_len_total += data.len();
         self.messages.push_back((message, data));
         if let Some(waker) = self.messages_waker.take() {
@@ -775,6 +787,13 @@ impl ReceiverStream {
             client,
             finished: false,
         }
+    }
+}
+
+impl Drop for ReceiverStream {
+    fn drop(&mut self) {
+        let mut state = self.client.state_lock();
+        state.finished = true;
     }
 }
 

@@ -1,5 +1,11 @@
 use {
-    crate::{config::ConfigChannelInner, metrics},
+    crate::{
+        config::ConfigChannelInner,
+        grpc::server::SubscribeClient,
+        metrics,
+        storage::Storage,
+        util::{mutex_lock, SpawnedThreads},
+    },
     ::metrics::gauge,
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
@@ -10,19 +16,28 @@ use {
     richat_filter::{
         filter::FilteredUpdate,
         message::{
-            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry, MessageRef,
-            MessageSlot, MessageTransaction,
+            Message, MessageAccount, MessageBlock, MessageBlockMeta, MessageEntry,
+            MessageParserEncoding, MessageRef, MessageSlot, MessageTransaction,
         },
     },
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
-    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    richat_shared::{
+        shutdown::Shutdown,
+        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    },
     smallvec::SmallVec,
+    solana_account::ReadableAccount,
+    solana_nohash_hasher::IntSet,
     solana_sdk::{
         clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
     },
     std::{
-        collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
+        collections::{
+            btree_map::Entry as BTreeMapEntry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap,
+            HashSet,
+        },
         fmt,
+        hash::{BuildHasher, Hash, Hasher},
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -115,31 +130,162 @@ impl ParsedMessage {
             None
         }
     }
+
+    fn get_id<H: Hasher>(&self, mut state: H) -> u64 {
+        match self {
+            ParsedMessage::Slot(msg) => {
+                state.write_u8(0);
+                state.write_u64(msg.slot());
+                msg.status().hash(&mut state);
+            }
+            ParsedMessage::Account(msg) => {
+                state.write_u8(1);
+                state.write_u64(msg.slot());
+                state.write(msg.pubkey().as_ref());
+                if let Some(signature) = msg.txn_signature() {
+                    state.write(signature);
+                } else {
+                    // uniq runtime update: validator block reward + epoch reward
+                    state.write_u64(msg.lamports());
+                }
+            }
+            ParsedMessage::Transaction(msg) => {
+                state.write_u8(2);
+                state.write_u64(msg.slot());
+                state.write(msg.signature().as_ref());
+            }
+            ParsedMessage::Entry(msg) => {
+                state.write_u8(3);
+                state.write_u64(msg.slot());
+                state.write_u64(msg.index());
+            }
+            ParsedMessage::BlockMeta(msg) => {
+                state.write_u8(4);
+                state.write_u64(msg.slot());
+            }
+            ParsedMessage::Block(msg) => {
+                state.write_u8(5);
+                state.write_u64(msg.slot());
+            }
+        }
+        state.finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum IndexLocation {
+    Unknown,
+    Storage(u64),
+    Memory(u64),
 }
 
 #[derive(Debug, Clone)]
 pub struct Messages {
-    shared_processed: Arc<Shared>,
-    shared_confirmed: Option<Arc<Shared>>,
-    shared_finalized: Option<Arc<Shared>>,
+    shared_processed: Arc<SharedChannel>,
+    shared_confirmed: Option<Arc<SharedChannel>>,
+    shared_finalized: Option<Arc<SharedChannel>>,
     max_messages: usize,
     max_bytes: usize,
+    parser: MessageParserEncoding,
+    storage: Option<Storage>,
+    storage_max_slots: usize,
+    replay_info: Option<Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>>,
 }
 
 impl Messages {
-    pub fn new(config: ConfigChannelInner, richat: bool, grpc: bool, pubsub: bool) -> Self {
+    pub fn new(
+        parser: MessageParserEncoding,
+        config: ConfigChannelInner,
+        richat: bool,
+        grpc: bool,
+        pubsub: bool,
+        shutdown: Shutdown,
+    ) -> anyhow::Result<(Self, SpawnedThreads)> {
+        let storage_max_slots = config
+            .storage
+            .as_ref()
+            .map(|config| config.max_slots)
+            .unwrap_or_default();
+        let (storage, threads) = match config
+            .storage
+            .map(|config| Storage::open(config, parser, shutdown))
+            .transpose()?
+        {
+            Some((storage, threads)) => (Some(storage), threads),
+            None => (None, vec![]),
+        };
+
         let max_messages = config.max_messages.next_power_of_two();
-        Self {
-            shared_processed: Arc::new(Shared::new(max_messages, richat)),
-            shared_confirmed: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
-            shared_finalized: (grpc || pubsub).then(|| Arc::new(Shared::new(max_messages, richat))),
+        let messages = Self {
+            shared_processed: Arc::new(SharedChannel::new(max_messages, richat)),
+            shared_confirmed: (grpc || pubsub)
+                .then(|| Arc::new(SharedChannel::new(max_messages, richat))),
+            shared_finalized: (grpc || pubsub)
+                .then(|| Arc::new(SharedChannel::new(max_messages, richat))),
             max_messages,
             max_bytes: config.max_bytes,
-        }
+            parser,
+            storage,
+            storage_max_slots,
+            replay_info: None,
+        };
+        Ok((messages, threads))
     }
 
-    pub fn to_sender(&self) -> Sender {
-        Sender {
+    pub fn to_sender(&mut self) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
+        let mut slot_finalized = 0;
+        let hasher = RandomState::default();
+        let mut replay_for_storage = false;
+        let mut replay_from_slot = None;
+        let mut replay = BTreeMap::new();
+        let mut index = 0;
+        if let Some(storage) = &self.storage {
+            replay_for_storage = true;
+
+            let slots = storage.read_slots()?;
+
+            for (slot, item) in slots.iter() {
+                replay.insert(*slot, ReplayInfo::new(item.head));
+            }
+            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay.len() as f64);
+
+            if let Some(finalized_slot) = slots
+                .iter()
+                .filter(|(_slot, value)| value.finalized)
+                .map(|(slot, _value)| *slot)
+                .max()
+            {
+                slot_finalized = finalized_slot;
+                let Some(replay_index) = slots.get(&(finalized_slot + 1)).map(|item| item.head)
+                else {
+                    anyhow::bail!("failed to get replay index to load messages");
+                };
+                for item in storage.read_messages_from_index(replay_index, self.parser) {
+                    let (msg_index, msg) = item?;
+                    if msg.slot() <= finalized_slot {
+                        continue;
+                    }
+
+                    let Some(replay) = replay.get_mut(&msg.slot()) else {
+                        anyhow::bail!(
+                            "failed to get replay info for existed message, slot#{}",
+                            msg.slot()
+                        );
+                    };
+                    let messages = replay.messages.get_or_insert_default();
+                    messages.insert(msg.get_id(hasher.build_hasher()));
+                    index = msg_index + 1;
+                }
+                replay_from_slot = Some(finalized_slot + 1);
+            } else {
+                anyhow::ensure!(slots.is_empty(), "no finalized slot in existed db");
+            }
+        }
+
+        let replay = Arc::new(Mutex::new(replay));
+        self.replay_info = Some(Arc::clone(&replay));
+
+        let sender = Sender {
             slots: BTreeMap::new(),
             dedup: BTreeMap::new(),
             processed: SenderShared::new(&self.shared_processed, self.max_messages, self.max_bytes),
@@ -152,8 +298,14 @@ impl Messages {
                 .as_ref()
                 .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
             slot_confirmed: 0,
-            slot_finalized: 0,
-        }
+            slot_finalized,
+            storage: self.storage.clone(),
+            storage_max_slots: self.storage_max_slots,
+            hasher,
+            replay,
+            index,
+        };
+        Ok((sender, replay_for_storage, replay_from_slot))
     }
 
     pub fn to_receiver(&self) -> ReceiverSync {
@@ -164,7 +316,7 @@ impl Messages {
         }
     }
 
-    const fn get_shared(&self, commitment: CommitmentLevel) -> &Arc<Shared> {
+    const fn get_shared(&self, commitment: CommitmentLevel) -> &Arc<SharedChannel> {
         match commitment {
             CommitmentLevel::Processed => &self.shared_processed,
             CommitmentLevel::Confirmed => {
@@ -184,27 +336,47 @@ impl Messages {
         &self,
         commitment: CommitmentLevel,
         replay_from_slot: Option<Slot>,
-    ) -> Result<u64, String> {
+    ) -> Result<IndexLocation, String> {
         if let Some(replay_from_slot) = replay_from_slot {
             if commitment == CommitmentLevel::Processed {
-                self.get_shared(commitment)
+                if let Some(index) = self
+                    .get_shared(commitment)
                     .slots_lock()
                     .get(&replay_from_slot)
                     .map(|obj| obj.head)
-                    .ok_or_else(|| {
-                        format!("failed to get replay position for slot {replay_from_slot}")
-                    })
+                {
+                    Ok(IndexLocation::Memory(index))
+                } else if let Some(index) = self
+                    .replay_info
+                    .as_deref()
+                    .map(mutex_lock)
+                    .and_then(|replay| replay.get(&replay_from_slot).map(|obj| obj.head))
+                {
+                    Ok(IndexLocation::Storage(index))
+                } else {
+                    Err(format!(
+                        "failed to get replay position for slot {replay_from_slot}"
+                    ))
+                }
             } else {
                 Err("replay `from_slot` available only for `processed` commitment".to_owned())
             }
         } else {
-            Ok(self.get_shared(commitment).tail.load(Ordering::Relaxed))
+            let index = self.get_shared(commitment).tail.load(Ordering::Relaxed);
+            Ok(IndexLocation::Memory(index))
         }
     }
 
     pub fn get_first_available_slot(&self) -> Option<Slot> {
         let slots = self.shared_processed.slots_lock();
         slots.first_key_value().map(|(slot, _head)| *slot)
+    }
+
+    pub fn replay_from_storage(&self, client: SubscribeClient) -> Result<(), &'static str> {
+        self.storage
+            .as_ref()
+            .ok_or("storage should exists to replay messages")?
+            .replay(client, Arc::clone(&self.shared_processed))
     }
 }
 
@@ -254,6 +426,11 @@ pub struct Sender {
     finalized: Option<SenderShared>,
     slot_confirmed: Slot,
     slot_finalized: Slot,
+    storage: Option<Storage>,
+    storage_max_slots: usize,
+    index: u64,
+    hasher: RandomState,
+    replay: Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>,
 }
 
 impl Sender {
@@ -356,23 +533,36 @@ impl Sender {
         };
 
         // push messages
+        let mut replay_lock = mutex_lock(&self.replay);
+        let (replay, replay_inserted) = match replay_lock.entry(slot) {
+            BTreeMapEntry::Vacant(entry) => (entry.insert(ReplayInfo::new(self.index)), true),
+            BTreeMapEntry::Occupied(entry) => (entry.into_mut(), false),
+        };
         let mut clean_after_finalized = false;
         for message in messages {
-            let messages_with_block = self
-                .slots
-                .entry(slot)
-                .or_insert_with(|| SlotInfo::new(slot))
-                .get_messages_with_block(
-                    &message,
-                    dedup_info
-                        .as_mut()
-                        .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
-                );
+            let mut slot_init = false;
+            let slot_info = self.slots.entry(slot).or_insert_with(|| {
+                slot_init = true;
+                SlotInfo::new(slot, self.index)
+            });
+            let slot_index_head = slot_info.index;
+            let messages_with_block = slot_info.get_messages_with_block(
+                &message,
+                dedup_info
+                    .as_mut()
+                    .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
+            );
             if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &messages_with_block) {
                 dedup.block_index = Some(*index);
             }
 
             for message in MessagesWithBlockIter::new(message, messages_with_block) {
+                if let Some(messages) = &mut replay.messages {
+                    if !messages.insert(message.get_id(self.hasher.build_hasher())) {
+                        continue;
+                    }
+                }
+
                 // update metrics, push messages to confirmed / finalized
                 if let ParsedMessage::Slot(msg) = &message {
                     // update metrics
@@ -402,10 +592,10 @@ impl Sender {
 
                     // push slot message to confirmed / finalized
                     if let Some(shared) = self.confirmed.as_mut() {
-                        shared.push(slot, message.clone());
+                        shared.push(slot, message.clone(), None);
                     }
                     if let Some(shared) = self.finalized.as_mut() {
-                        shared.push(slot, message.clone());
+                        shared.push(slot, message.clone(), None);
                     }
 
                     // push messages to confirmed
@@ -414,7 +604,7 @@ impl Sender {
                         if let Some(shared) = self.confirmed.as_mut() {
                             if let Some(slot_info) = self.slots.get(&slot) {
                                 for message in slot_info.get_messages_cloned() {
-                                    shared.push(slot, message);
+                                    shared.push(slot, message, None);
                                 }
                             }
                         }
@@ -427,22 +617,39 @@ impl Sender {
                         if let Some(shared) = self.finalized.as_mut() {
                             if let Some(mut slot_info) = self.slots.remove(&slot) {
                                 for message in slot_info.get_messages_owned() {
-                                    shared.push(slot, message);
+                                    shared.push(slot, message, None);
                                 }
                             }
                         }
                     }
                 } else {
-                    // push to confirmed and finalized (if we received SlotStatus or message after it)
+                    // push to confirmed (if we received SlotStatus or message after it)
                     if slot <= self.slot_confirmed {
                         if let Some(shared) = self.confirmed.as_mut() {
-                            shared.push(slot, message.clone());
+                            shared.push(slot, message.clone(), None);
                         }
                     }
                 }
 
+                // push to storage
+                let mut replay_index = None;
+                if let Some(storage) = &self.storage {
+                    if !matches!(&message, ParsedMessage::Block(_)) {
+                        storage.push_message(
+                            slot_init,
+                            slot,
+                            slot_index_head,
+                            self.index,
+                            message.clone(),
+                        );
+                        slot_init = false;
+                        replay_index = Some(self.index);
+                        self.index += 1;
+                    }
+                }
+
                 // push to processed
-                self.processed.push(slot, message);
+                self.processed.push(slot, message, replay_index);
             }
         }
 
@@ -463,6 +670,22 @@ impl Sender {
                     _ => break,
                 }
             }
+            while replay_lock.len() > self.storage_max_slots {
+                if let Some((slot, _replay)) = replay_lock.pop_first() {
+                    if let Some(storage) = &self.storage {
+                        let until = replay_lock
+                            .values()
+                            .take(300)
+                            .map(|replay| replay.head)
+                            .min();
+
+                        storage.remove_replay(slot, until);
+                    }
+                }
+            }
+        }
+        if replay_inserted || clean_after_finalized {
+            gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay_lock.len() as f64);
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
@@ -475,7 +698,7 @@ impl Sender {
 
 #[derive(Debug)]
 struct SenderShared {
-    shared: Arc<Shared>,
+    shared: Arc<SharedChannel>,
     head: u64,
     tail: u64,
     bytes_total: usize,
@@ -483,7 +706,7 @@ struct SenderShared {
 }
 
 impl SenderShared {
-    fn new(shared: &Arc<Shared>, max_messages: usize, max_bytes: usize) -> Self {
+    fn new(shared: &Arc<SharedChannel>, max_messages: usize, max_bytes: usize) -> Self {
         Self {
             shared: Arc::clone(shared),
             head: max_messages as u64,
@@ -493,7 +716,7 @@ impl SenderShared {
         }
     }
 
-    fn push(&mut self, slot: Slot, message: ParsedMessage) {
+    fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
         let mut slots_lock = self.shared.slots_lock();
         let mut removed_max_slot = None;
 
@@ -538,6 +761,7 @@ impl SenderShared {
         }
 
         // store new message
+        item.reply_index = replay_index.unwrap_or(u64::MAX);
         item.pos = pos;
         item.slot = slot;
         item.data = Some(message);
@@ -570,7 +794,7 @@ impl SenderShared {
 
 #[derive(Debug)]
 pub struct ReceiverAsync {
-    shared: Arc<Shared>,
+    shared: Arc<SharedChannel>,
     head: u64,
     finished: bool,
     enable_notifications_accounts: bool,
@@ -604,7 +828,7 @@ impl ReceiverAsync {
                 filters: SmallVec::new_const(),
                 filtered_update: MessageRef::from(item).into(),
             }
-            .encode();
+            .encode_to_vec();
             return Ok(Some(Arc::new(data)));
         }
 
@@ -637,9 +861,9 @@ impl Stream for ReceiverAsync {
 
 #[derive(Debug)]
 pub struct ReceiverSync {
-    shared_processed: Arc<Shared>,
-    shared_confirmed: Option<Arc<Shared>>,
-    shared_finalized: Option<Arc<Shared>>,
+    shared_processed: Arc<SharedChannel>,
+    shared_confirmed: Option<Arc<SharedChannel>>,
+    shared_finalized: Option<Arc<SharedChannel>>,
 }
 
 impl ReceiverSync {
@@ -671,7 +895,7 @@ impl ReceiverSync {
     }
 }
 
-struct Shared {
+pub struct SharedChannel {
     tail: AtomicU64,
     mask: u64,
     buffer: Box<[RwLock<Item>]>,
@@ -679,17 +903,18 @@ struct Shared {
     wakers: Option<Mutex<Vec<Waker>>>,
 }
 
-impl fmt::Debug for Shared {
+impl fmt::Debug for SharedChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Shared").field("mask", &self.mask).finish()
     }
 }
 
-impl Shared {
+impl SharedChannel {
     fn new(max_messages: usize, richat: bool) -> Self {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(RwLock::new(Item {
+                reply_index: u64::MAX,
                 pos: i as u64,
                 slot: 0,
                 data: None,
@@ -703,6 +928,58 @@ impl Shared {
             slots: Mutex::default(),
             wakers: richat.then_some(Mutex::default()),
         }
+    }
+
+    pub fn get_head_by_replay_index(&self, replay_index: u64) -> Option<u64> {
+        // trying to find head
+        let tail = self.tail.load(Ordering::Relaxed);
+        let mut head = tail - self.mask;
+        let mut size = tail - head + 1;
+        while size > 1 {
+            let half = size / 2;
+            let mid = head + half;
+
+            let idx = self.get_idx(mid);
+            let item = self.buffer_idx_read(idx);
+            if item.pos != mid || item.reply_index == u64::MAX {
+                head += half;
+            }
+
+            size -= half;
+        }
+        if head < tail {
+            head += 1;
+        }
+
+        // verify head
+        let idx = self.get_idx(head);
+        let item = self.buffer_idx_read(idx);
+        if item.pos != head || item.reply_index == u64::MAX {
+            return None;
+        }
+        drop(item);
+
+        // trying to find position for replay_index
+        let mut size = tail - head + 1;
+        let mut base = head;
+        while size > 1 {
+            let half = size / 2;
+            let mid = base + half;
+
+            let idx = self.get_idx(mid);
+            let item = self.buffer_idx_read(idx);
+            base = match item.reply_index.cmp(&replay_index) {
+                std::cmp::Ordering::Equal => return Some(item.pos),
+                std::cmp::Ordering::Less => mid,
+                std::cmp::Ordering::Greater => base,
+            };
+
+            size -= half;
+        }
+
+        let idx = self.get_idx(base);
+        let item = self.buffer_idx_read(idx);
+        (item.reply_index == replay_index).then_some(item.pos)
     }
 
     #[inline]
@@ -728,23 +1005,18 @@ impl Shared {
 
     #[inline]
     fn slots_lock(&self) -> MutexGuard<'_, BTreeMap<Slot, SlotHead>> {
-        match self.slots.lock() {
-            Ok(lock) => lock,
-            Err(p_err) => p_err.into_inner(),
-        }
+        mutex_lock(&self.slots)
     }
 
     #[inline]
     fn wakers_lock(&self) -> Option<MutexGuard<'_, Vec<Waker>>> {
-        self.wakers.as_ref().map(|wakers| match wakers.lock() {
-            Ok(lock) => lock,
-            Err(p_err) => p_err.into_inner(),
-        })
+        self.wakers.as_ref().map(mutex_lock)
     }
 }
 
 #[derive(Debug)]
 struct Item {
+    reply_index: u64,
     pos: u64,
     slot: Slot,
     data: Option<ParsedMessage>,
@@ -766,6 +1038,7 @@ struct SlotInfo {
     transactions_count: usize,
     entries_count: usize,
     block_meta: Option<Arc<MessageBlockMeta>>,
+    index: u64,
 }
 
 impl Drop for SlotInfo {
@@ -797,7 +1070,7 @@ impl Drop for SlotInfo {
 }
 
 impl SlotInfo {
-    fn new(slot: Slot) -> Self {
+    fn new(slot: Slot, index: u64) -> Self {
         Self {
             slot,
             block_created: false,
@@ -808,6 +1081,7 @@ impl SlotInfo {
             transactions_count: 0,
             entries_count: 0,
             block_meta: None,
+            index,
         }
     }
 
@@ -949,6 +1223,21 @@ impl SlotInfo {
 }
 
 #[derive(Debug)]
+struct ReplayInfo {
+    head: u64,
+    messages: Option<IntSet<u64>>,
+}
+
+impl ReplayInfo {
+    const fn new(head: u64) -> Self {
+        Self {
+            head,
+            messages: None,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct MessagesWithBlock {
     accounts: SmallVec<[ParsedMessage; 8]>,
     block: ParsedMessage,
@@ -1026,16 +1315,7 @@ struct DedupInfoAccountTransactionKey {
 
 impl DedupInfoAccountTransactionKey {
     fn try_create(msg: &MessageAccount) -> Option<Self> {
-        let signature = match msg {
-            MessageAccount::Limited {
-                txn_signature_offset,
-                buffer,
-                ..
-            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
-            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
-        };
-
-        signature.map(|signature| Self {
+        msg.txn_signature().map(|signature| Self {
             signature: signature.try_into().expect("valid signature"),
             pubkey: *msg.pubkey(),
         })
@@ -1182,7 +1462,7 @@ mod test {
 
         let updates = filter.get_updates_ref(message_ref, CommitmentLevel::Processed);
         assert_eq!(updates.len(), 1, "unexpected number of updates");
-        updates[0].encode()
+        updates[0].encode_to_vec()
     }
 
     #[test]

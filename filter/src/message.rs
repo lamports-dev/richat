@@ -46,7 +46,7 @@ pub enum MessageParseError {
     IncompatibleEncoding,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageParserEncoding {
     /// Use optimized parser to extract only required fields
@@ -682,6 +682,17 @@ impl MessageAccount {
                 decode_varint(&mut buffer).expect("already verified")
             }
             Self::Prost { account, .. } => account.write_version,
+        }
+    }
+
+    pub fn txn_signature(&self) -> Option<&[u8]> {
+        match self {
+            MessageAccount::Limited {
+                txn_signature_offset,
+                buffer,
+                ..
+            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
+            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
         }
     }
 
