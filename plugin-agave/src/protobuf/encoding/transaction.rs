@@ -529,6 +529,9 @@ impl Message for TransactionStatusMetaWrapper<'_> {
         if let Some(compute_units_consumed) = self.compute_units_consumed {
             encoding::uint64::encode(16, &compute_units_consumed, buf);
         }
+        if let Some(cost_units) = self.cost_units {
+            encoding::uint64::encode(17, &cost_units, buf);
+        }
     }
 
     fn encoded_len(&self) -> usize {
@@ -598,6 +601,9 @@ impl Message for TransactionStatusMetaWrapper<'_> {
                 .map_or(0, |compute_units_consumed| {
                     encoding::uint64::encoded_len(16, &compute_units_consumed)
                 })
+            + self.cost_units.map_or(0, |cost_units| {
+                encoding::uint64::encoded_len(17, &cost_units)
+            })
     }
 
     fn clear(&mut self) {
