@@ -12,6 +12,7 @@ publish = { workspace = true }
 
 [dependencies]
 affinity-linux = { workspace = true }
+agave-reserved-account-keys = { workspace = true }
 anyhow = { workspace = true }
 arrayvec = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
