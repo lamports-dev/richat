@@ -1,4 +1,5 @@
 use {
+    crate::mutex_lock,
     slab::Slab,
     std::{
         future::Future,
@@ -29,10 +30,7 @@ impl Shutdown {
     }
 
     fn state_lock(&self) -> MutexGuard<'_, State> {
-        match self.state.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+        mutex_lock(&self.state)
     }
 
     pub fn shutdown(&self) {

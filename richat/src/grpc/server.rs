@@ -27,8 +27,8 @@ use {
         SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
     },
     richat_shared::{
-        jsonrpc::helpers::X_SUBSCRIPTION_ID, metrics::duration_to_seconds, shutdown::Shutdown,
-        transports::RecvError,
+        jsonrpc::helpers::X_SUBSCRIPTION_ID, metrics::duration_to_seconds, mutex_lock,
+        shutdown::Shutdown, transports::RecvError,
     },
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
@@ -222,10 +222,7 @@ impl GrpcServer {
 
     #[inline]
     fn subscribe_clients_lock(&self) -> MutexGuard<'_, VecDeque<SubscribeClient>> {
-        match self.subscribe_clients.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+        mutex_lock(&self.subscribe_clients)
     }
 
     #[inline]
@@ -622,10 +619,7 @@ impl SubscribeClient {
 
     #[inline]
     fn state_lock(&self) -> MutexGuard<'_, SubscribeClientState> {
-        match self.state.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+        mutex_lock(&self.state)
     }
 }
 

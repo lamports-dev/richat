@@ -11,7 +11,10 @@ use {
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
     richat_proto::richat::RichatFilter,
-    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    richat_shared::{
+        mutex_lock,
+        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    },
     smallvec::SmallVec,
     solana_sdk::clock::Slot,
     std::{
@@ -19,7 +22,7 @@ use {
         fmt,
         future::Future,
         pin::Pin,
-        sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
+        sync::{Arc, Mutex, MutexGuard},
         task::{Context, Poll, Waker},
     },
 };
@@ -34,7 +37,7 @@ impl Sender {
         let max_messages = config.max_messages.next_power_of_two();
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
-            buffer.push(RwLock::new(Item {
+            buffer.push(Mutex::new(Item {
                 pos: i as u64,
                 slot: 0,
                 data: None,
@@ -153,7 +156,7 @@ impl Sender {
             );
 
             let idx = self.shared.get_idx(state.head);
-            let mut item = self.shared.buffer_idx_write(idx);
+            let mut item = self.shared.buffer_idx(idx);
             let Some(message) = item.data.take() else {
                 panic!("nothing to remove to keep bytes under limit")
             };
@@ -171,7 +174,7 @@ impl Sender {
 
         // lock and update item
         let idx = self.shared.get_idx(pos);
-        let mut item = self.shared.buffer_idx_write(idx);
+        let mut item = self.shared.buffer_idx(idx);
         if let Some(message) = item.data.take() {
             state.head = state.head.wrapping_add(1);
             state.bytes_total -= message.1.len();
@@ -186,8 +189,16 @@ impl Sender {
         drop(item);
 
         // remove not-complete slots
-        if let Some(slot) = removed_max_slot {
-            state.remove_slots(slot);
+        if let Some(remove_upto) = removed_max_slot {
+            loop {
+                match state.slots.first_key_value() {
+                    Some((slot, _)) if *slot <= remove_upto => {
+                        let slot = *slot;
+                        state.slots.remove(&slot);
+                    }
+                    _ => break,
+                }
+            }
         }
 
         // update metrics
@@ -212,7 +223,7 @@ impl Sender {
 
     pub fn close(&self) {
         for idx in 0..self.shared.buffer.len() {
-            self.shared.buffer_idx_write(idx).closed = true;
+            self.shared.buffer_idx(idx).closed = true;
         }
 
         let mut state = self.shared.state_lock();
@@ -277,7 +288,7 @@ impl Receiver {
         loop {
             // read item with next value
             let idx = self.shared.get_idx(self.next);
-            let mut item = self.shared.buffer_idx_read(idx);
+            let mut item = self.shared.buffer_idx(idx);
             if item.closed {
                 return Err(RecvError::Closed);
             }
@@ -290,7 +301,7 @@ impl Receiver {
                 let mut state = self.shared.state_lock();
 
                 // make sure that position did not changed
-                item = self.shared.buffer_idx_read(idx);
+                item = self.shared.buffer_idx(idx);
                 if item.closed {
                     return Err(RecvError::Closed);
                 }
@@ -367,7 +378,7 @@ impl Stream for Receiver {
 struct Shared {
     state: Mutex<State>,
     mask: u64,
-    buffer: Box<[RwLock<Item>]>,
+    buffer: Box<[Mutex<Item>]>,
 }
 
 impl fmt::Debug for Shared {
@@ -384,26 +395,12 @@ impl Shared {
 
     #[inline]
     fn state_lock(&self) -> MutexGuard<'_, State> {
-        match self.state.lock() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
+        mutex_lock(&self.state)
     }
 
     #[inline]
-    fn buffer_idx_read(&self, idx: usize) -> RwLockReadGuard<'_, Item> {
-        match self.buffer[idx].read() {
-            Ok(guard) => guard,
-            Err(p_err) => p_err.into_inner(),
-        }
-    }
-
-    #[inline]
-    fn buffer_idx_write(&self, idx: usize) -> RwLockWriteGuard<'_, Item> {
-        match self.buffer[idx].write() {
-            Ok(guard) => guard,
-            Err(p_err) => p_err.into_inner(),
-        }
+    fn buffer_idx(&self, idx: usize) -> MutexGuard<'_, Item> {
+        mutex_lock(&self.buffer[idx])
     }
 }
 
@@ -414,22 +411,6 @@ struct State {
     bytes_total: usize,
     bytes_max: usize,
     wakers: Vec<Waker>,
-}
-
-impl State {
-    fn remove_slots(&mut self, remove_upto: Slot) {
-        let mut slot = match self.slots.first_key_value() {
-            Some((slot, _)) => *slot,
-            None => return,
-        };
-        while slot <= remove_upto {
-            self.slots.remove(&slot);
-            slot = match self.slots.first_key_value() {
-                Some((slot, _)) => *slot,
-                None => return,
-            };
-        }
-    }
 }
 
 struct SlotInfo {

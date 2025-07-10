@@ -15,7 +15,10 @@ use {
         },
     },
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
-    richat_shared::transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    richat_shared::{
+        mutex_lock,
+        transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
+    },
     smallvec::SmallVec,
     solana_sdk::{
         clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
@@ -26,7 +29,7 @@ use {
         pin::Pin,
         sync::{
             atomic::{AtomicU64, Ordering},
-            Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+            Arc, Mutex, MutexGuard,
         },
         task::{Context, Poll, Waker},
     },
@@ -506,7 +509,7 @@ impl SenderShared {
             );
 
             let idx = self.shared.get_idx(self.head);
-            let mut item = self.shared.buffer_idx_write(idx);
+            let mut item = self.shared.buffer_idx(idx);
             let Some(message) = item.data.take() else {
                 panic!("nothing to remove to keep bytes under limit")
             };
@@ -525,7 +528,7 @@ impl SenderShared {
 
         // get item
         let idx = self.shared.get_idx(pos);
-        let mut item = self.shared.buffer_idx_write(idx);
+        let mut item = self.shared.buffer_idx(idx);
 
         // drop existed message
         if let Some(message) = item.data.take() {
@@ -553,16 +556,14 @@ impl SenderShared {
 
         // remove not-complete slots
         if let Some(remove_upto) = removed_max_slot {
-            let mut slot = match slots_lock.first_key_value() {
-                Some((slot, _)) => *slot,
-                None => return,
-            };
-            while slot <= remove_upto {
-                slots_lock.remove(&slot);
-                slot = match slots_lock.first_key_value() {
-                    Some((slot, _)) => *slot,
-                    None => return,
-                };
+            loop {
+                match slots_lock.first_key_value() {
+                    Some((slot, _)) if *slot <= remove_upto => {
+                        let slot = *slot;
+                        slots_lock.remove(&slot);
+                    }
+                    _ => break,
+                }
             }
         }
     }
@@ -583,7 +584,7 @@ impl ReceiverAsync {
         let tail = self.shared.tail.load(Ordering::Relaxed);
         while self.head <= tail {
             let idx = self.shared.get_idx(self.head);
-            let item = self.shared.buffer_idx_read(idx);
+            let item = self.shared.buffer_idx(idx);
             if item.pos != self.head {
                 return Err(RecvError::Lagged);
             }
@@ -659,7 +660,7 @@ impl ReceiverSync {
         let tail = shared.tail.load(Ordering::Relaxed);
         if head < tail {
             let idx = shared.get_idx(head);
-            let item = shared.buffer_idx_read(idx);
+            let item = shared.buffer_idx(idx);
             if item.pos != head {
                 return Err(RecvError::Lagged);
             }
@@ -674,7 +675,7 @@ impl ReceiverSync {
 struct Shared {
     tail: AtomicU64,
     mask: u64,
-    buffer: Box<[RwLock<Item>]>,
+    buffer: Box<[Mutex<Item>]>,
     slots: Mutex<BTreeMap<Slot, SlotHead>>,
     wakers: Option<Mutex<Vec<Waker>>>,
 }
@@ -689,7 +690,7 @@ impl Shared {
     fn new(max_messages: usize, richat: bool) -> Self {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
-            buffer.push(RwLock::new(Item {
+            buffer.push(Mutex::new(Item {
                 pos: i as u64,
                 slot: 0,
                 data: None,
@@ -711,35 +712,18 @@ impl Shared {
     }
 
     #[inline]
-    fn buffer_idx_read(&self, idx: usize) -> RwLockReadGuard<'_, Item> {
-        match self.buffer[idx].read() {
-            Ok(guard) => guard,
-            Err(p_err) => p_err.into_inner(),
-        }
-    }
-
-    #[inline]
-    fn buffer_idx_write(&self, idx: usize) -> RwLockWriteGuard<'_, Item> {
-        match self.buffer[idx].write() {
-            Ok(guard) => guard,
-            Err(p_err) => p_err.into_inner(),
-        }
+    fn buffer_idx(&self, idx: usize) -> MutexGuard<'_, Item> {
+        mutex_lock(&self.buffer[idx])
     }
 
     #[inline]
     fn slots_lock(&self) -> MutexGuard<'_, BTreeMap<Slot, SlotHead>> {
-        match self.slots.lock() {
-            Ok(lock) => lock,
-            Err(p_err) => p_err.into_inner(),
-        }
+        mutex_lock(&self.slots)
     }
 
     #[inline]
     fn wakers_lock(&self) -> Option<MutexGuard<'_, Vec<Waker>>> {
-        self.wakers.as_ref().map(|wakers| match wakers.lock() {
-            Ok(lock) => lock,
-            Err(p_err) => p_err.into_inner(),
-        })
+        self.wakers.as_ref().map(mutex_lock)
     }
 }
 
