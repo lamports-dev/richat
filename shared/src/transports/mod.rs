@@ -52,7 +52,7 @@ pub struct WriteVectored<'a, W: ?Sized> {
 }
 
 impl<'a, W> WriteVectored<'a, W> {
-    pub fn new(writer: &'a mut W, buffers: &'a mut [IoSlice<'a>]) -> Self {
+    pub const fn new(writer: &'a mut W, buffers: &'a mut [IoSlice<'a>]) -> Self {
         Self {
             writer,
             buffers,

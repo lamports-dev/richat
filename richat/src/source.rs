@@ -225,7 +225,7 @@ impl Backoff {
             .min(self.max_interval);
     }
 
-    fn reset(&mut self) {
+    const fn reset(&mut self) {
         self.current_interval = self.initial_interval;
     }
 }

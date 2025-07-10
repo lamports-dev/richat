@@ -762,11 +762,11 @@ impl CachedSignatures {
         gauge!(metrics::PUBSUB_CACHED_SIGNATURES_TOTAL).set(self.signatures.len() as f64);
     }
 
-    fn set_confirmed(&mut self, slot: Slot) {
+    const fn set_confirmed(&mut self, slot: Slot) {
         self.slot_confirmed = slot;
     }
 
-    fn set_finalized(&mut self, slot: Slot) {
+    const fn set_finalized(&mut self, slot: Slot) {
         self.slot_finalized = slot;
     }
 }

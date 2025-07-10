@@ -335,7 +335,7 @@ struct Recv<'a> {
 }
 
 impl<'a> Recv<'a> {
-    fn new(receiver: &'a mut Receiver) -> Self {
+    const fn new(receiver: &'a mut Receiver) -> Self {
         Self { receiver }
     }
 }

@@ -185,7 +185,6 @@ impl GrpcServer {
     fn parse_commitment(commitment: Option<i32>) -> Result<CommitmentLevelProto, Status> {
         let commitment = commitment.unwrap_or(CommitmentLevelProto::Processed as i32);
         CommitmentLevelProto::try_from(commitment)
-            .map(Into::into)
             .map_err(|_error| {
                 let msg = format!("failed to create CommitmentLevel from {commitment:?}");
                 Status::unknown(msg)

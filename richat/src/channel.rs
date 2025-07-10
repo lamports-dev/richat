@@ -995,7 +995,7 @@ impl DedupInfo {
                 .collect(),
             accounts_transactions: HashSet::with_capacity_and_hasher(8_192, RandomState::default()),
             transactions: HashMap::with_capacity_and_hasher(8_192, RandomState::default()),
-            entries: std::iter::repeat(false).take(256).collect(),
+            entries: std::iter::repeat_n(false, 256).collect(),
             block_meta: false,
             block_index: None,
         }
