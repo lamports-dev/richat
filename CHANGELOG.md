@@ -16,6 +16,22 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-07-10
+
+- richat-cli-v5.0.0
+- richat-client-v4.0.0
+- richat-filter-v4.0.0
+- richat-plugin-agave-v4.0.0
+- richat-proto-v4.0.0
+- richat-v4.0.0
+- richat-shared-v4.0.0
+
+### Features
+
+- plugin: bump to agave 2.3 ([#128](https://github.com/lamports-dev/richat/pull/128))
+
+## 2025-07-10
+
 - richat-cli-v4.6.0
 - richat-client-v3.6.0
 - richat-filter-v3.6.0
@@ -23,8 +39,6 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat-proto-v3.2.0
 - richat-v3.7.0
 - richat-shared-v3.6.0
-
-## 2025-07-10
 
 ### Fixes
 

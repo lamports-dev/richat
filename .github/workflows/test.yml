@@ -10,6 +10,7 @@ on:
       - agave-v2.0
       - agave-v2.1
       - agave-v2.2
+      - agave-v2.3
   workflow_dispatch:
 
 env:
@@ -33,7 +34,7 @@ jobs:
 
       - uses: fanatid/rust-github-ci-prepare@master
         with:
-          cache-version: v0003
+          cache-version: v0004
 
       - name: cargo deny check advisories
         uses: EmbarkStudios/cargo-deny-action@v1

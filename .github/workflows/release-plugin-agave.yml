@@ -15,6 +15,7 @@ on:
       - agave-v2.0
       - agave-v2.1
       - agave-v2.2
+      - agave-v2.3
     tags:
       - 'plugin-agave-v*'
   workflow_dispatch:
@@ -37,7 +38,7 @@ jobs:
 
       - uses: fanatid/rust-github-ci-prepare@master
         with:
-          cache-version: v0002-plugin-agave
+          cache-version: v0003-plugin-agave
 
       - name: Build richat plugin agave
         run: |
