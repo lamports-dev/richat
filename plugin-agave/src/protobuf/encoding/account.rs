@@ -1,7 +1,11 @@
 use {
     super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
-    prost::encoding::{self, WireType},
+    prost::{
+        bytes::{Buf, BufMut},
+        encoding::{self, DecodeContext, WireType},
+        DecodeError, Message,
+    },
     solana_sdk::clock::Slot,
     std::ops::Deref,
 };
@@ -17,8 +21,8 @@ impl<'a> Deref for ReplicaWrapper<'a> {
     }
 }
 
-impl prost::Message for ReplicaWrapper<'_> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut)
+impl Message for ReplicaWrapper<'_> {
+    fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
     {
@@ -86,9 +90,9 @@ impl prost::Message for ReplicaWrapper<'_> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -108,8 +112,8 @@ impl<'a> Account<'a> {
     }
 }
 
-impl prost::Message for Account<'_> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
+impl Message for Account<'_> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
         let wrapper = ReplicaWrapper(self.account);
         encoding::message::encode(1, &wrapper, buf);
         if self.slot != 0 {
@@ -131,9 +135,9 @@ impl prost::Message for Account<'_> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {

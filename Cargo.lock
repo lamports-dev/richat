@@ -4174,7 +4174,6 @@ dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
  "bincode",
- "bytes",
  "cargo-lock",
  "clap",
  "criterion",

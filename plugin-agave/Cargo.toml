@@ -26,7 +26,6 @@ required-features = ["fixtures"]
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
 bincode = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 log = { workspace = true }
@@ -61,6 +60,7 @@ git-version = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [features]
+default = []
 fixtures = ["dep:prost_011", "dep:solana-storage-proto"]
 test-validator = []
 

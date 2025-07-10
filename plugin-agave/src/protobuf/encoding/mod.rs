@@ -3,8 +3,11 @@ pub use self::{
 };
 use {
     prost::{
-        bytes::BufMut,
-        encoding::{self, encode_key, encode_varint, encoded_len_varint, key_len, WireType},
+        bytes::{Buf, BufMut},
+        encoding::{
+            self, encode_key, encode_varint, encoded_len_varint, key_len, DecodeContext, WireType,
+        },
+        DecodeError, Message,
     },
     solana_transaction_status::{Reward, RewardType},
     std::{marker::PhantomData, ops::Deref},
@@ -64,7 +67,7 @@ impl Deref for RewardWrapper<'_> {
     }
 }
 
-impl prost::Message for RewardWrapper<'_> {
+impl Message for RewardWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -116,9 +119,9 @@ impl prost::Message for RewardWrapper<'_> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {

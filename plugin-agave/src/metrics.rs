@@ -1,6 +1,5 @@
 use {
     crate::version::VERSION as VERSION_INFO,
-    bytes::Bytes,
     metrics::{counter, describe_counter, describe_gauge},
     metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle},
     richat_shared::config::ConfigMetrics,
@@ -65,7 +64,7 @@ pub async fn spawn_server(
 
     richat_shared::metrics::spawn_server(
         config,
-        move || Bytes::from(handle.render()), // metrics
+        move || handle.render().into_bytes(), // metrics
         || true,                              // health
         || true,                              // ready
         shutdown,

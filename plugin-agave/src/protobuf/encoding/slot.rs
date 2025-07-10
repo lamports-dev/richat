@@ -1,5 +1,10 @@
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus, prost::encoding,
+    agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
+    prost::{
+        bytes::{Buf, BufMut},
+        encoding::{self, DecodeContext, WireType},
+        DecodeError, Message,
+    },
     richat_proto::geyser::CommitmentLevel,
 };
 
@@ -44,8 +49,8 @@ impl<'a> Slot<'a> {
     }
 }
 
-impl prost::Message for Slot<'_> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
+impl Message for Slot<'_> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
         let status = slot_status_as_i32(self.status);
         let dead_error = slot_status_as_dead_error(self.status);
 
@@ -88,10 +93,10 @@ impl prost::Message for Slot<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {

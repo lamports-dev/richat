@@ -22,7 +22,7 @@ pub fn duration_to_seconds(d: Duration) -> f64 {
 
 pub async fn spawn_server(
     ConfigMetrics { endpoint }: ConfigMetrics,
-    gather_metrics: impl Fn() -> Bytes + Clone + Send + 'static,
+    gather_metrics: impl Fn() -> Vec<u8> + Clone + Send + 'static,
     is_health_check: impl Fn() -> bool + Clone + Send + 'static,
     is_ready_check: impl Fn() -> bool + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
@@ -71,7 +71,7 @@ pub async fn spawn_server(
                                             )
                                         }
                                     }
-                                    "/metrics" => (StatusCode::OK, gather_metrics()),
+                                    "/metrics" => (StatusCode::OK, Bytes::from(gather_metrics())),
                                     "/ready" => {
                                         if is_ready_check() {
                                             (StatusCode::OK, Bytes::from("OK"))

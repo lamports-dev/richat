@@ -1,8 +1,11 @@
 use {
     super::{bytes_encode, bytes_encoded_len, RewardWrapper},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
-    bytes::BufMut,
-    prost::encoding,
+    prost::{
+        bytes::{Buf, BufMut},
+        encoding::{self, encoded_len_varint, key_len, DecodeContext, WireType},
+        DecodeError, Message,
+    },
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         clock::Slot,
@@ -34,7 +37,7 @@ impl<'a> Transaction<'a> {
     }
 }
 
-impl prost::Message for Transaction<'_> {
+impl Message for Transaction<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut) {
         let tx = ReplicaWrapper(self.transaction);
         encoding::message::encode(1, &tx, buf);
@@ -56,10 +59,10 @@ impl prost::Message for Transaction<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -82,7 +85,7 @@ impl<'a> Deref for ReplicaWrapper<'a> {
     }
 }
 
-impl prost::Message for ReplicaWrapper<'_> {
+impl Message for ReplicaWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -132,10 +135,10 @@ impl prost::Message for ReplicaWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -154,7 +157,7 @@ impl Deref for SanitizedTransactionWrapper<'_> {
     }
 }
 
-impl prost::Message for SanitizedTransactionWrapper<'_> {
+impl Message for SanitizedTransactionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -175,10 +178,10 @@ impl prost::Message for SanitizedTransactionWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -193,10 +196,7 @@ fn signatures_encode(tag: u32, signatures: &[Signature], buf: &mut impl BufMut) 
 }
 
 const fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
-    (encoding::key_len(tag)
-        + encoding::encoded_len_varint(SIGNATURE_BYTES as u64)
-        + SIGNATURE_BYTES)
-        * signatures.len()
+    (key_len(tag) + encoded_len_varint(SIGNATURE_BYTES as u64) + SIGNATURE_BYTES) * signatures.len()
 }
 
 #[derive(Debug)]
@@ -210,7 +210,7 @@ impl Deref for SanitizedMessageWrapper<'_> {
     }
 }
 
-impl prost::Message for SanitizedMessageWrapper<'_> {
+impl Message for SanitizedMessageWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -291,10 +291,10 @@ impl prost::Message for SanitizedMessageWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -313,7 +313,7 @@ impl Deref for MessageHeaderWrapper {
     }
 }
 
-impl prost::Message for MessageHeaderWrapper {
+impl Message for MessageHeaderWrapper {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -358,10 +358,10 @@ impl prost::Message for MessageHeaderWrapper {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -376,8 +376,7 @@ fn pubkeys_encode(tag: u32, pubkeys: &[Pubkey], buf: &mut impl BufMut) {
 }
 
 const fn pubkeys_encoded_len(tag: u32, pubkeys: &[Pubkey]) -> usize {
-    (encoding::key_len(tag) + encoding::encoded_len_varint(PUBKEY_BYTES as u64) + PUBKEY_BYTES)
-        * pubkeys.len()
+    (key_len(tag) + encoded_len_varint(PUBKEY_BYTES as u64) + PUBKEY_BYTES) * pubkeys.len()
 }
 
 fn versioned_encode(tag: u32, versioned: bool, buf: &mut impl BufMut) {
@@ -416,7 +415,7 @@ impl Deref for MessageAddressTableLookupWrapper<'_> {
     }
 }
 
-impl prost::Message for MessageAddressTableLookupWrapper<'_> {
+impl Message for MessageAddressTableLookupWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -451,10 +450,10 @@ impl prost::Message for MessageAddressTableLookupWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -473,7 +472,7 @@ impl Deref for TransactionStatusMetaWrapper<'_> {
     }
 }
 
-impl prost::Message for TransactionStatusMetaWrapper<'_> {
+impl Message for TransactionStatusMetaWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -608,10 +607,10 @@ impl prost::Message for TransactionStatusMetaWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -628,7 +627,7 @@ thread_local! {
 #[derive(Debug)]
 struct TransactionErrorWrapper<'a>(&'a TransactionError);
 
-impl prost::Message for TransactionErrorWrapper<'_> {
+impl Message for TransactionErrorWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -664,10 +663,10 @@ impl prost::Message for TransactionErrorWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -697,7 +696,7 @@ impl Deref for InnerInstructionsWrapper<'_> {
     }
 }
 
-impl prost::Message for InnerInstructionsWrapper<'_> {
+impl Message for InnerInstructionsWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -734,10 +733,10 @@ impl prost::Message for InnerInstructionsWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -767,7 +766,7 @@ impl Deref for InnerInstructionWrapper<'_> {
     }
 }
 
-impl prost::Message for InnerInstructionWrapper<'_> {
+impl Message for InnerInstructionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -816,10 +815,10 @@ impl prost::Message for InnerInstructionWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -849,7 +848,7 @@ impl Deref for CompiledInstructionWrapper<'_> {
     }
 }
 
-impl prost::Message for CompiledInstructionWrapper<'_> {
+impl Message for CompiledInstructionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -890,10 +889,10 @@ impl prost::Message for CompiledInstructionWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -923,7 +922,7 @@ impl Deref for TransactionTokenBalanceWrapper<'_> {
     }
 }
 
-impl prost::Message for TransactionTokenBalanceWrapper<'_> {
+impl Message for TransactionTokenBalanceWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -976,10 +975,10 @@ impl prost::Message for TransactionTokenBalanceWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -998,7 +997,7 @@ impl Deref for UiTokenAmountWrapper<'_> {
     }
 }
 
-impl prost::Message for UiTokenAmountWrapper<'_> {
+impl Message for UiTokenAmountWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -1050,10 +1049,10 @@ impl prost::Message for UiTokenAmountWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -1072,7 +1071,7 @@ impl Deref for TransactionReturnDataWrapper<'_> {
     }
 }
 
-impl prost::Message for TransactionReturnDataWrapper<'_> {
+impl Message for TransactionReturnDataWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -1099,10 +1098,10 @@ impl prost::Message for TransactionReturnDataWrapper<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {

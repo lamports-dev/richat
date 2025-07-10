@@ -1,7 +1,11 @@
 use {
     super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
-    prost::encoding,
+    prost::{
+        bytes::{Buf, BufMut},
+        encoding::{self, DecodeContext, WireType},
+        DecodeError, Message,
+    },
 };
 
 #[derive(Debug)]
@@ -15,8 +19,8 @@ impl<'a> Entry<'a> {
     }
 }
 
-impl prost::Message for Entry<'_> {
-    fn encode_raw(&self, buf: &mut impl bytes::BufMut) {
+impl Message for Entry<'_> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
         let index = self.entry.index as u64;
         let starting_transaction_index = self.entry.starting_transaction_index as u64;
 
@@ -70,10 +74,10 @@ impl prost::Message for Entry<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {

@@ -2,7 +2,7 @@ mod encoding;
 mod message;
 
 pub use {
-    encoding::{Account, BlockMeta, Entry, Slot, Transaction},
+    encoding::{bytes_encode, bytes_encoded_len, Account, BlockMeta, Entry, Slot, Transaction},
     message::{ProtobufEncoder, ProtobufMessage},
 };
 

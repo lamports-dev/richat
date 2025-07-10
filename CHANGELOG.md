@@ -23,6 +23,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: use jemalloc ([#117](https://github.com/lamports-dev/richat/pull/117))
 - shared: parse affinity with stride in range ([#120](https://github.com/lamports-dev/richat/pull/120))
 - richat: use Mutex instead of RwLock in channels ([#126](https://github.com/lamports-dev/richat/pull/126))
+- plugin: remove direct bytes dep ([#127](https://github.com/lamports-dev/richat/pull/127))
 
 ### Breaking
 

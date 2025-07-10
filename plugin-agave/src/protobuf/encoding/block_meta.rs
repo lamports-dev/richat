@@ -2,8 +2,9 @@ use {
     super::{bytes_encode, bytes_encoded_len, RewardWrapper},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::{
-        bytes::BufMut,
-        encoding::{self, WireType},
+        bytes::{Buf, BufMut},
+        encoding::{self, DecodeContext, WireType},
+        DecodeError, Message,
     },
     richat_proto::convert_to,
     solana_transaction_status::RewardsAndNumPartitions,
@@ -21,8 +22,8 @@ impl<'a> BlockMeta<'a> {
     }
 }
 
-impl prost::Message for BlockMeta<'_> {
-    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+impl Message for BlockMeta<'_> {
+    fn encode_raw(&self, buf: &mut impl BufMut) {
         let rewards = RewardsAndNumPartitionsWrapper(self.blockinfo.rewards);
 
         if self.blockinfo.slot != 0 {
@@ -99,10 +100,10 @@ impl prost::Message for BlockMeta<'_> {
     fn merge_field(
         &mut self,
         _tag: u32,
-        _wire_type: encoding::WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _wire_type: WireType,
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
@@ -125,7 +126,7 @@ impl<'a> Deref for RewardsAndNumPartitionsWrapper<'a> {
     }
 }
 
-impl prost::Message for RewardsAndNumPartitionsWrapper<'_> {
+impl Message for RewardsAndNumPartitionsWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
@@ -156,9 +157,9 @@ impl prost::Message for RewardsAndNumPartitionsWrapper<'_> {
         &mut self,
         _tag: u32,
         _wire_type: WireType,
-        _buf: &mut impl bytes::Buf,
-        _ctx: encoding::DecodeContext,
-    ) -> Result<(), prost::DecodeError>
+        _buf: &mut impl Buf,
+        _ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
     where
         Self: Sized,
     {
