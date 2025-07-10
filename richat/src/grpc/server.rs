@@ -313,8 +313,7 @@ impl GrpcServer {
                 continue;
             };
             let mut state = client.state_lock();
-            // drop client if only 1 instance left
-            if state.ref_count == 1 {
+            if state.finished {
                 continue;
             }
 
@@ -608,24 +607,9 @@ impl gen::geyser_server::Geyser for GrpcServer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
-}
-
-impl Clone for SubscribeClient {
-    fn clone(&self) -> Self {
-        self.state_lock().ref_count += 1;
-        Self {
-            state: Arc::clone(&self.state),
-        }
-    }
-}
-
-impl Drop for SubscribeClient {
-    fn drop(&mut self) {
-        self.state_lock().ref_count -= 1;
-    }
 }
 
 impl SubscribeClient {
@@ -647,9 +631,9 @@ impl SubscribeClient {
 
 #[derive(Debug)]
 struct SubscribeClientState {
+    finished: bool,
     id: u64,
     x_subscription_id: Arc<str>,
-    ref_count: u32, // check in worker with acquiring mutex
     commitment: CommitmentLevel,
     head: u64,
     filter: Option<Filter>,
@@ -690,9 +674,9 @@ impl SubscribeClientState {
         );
 
         Self {
+            finished: false,
             id,
             x_subscription_id,
-            ref_count: 1,
             commitment: CommitmentLevel::default(),
             head: 0,
             filter: None,
@@ -775,6 +759,13 @@ impl ReceiverStream {
             client,
             finished: false,
         }
+    }
+}
+
+impl Drop for ReceiverStream {
+    fn drop(&mut self) {
+        let mut state = self.client.state_lock();
+        state.finished = true;
     }
 }
 
