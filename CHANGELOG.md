@@ -12,6 +12,22 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+### Features
+
+### Breaking
+
+- richat-cli-v4.6.0
+- richat-client-v3.6.0
+- richat-filter-v3.6.0
+- richat-plugin-agave-v3.6.0
+- richat-proto-v3.2.0
+- richat-v3.7.0
+- richat-shared-v3.6.0
+
+## 2025-07-10
+
+### Fixes
+
 - filter: fix memcmp decode data in the config ([#118](https://github.com/lamports-dev/richat/pull/118))
 - richat: do not send Block message to connected richat ([#122](https://github.com/lamports-dev/richat/pull/122))
 - plugin: disable accounts on snapshot loading ([#124](https://github.com/lamports-dev/richat/pull/124))
