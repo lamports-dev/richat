@@ -614,6 +614,7 @@ struct FuzzTransactionStatusMeta {
     loaded_addresses: FuzzLoadedAddresses,
     return_data: Option<FuzzTransactionReturnData>,
     compute_units_consumed: Option<u64>,
+    cost_units: Option<u64>,
 }
 
 impl From<FuzzTransactionStatusMeta> for TransactionStatusMeta {
@@ -639,6 +640,7 @@ impl From<FuzzTransactionStatusMeta> for TransactionStatusMeta {
             loaded_addresses: fuzz.loaded_addresses.into(),
             return_data: fuzz.return_data.map(Into::into),
             compute_units_consumed: fuzz.compute_units_consumed,
+            cost_units: fuzz.cost_units,
         }
     }
 }
