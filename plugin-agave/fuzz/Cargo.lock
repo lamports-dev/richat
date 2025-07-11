@@ -3003,7 +3003,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "richat-plugin-agave"
-version = "3.6.0"
+version = "4.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3049,7 +3049,7 @@ dependencies = [
 
 [[package]]
 name = "richat-proto"
-version = "3.2.0"
+version = "4.0.0"
 dependencies = [
  "anyhow",
  "cargo-lock",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "3.6.0"
+version = "4.0.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
