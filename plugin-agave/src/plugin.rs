@@ -32,6 +32,18 @@ pub enum PluginNotification {
     BlockMeta,
 }
 
+impl From<&ProtobufMessage<'_>> for PluginNotification {
+    fn from(value: &ProtobufMessage<'_>) -> Self {
+        match value {
+            ProtobufMessage::Account { .. } => Self::Account,
+            ProtobufMessage::Slot { .. } => Self::Slot,
+            ProtobufMessage::Transaction { .. } => Self::Transaction,
+            ProtobufMessage::Entry { .. } => Self::Entry,
+            ProtobufMessage::BlockMeta { .. } => Self::BlockMeta,
+        }
+    }
+}
+
 struct PluginTask(BoxFuture<'static, Result<(), JoinError>>);
 
 unsafe impl Sync for PluginTask {}
@@ -310,6 +322,7 @@ impl GeyserPlugin for Plugin {
     }
 }
 
+#[cfg(feature = "plugin")]
 #[no_mangle]
 #[allow(improper_ctypes_definitions)]
 /// # Safety

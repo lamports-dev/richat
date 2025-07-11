@@ -185,7 +185,7 @@ impl Sender {
         }
         item.pos = pos;
         item.slot = slot;
-        item.data = Some((message.get_plugin_notification(), Arc::new(data)));
+        item.data = Some((PluginNotification::from(&message), Arc::new(data)));
         drop(item);
 
         // remove not-complete slots
