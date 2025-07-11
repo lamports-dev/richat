@@ -1010,6 +1010,7 @@ impl MessageBlockMeta {
         }
     }
 
+    // clippy bug?
     #[allow(clippy::missing_const_for_fn)]
     pub fn blockhash(&self) -> &str {
         match self {

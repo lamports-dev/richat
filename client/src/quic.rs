@@ -510,6 +510,7 @@ impl QuicClientStream {
         SubscribeStream::new(self.boxed())
     }
 
+    // clippy bug?
     #[allow(clippy::missing_const_for_fn)]
     pub fn get_version(&self) -> &str {
         &self.version
