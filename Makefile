@@ -25,6 +25,8 @@ ci-check:
 		cargo check -p $$package --all-targets ; \
 	done
 	cargo check -p richat-plugin-agave --all-targets --all-features
+	cargo check -p richat-plugin-agave --all-targets --no-default-features
+	cargo check -p richat-plugin-agave --all-targets --no-default-features --features="plugin"
 	cargo check -p richat-shared --all-targets --no-default-features --features="config"
 	cargo check -p richat-shared --all-targets --no-default-features --features="five8"
 	cargo check -p richat-shared --all-targets --no-default-features --features="jsonrpc"

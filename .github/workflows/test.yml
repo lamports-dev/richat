@@ -57,7 +57,10 @@ jobs:
         run: cargo check -p richat-filter --all-targets
 
       - name: check features in `richat-plugin-agave`
-        run: cargo check -p richat-plugin-agave --all-targets
+        run: cargo check -p richat-plugin-agave --all-targets --no-default-features
+
+      - name: check features in `richat-plugin-agave`
+        run: cargo check -p richat-plugin-agave --all-targets --no-default-features --features="plugin"
 
       - name: check features in `richat-plugin-agave` with all features
         run: cargo check -p richat-plugin-agave --all-targets --all-features
