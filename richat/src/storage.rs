@@ -324,18 +324,13 @@ impl Storage {
                 }
             }
 
-            match tx.try_send((gindex, batch)) {
-                Ok(()) => {
-                    batch = WriteBatch::new();
-                }
-                Err(mpsc::TrySendError::Full((_index, value))) => {
-                    batch = value;
-                }
-                Err(mpsc::TrySendError::Disconnected(_)) => {
-                    break;
-                }
-            }
+            batch = match tx.try_send((gindex, batch)) {
+                Ok(()) => WriteBatch::new(),
+                Err(mpsc::TrySendError::Full((_index, value))) => value,
+                Err(mpsc::TrySendError::Disconnected((_index, value))) => value,
+            };
         }
+        let _ = tx.send((gindex, batch));
     }
 
     fn spawn_write(db: Arc<DB>, rx: mpsc::Receiver<(u64, WriteBatch)>) -> anyhow::Result<()> {
@@ -462,7 +457,7 @@ impl Storage {
                         Ok(item) => {
                             req.state.messages.push_back(item);
                             messages_decoded += 1;
-                            if messages_decoded > messages_decode_per_tick {
+                            if messages_decoded >= messages_decode_per_tick {
                                 break;
                             }
                         }
