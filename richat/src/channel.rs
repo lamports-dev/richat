@@ -936,7 +936,7 @@ impl SharedChannel {
             let mid = head + half;
 
             let idx = self.get_idx(mid);
-            let item = self.buffer_idx_read(idx);
+            let item = self.buffer_idx(idx);
             if item.pos != mid || item.reply_index == u64::MAX {
                 head += half;
             }
@@ -949,7 +949,7 @@ impl SharedChannel {
 
         // verify head
         let idx = self.get_idx(head);
-        let item = self.buffer_idx_read(idx);
+        let item = self.buffer_idx(idx);
         if item.pos != head || item.reply_index == u64::MAX {
             return None;
         }
@@ -963,7 +963,7 @@ impl SharedChannel {
             let mid = base + half;
 
             let idx = self.get_idx(mid);
-            let item = self.buffer_idx_read(idx);
+            let item = self.buffer_idx(idx);
             base = match item.reply_index.cmp(&replay_index) {
                 std::cmp::Ordering::Equal => return Some(item.pos),
                 std::cmp::Ordering::Less => mid,
@@ -974,7 +974,7 @@ impl SharedChannel {
         }
 
         let idx = self.get_idx(base);
-        let item = self.buffer_idx_read(idx);
+        let item = self.buffer_idx(idx);
         (item.reply_index == replay_index).then_some(item.pos)
     }
 
