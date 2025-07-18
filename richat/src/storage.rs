@@ -69,6 +69,16 @@ impl MessageIndexValue {
         encode_varint(slot, buf);
         message.encode(buf);
     }
+
+    fn decode(slice: &[u8], parser: MessageParserEncoding) -> anyhow::Result<(Slot, Message)> {
+        let slot = slice[0..8]
+            .try_into()
+            .map(Slot::from_be_bytes)
+            .context("invalid slice size, failed to decode slot")?;
+        let message =
+            Message::parse(slice[8..].to_vec(), parser).context("failed to parse message")?;
+        Ok((slot, message))
+    }
 }
 
 #[derive(Debug)]
@@ -530,8 +540,7 @@ impl Storage {
             .map(move |item| {
                 let (key, value) = item.context("failed to read next row")?;
                 let index = MessageIndex::decode(&key).context("failed to decode key")?;
-                let message =
-                    Message::parse(value.to_vec(), parser).context("failed to parse message")?;
+                let (_slot, message) = MessageIndexValue::decode(&value, parser)?;
                 Ok((index, message.into()))
             })
     }
