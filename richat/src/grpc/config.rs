@@ -46,6 +46,8 @@ pub struct ConfigAppsGrpcStream {
     pub messages_len_max: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub messages_max_per_tick: usize,
+    #[serde(deserialize_with = "deserialize_num_str")]
+    pub messages_replay_len_max: usize,
     #[serde(with = "humantime_serde")]
     pub ping_iterval: Duration,
 }
@@ -55,6 +57,7 @@ impl Default for ConfigAppsGrpcStream {
         Self {
             messages_len_max: 16 * 1024 * 1024,
             messages_max_per_tick: 100,
+            messages_replay_len_max: 256 * 1024 * 1024,
             ping_iterval: Duration::from_secs(15),
         }
     }

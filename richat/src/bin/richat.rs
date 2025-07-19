@@ -7,7 +7,7 @@ use {
     },
     richat::{
         channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
-        richat::server::RichatServer, source::Subscriptions,
+        richat::server::RichatServer, source::Subscriptions, version::VERSION,
     },
     richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
@@ -58,27 +58,35 @@ fn main() -> anyhow::Result<()> {
 
     // Setup logs
     richat::log::setup(config.logs.json)?;
+    info!("version: {} / {}", VERSION.version, VERSION.git);
 
     // Shutdown channel/flag
     let shutdown = Shutdown::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let messages = Messages::new(
+    let (mut messages, mut threads) = Messages::new(
+        config.channel.get_messages_parser()?,
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
         config.apps.pubsub.is_some(),
-    );
+        shutdown.clone(),
+    )?;
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let mut messages = messages.to_sender();
-            || {
+            let (mut messages, replay_for_storage, replay_from_slot) = messages.to_sender()?;
+            move || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let streams_total = config.channel.sources.len();
-                    let mut stream = Subscriptions::new(config.channel.sources).await?;
+                    let mut stream = Subscriptions::new(
+                        config.channel.sources,
+                        replay_for_storage,
+                        replay_from_slot,
+                    )
+                    .await?;
                     tokio::pin!(shutdown);
                     loop {
                         let (index, message) = tokio::select! {
@@ -101,6 +109,7 @@ fn main() -> anyhow::Result<()> {
                 })
             }
         })?;
+    threads.push(("richatSource".to_owned(), Some(source_jh)));
 
     // Create runtime for incoming connections
     let apps_jh = thread::Builder::new().name("richatApp".to_owned()).spawn({
@@ -145,9 +154,9 @@ fn main() -> anyhow::Result<()> {
             })
         }
     })?;
+    threads.push(("richatApp".to_owned(), Some(apps_jh)));
 
     let mut signals = Signals::new([SIGINT])?;
-    let mut threads = [("source", Some(source_jh)), ("apps", Some(apps_jh))];
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {
