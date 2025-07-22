@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "4.0.0"
+version = "4.0.1"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"

@@ -336,7 +336,10 @@ impl Sender {
                 Message::Entry(msg) => {
                     let index = msg.index() as usize;
                     if dedup.entries.len() <= index {
-                        dedup.entries.resize(dedup.entries.len() * 2, false);
+                        dedup.entries.resize(
+                            index.next_power_of_two().max(dedup.entries.len() * 2),
+                            false,
+                        );
                     }
                     if !dedup.entries[index] {
                         dedup.entries[index] = true;

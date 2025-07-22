@@ -14,9 +14,17 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
-- plugin: add feature `plugin` ([#129](https://github.com/lamports-dev/richat/pull/129))
-
 ### Breaking
+
+## 2025-07-22
+
+### Fixes
+
+- richat: fix allocation for entries during dedup ([#130](https://github.com/lamports-dev/richat/pull/130))
+
+### Features
+
+- plugin: add feature `plugin` ([#129](https://github.com/lamports-dev/richat/pull/129))
 
 ## 2025-07-10
 
