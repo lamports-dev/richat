@@ -16,6 +16,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- cli: add support of SubscribeReplayInfo ([#133](https://github.com/lamports-dev/richat/pull/133))
+
 ### Breaking
 
 ## 2025-08-06

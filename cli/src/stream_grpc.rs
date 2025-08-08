@@ -162,6 +162,10 @@ impl ArgsAppStreamGrpc {
 
                 return geyser_subscribe(client, request, stats, verify_encoding).await;
             }
+            Action::SubscribeReplayInfo => client
+                .subscribe_replay_info()
+                .await
+                .map(|response| info!("response: {response:?}")),
             Action::Ping { count } => client
                 .ping(count)
                 .await
@@ -212,6 +216,7 @@ impl From<ArgsCommitment> for CommitmentLevel {
 #[derive(Debug, Clone, Subcommand)]
 enum Action {
     Subscribe(Box<ActionSubscribe>),
+    SubscribeReplayInfo,
     Ping {
         #[clap(long, short, default_value_t = 0)]
         count: i32,
