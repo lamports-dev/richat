@@ -18,7 +18,7 @@ yellowstone-grpc-proto = { workspace = true }
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
 protobuf-src = { workspace = true }
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [features]
 default = []

@@ -5,7 +5,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn generate_transport() -> anyhow::Result<()> {
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(false)
         .build_server(false)
         .compile_protos(&["proto/richat.proto"], &["proto"])?;

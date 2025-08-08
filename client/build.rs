@@ -36,7 +36,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("SubscribeReplayInfo")
                 .input_type("richat_proto::geyser::SubscribeReplayInfoRequest")
                 .output_type("richat_proto::geyser::SubscribeReplayInfoResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -45,7 +45,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("Ping")
                 .input_type("richat_proto::geyser::PingRequest")
                 .output_type("richat_proto::geyser::PongResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -54,7 +54,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("GetLatestBlockhash")
                 .input_type("richat_proto::geyser::GetLatestBlockhashRequest")
                 .output_type("richat_proto::geyser::GetLatestBlockhashResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -63,7 +63,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("GetBlockHeight")
                 .input_type("richat_proto::geyser::GetBlockHeightRequest")
                 .output_type("richat_proto::geyser::GetBlockHeightResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -72,7 +72,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("GetSlot")
                 .input_type("richat_proto::geyser::GetSlotRequest")
                 .output_type("richat_proto::geyser::GetSlotResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -81,7 +81,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("IsBlockhashValid")
                 .input_type("richat_proto::geyser::IsBlockhashValidRequest")
                 .output_type("richat_proto::geyser::IsBlockhashValidResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .method(
@@ -90,7 +90,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("GetVersion")
                 .input_type("richat_proto::geyser::GetVersionRequest")
                 .output_type("richat_proto::geyser::GetVersionResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .build();

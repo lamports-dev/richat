@@ -34,7 +34,7 @@ use {
     tokio::task::JoinError,
     tonic::{
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        service::interceptor::interceptor,
+        service::interceptor::InterceptorLayer,
         transport::{
             server::{Server, TcpIncoming},
             Identity, ServerTlsConfig,
@@ -166,15 +166,13 @@ impl ConfigGrpcServer {
 
     pub fn create_server_builder(&self) -> Result<(TcpIncoming, Server), CreateServerError> {
         // Bind service address
-        let incoming = TcpIncoming::new(
-            self.endpoint,
-            self.server_tcp_nodelay,
-            self.server_tcp_keepalive,
-        )
-        .map_err(|error| CreateServerError::Bind {
-            error,
-            endpoint: self.endpoint,
-        })?;
+        let incoming = TcpIncoming::bind(self.endpoint)
+            .map_err(|error| CreateServerError::Bind {
+                error,
+                endpoint: self.endpoint,
+            })?
+            .with_nodelay(Some(self.server_tcp_nodelay))
+            .with_keepalive(self.server_tcp_keepalive);
 
         // Create service
         let mut server_builder = Server::builder();
@@ -206,7 +204,7 @@ impl ConfigGrpcServer {
 pub enum CreateServerError {
     #[error("failed to bind {endpoint}: {error}")]
     Bind {
-        error: Box<dyn std::error::Error + Send + Sync>,
+        error: std::io::Error,
         endpoint: SocketAddr,
     },
     #[error("failed to apply tls_config: {0}")]
@@ -265,7 +263,7 @@ where
         // Spawn server
         Ok(tokio::spawn(async move {
             if let Err(error) = server_builder
-                .layer(interceptor(move |request: Request<()>| {
+                .layer(InterceptorLayer::new(move |request: Request<()>| {
                     if config.x_tokens.is_empty() {
                         Ok(request)
                     } else {

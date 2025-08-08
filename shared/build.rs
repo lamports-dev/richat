@@ -32,7 +32,7 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
                 .route_name("GetVersion")
                 .input_type("richat_proto::geyser::GetVersionRequest")
                 .output_type("richat_proto::geyser::GetVersionResponse")
-                .codec_path("tonic::codec::ProstCodec")
+                .codec_path("tonic_prost::ProstCodec")
                 .build(),
         )
         .build();

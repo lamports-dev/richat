@@ -17,7 +17,7 @@ hyper = { workspace = true }
 hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 metrics = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "net"] }
 tracing = { workspace = true }
 
 [lints]

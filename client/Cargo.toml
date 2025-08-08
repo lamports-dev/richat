@@ -28,6 +28,7 @@ solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
+tonic-prost = { workspace = true }
 tracing = { workspace = true }
 webpki-roots = { workspace = true }
 

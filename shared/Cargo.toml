@@ -41,7 +41,8 @@ solana-rpc-client-api = { workspace = true, optional = true }
 solana-sdk = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
-tonic = { workspace = true, features = ["tls", "gzip", "zstd"], optional = true }
+tonic = { workspace = true, features = ["tls-native-roots", "gzip", "zstd"], optional = true }
+tonic-prost = { workspace = true }
 tracing = { workspace = true, optional = true }
 
 [build-dependencies]
