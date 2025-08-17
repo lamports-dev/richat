@@ -55,6 +55,16 @@ channel:
   config:
     max_messages: 2_097_152
     max_bytes: 16_106_127_360
+    # storage:
+    #   path: ./db
+    #   max_slots: 1024
+    #   serialize_affinity: null
+    #   write_affinity: null
+    #   messages_compression: none # none, snappy, zlib, bz2, lz4, lz4hc, zstd
+    #   replay_inflight_max: 1024
+    #   replay_threads: 4
+    #   replay_affinity: null
+    #   replay_decode_per_tick: 256
 apps:
   tokio:
     worker_threads: 2
@@ -119,6 +129,7 @@ apps:
     stream:
       messages_len_max: 16_777_216
       messages_max_per_tick: 100
+      messages_replay_len_max: 268_435_456
       ping_iterval: 15s
     unary:
       enabled: true

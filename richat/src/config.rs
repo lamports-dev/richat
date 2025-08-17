@@ -11,8 +11,14 @@ use {
         config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
         shutdown::Shutdown,
     },
+    rocksdb::DBCompressionType,
     serde::Deserialize,
-    std::{fs, path::Path, thread::Builder},
+    std::{
+        collections::HashSet,
+        fs,
+        path::{Path, PathBuf},
+        thread::Builder,
+    },
     tokio::time::{sleep, Duration},
 };
 
@@ -57,6 +63,23 @@ pub struct ConfigChannel {
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
     pub config: ConfigChannelInner,
+}
+
+impl ConfigChannel {
+    pub fn get_messages_parser(&self) -> anyhow::Result<MessageParserEncoding> {
+        let mut set = HashSet::new();
+        for source in self.sources.iter() {
+            set.insert(match source {
+                ConfigChannelSource::Quic { general, .. } => general.parser,
+                ConfigChannelSource::Grpc { general, .. } => general.parser,
+            });
+        }
+        anyhow::ensure!(
+            set.len() == 1,
+            "multiple messages parsers: {set:?} (only same parser can be used)"
+        );
+        Ok(set.into_iter().next().unwrap())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -135,6 +158,7 @@ pub struct ConfigChannelInner {
     pub max_messages: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_bytes: usize,
+    pub storage: Option<ConfigStorage>,
 }
 
 impl Default for ConfigChannelInner {
@@ -142,6 +166,86 @@ impl Default for ConfigChannelInner {
         Self {
             max_messages: 2_097_152, // aligned to power of 2, ~20k/slot should give us ~100 slots
             max_bytes: 15 * 1024 * 1024 * 1024, // 15GiB with ~150MiB/slot should give us ~100 slots
+            storage: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigStorage {
+    pub path: PathBuf,
+    #[serde(
+        default = "ConfigStorage::default_max_slots",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub max_slots: usize,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub serialize_affinity: Option<Vec<usize>>,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub write_affinity: Option<Vec<usize>>,
+    #[serde(default)]
+    pub messages_compression: ConfigStorageRocksdbCompression,
+    #[serde(
+        default = "ConfigStorage::default_replay_channel_capacity",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub replay_inflight_max: usize,
+    #[serde(
+        default = "ConfigStorage::default_replay_threads",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub replay_threads: usize,
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub replay_affinity: Option<Vec<usize>>,
+    #[serde(
+        default = "ConfigStorage::default_replay_decode_per_tick",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub replay_decode_per_tick: usize,
+}
+
+impl ConfigStorage {
+    const fn default_max_slots() -> usize {
+        1024
+    }
+
+    const fn default_replay_channel_capacity() -> usize {
+        1024
+    }
+
+    const fn default_replay_threads() -> usize {
+        4
+    }
+
+    const fn default_replay_decode_per_tick() -> usize {
+        256
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "lowercase")]
+pub enum ConfigStorageRocksdbCompression {
+    #[default]
+    None,
+    Snappy,
+    Zlib,
+    Bz2,
+    Lz4,
+    Lz4hc,
+    Zstd,
+}
+
+impl From<ConfigStorageRocksdbCompression> for DBCompressionType {
+    fn from(value: ConfigStorageRocksdbCompression) -> Self {
+        match value {
+            ConfigStorageRocksdbCompression::None => Self::None,
+            ConfigStorageRocksdbCompression::Snappy => Self::Snappy,
+            ConfigStorageRocksdbCompression::Zlib => Self::Zlib,
+            ConfigStorageRocksdbCompression::Bz2 => Self::Bz2,
+            ConfigStorageRocksdbCompression::Lz4 => Self::Lz4,
+            ConfigStorageRocksdbCompression::Lz4hc => Self::Lz4hc,
+            ConfigStorageRocksdbCompression::Zstd => Self::Zstd,
         }
     }
 }

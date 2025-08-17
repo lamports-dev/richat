@@ -24,7 +24,12 @@ use {
     solana_transaction_status::{
         ConfirmedBlock, TransactionWithStatusMeta, VersionedTransactionWithStatusMeta,
     },
-    std::{collections::HashSet, ops::Range, sync::Arc},
+    std::{
+        borrow::Cow,
+        collections::HashSet,
+        ops::{Deref, Range},
+        sync::Arc,
+    },
     thiserror::Error,
 };
 
@@ -46,7 +51,7 @@ pub enum MessageParseError {
     IncompatibleEncoding,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageParserEncoding {
     /// Use optimized parser to extract only required fields
@@ -90,7 +95,10 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn parse(data: Vec<u8>, parser: MessageParserEncoding) -> Result<Self, MessageParseError> {
+    pub fn parse(
+        data: Cow<'_, [u8]>,
+        parser: MessageParserEncoding,
+    ) -> Result<Self, MessageParseError> {
         match parser {
             MessageParserEncoding::Limited => MessageParserLimited::parse(data),
             MessageParserEncoding::Prost => MessageParserProst::parse(data),
@@ -180,7 +188,8 @@ impl Message {
 pub struct MessageParserLimited;
 
 impl MessageParserLimited {
-    pub fn parse(data: Vec<u8>) -> Result<Message, MessageParseError> {
+    pub fn parse(data: Cow<'_, [u8]>) -> Result<Message, MessageParseError> {
+        let data = data.into_owned();
         let update = SubscribeUpdateLimitedDecode::decode(data.as_slice())?;
         let created_at = update
             .created_at
@@ -327,8 +336,8 @@ impl MessageParserLimited {
 pub struct MessageParserProst;
 
 impl MessageParserProst {
-    pub fn parse(data: Vec<u8>) -> Result<Message, MessageParseError> {
-        let update = SubscribeUpdate::decode(data.as_slice())?;
+    pub fn parse(data: Cow<'_, [u8]>) -> Result<Message, MessageParseError> {
+        let update = SubscribeUpdate::decode(data.deref())?;
         let encoded_len = data.len();
 
         let created_at = update
@@ -682,6 +691,17 @@ impl MessageAccount {
                 decode_varint(&mut buffer).expect("already verified")
             }
             Self::Prost { account, .. } => account.write_version,
+        }
+    }
+
+    pub fn txn_signature(&self) -> Option<&[u8]> {
+        match self {
+            MessageAccount::Limited {
+                txn_signature_offset,
+                buffer,
+                ..
+            } => txn_signature_offset.map(|offset| &buffer.as_slice()[offset..offset + 64]),
+            MessageAccount::Prost { account, .. } => account.txn_signature.as_deref(),
         }
     }
 

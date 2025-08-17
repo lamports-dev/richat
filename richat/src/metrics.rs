@@ -18,6 +18,9 @@ pub const CHANNEL_SLOT: &str = "channel_slot"; // commitment
 pub const CHANNEL_MESSAGES_TOTAL: &str = "channel_messages_total";
 pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
 pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
+pub const CHANNEL_STORAGE_WRITE_SER_INDEX: &str = "channel_storage_write_ser_index";
+pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
+pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -25,6 +28,8 @@ pub const GRPC_SUBSCRIBE_TOTAL: &str = "grpc_subscribe_total"; // x_subscription
 pub const GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL: &str = "grpc_subscribe_messages_count_total"; // x_subscription_id, message
 pub const GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL: &str = "grpc_subscribe_messages_bytes_total"; // x_subscription_id, message
 pub const GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL: &str = "grpc_subscribe_cpu_seconds_total"; // x_subscription_id
+pub const GRPC_SUBSCRIBE_REPLAY_DISK_SECONDS_TOTAL: &str =
+    "grpc_subscribe_replay_disk_cpu_seconds_total"; // x_subscription_id
 pub const PUBSUB_SLOT: &str = "pubsub_slot"; // commitment
 pub const PUBSUB_CACHED_SIGNATURES_TOTAL: &str = "pubsub_cached_signatures_total";
 pub const PUBSUB_STORED_MESSAGES_COUNT_TOTAL: &str = "pubsub_stored_messages_count_total";
@@ -57,6 +62,15 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_gauge!(CHANNEL_MESSAGES_TOTAL, "Total number of messages in channel");
     describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
     describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
+    describe_counter!(
+        CHANNEL_STORAGE_WRITE_SER_INDEX,
+        "Storage write serialize index"
+    );
+    describe_counter!(CHANNEL_STORAGE_WRITE_INDEX, "Storage write index");
+    describe_gauge!(
+        CHANNEL_STORAGE_SLOTS_TOTAL,
+        "Total number of slots in storage"
+    );
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(GRPC_BLOCK_META_QUEUE_SIZE, "Number of gRPC requests to block meta data");
     describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");
@@ -64,6 +78,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL, "Number of gRPC messages in subscriptions by type");
     describe_counter!(GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL, "Total size of gRPC messages in subscriptions by type");
     describe_gauge!(GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL, "CPU consumption of gRPC filters in subscriptions");
+    describe_gauge!(GRPC_SUBSCRIBE_REPLAY_DISK_SECONDS_TOTAL, "CPU consumption of gRPC filters in subscriptions on replay from disk");
     describe_gauge!(PUBSUB_SLOT, "Latest slot handled in PubSub by commitment");
     describe_gauge!(PUBSUB_CACHED_SIGNATURES_TOTAL, "Number of cached signatures");
     describe_gauge!(PUBSUB_STORED_MESSAGES_COUNT_TOTAL, "Number of stored filtered messages in cache");

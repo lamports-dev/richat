@@ -55,6 +55,7 @@ maplit = "1.0.2"
 metrics = "0.24.1"
 metrics-exporter-prometheus = { version = "0.16.2", default-features = false }
 pin-project-lite = "0.2.15"
+num_cpus = "1.16.0"
 prost = "0.14.1"
 prost-types = "0.14.1"
 prost_011 = { package = "prost", version = "0.11.9" }
@@ -70,6 +71,7 @@ richat-metrics = { path = "metrics", version = "1.0.0" }
 richat-plugin-agave = { path = "plugin-agave", version = "4.1.0" }
 richat-proto = { path = "proto", version = "4.0.0" }
 richat-shared = { path = "shared", version = "4.1.0", default-features = false }
+rocksdb = "0.24.0"
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
@@ -84,6 +86,7 @@ solana-account = "~2.2.1"
 solana-account-decoder = "~2.3.3"
 solana-client = "~2.3.3"
 solana-logger = "~2.3.1"
+solana-nohash-hasher = "0.2.1"
 solana-rpc-client-api = "~2.3.3"
 solana-sdk = "~2.3.1"
 solana-storage-proto = "~2.3.3"

@@ -27,24 +27,31 @@ pub async fn handle_stream(
     pb_multi: Arc<MultiProgress>,
     stats: bool,
 ) -> anyhow::Result<()> {
+    let mut pb_tip_c = (None, None, None);
+    let pub_tip = {
+        let pb = pb_multi.add(ProgressBar::no_length());
+        pb.set_style(ProgressStyle::with_template("tip: {msg}")?);
+        Ok::<_, anyhow::Error>(pb)
+    }?;
+
     let mut pb_accounts_c = 0;
-    let pb_accounts = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("accounts"))?;
+    let pb_accounts = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("accounts"))?;
     let mut pb_slots_c = 0;
-    let pb_slots = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("slots"))?;
+    let pb_slots = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("slots"))?;
     let mut pb_txs_c = 0;
-    let pb_txs = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("transactions"))?;
+    let pb_txs = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("transactions"))?;
     let mut pb_txs_st_c = 0;
-    let pb_txs_st = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("transactions statuses"))?;
+    let pb_txs_st = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("transactions statuses"))?;
     let mut pb_entries_c = 0;
-    let pb_entries = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("entries"))?;
+    let pb_entries = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("entries"))?;
     let mut pb_blocks_mt_c = 0;
-    let pb_blocks_mt = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("blocks meta"))?;
+    let pb_blocks_mt = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("blocks meta"))?;
     let mut pb_blocks_c = 0;
-    let pb_blocks = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("blocks"))?;
+    let pb_blocks = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("blocks"))?;
     let mut pb_pp_c = 0;
-    let pb_pp = crate_progress_bar(&pb_multi, ProgressBarTpl::Msg("ping/pong"))?;
+    let pb_pp = create_progress_bar(&pb_multi, ProgressBarTpl::Msg("ping/pong"))?;
     let mut pb_total_c = 0;
-    let pb_total = crate_progress_bar(&pb_multi, ProgressBarTpl::Total)?;
+    let pb_total = create_progress_bar(&pb_multi, ProgressBarTpl::Total)?;
 
     tokio::pin!(stream);
     while let Some(message) = stream.next().await {
@@ -60,7 +67,35 @@ pub async fn handle_stream(
             let encoded_len = msg.encoded_len() as u64;
             let (pb_c, pb) = match msg.update_oneof {
                 Some(UpdateOneof::Account(_)) => (&mut pb_accounts_c, &pb_accounts),
-                Some(UpdateOneof::Slot(_)) => (&mut pb_slots_c, &pb_slots),
+                Some(UpdateOneof::Slot(msg)) => {
+                    let status =
+                        SlotStatus::try_from(msg.status).context("failed to decode commitment")?;
+                    if let Some(slot) = match status {
+                        SlotStatus::SlotProcessed => Some(&mut pb_tip_c.2),
+                        SlotStatus::SlotConfirmed => Some(&mut pb_tip_c.1),
+                        SlotStatus::SlotFinalized => Some(&mut pb_tip_c.0),
+                        _ => None,
+                    } {
+                        *slot = Some(msg.slot);
+                        pub_tip.set_message(format!(
+                            "{} / {} / {}",
+                            pb_tip_c
+                                .0
+                                .map(|x| x.to_string())
+                                .unwrap_or("null".to_owned()),
+                            pb_tip_c
+                                .1
+                                .map(|x| x.to_string())
+                                .unwrap_or("null".to_owned()),
+                            pb_tip_c
+                                .2
+                                .map(|x| x.to_string())
+                                .unwrap_or("null".to_owned()),
+                        ));
+                    }
+
+                    (&mut pb_slots_c, &pb_slots)
+                }
                 Some(UpdateOneof::Transaction(_)) => (&mut pb_txs_c, &pb_txs),
                 Some(UpdateOneof::TransactionStatus(_)) => (&mut pb_txs_st_c, &pb_txs_st),
                 Some(UpdateOneof::Entry(_)) => (&mut pb_entries_c, &pb_entries),
@@ -170,7 +205,7 @@ enum ProgressBarTpl {
     Total,
 }
 
-fn crate_progress_bar(
+fn create_progress_bar(
     pb: &MultiProgress,
     pb_t: ProgressBarTpl,
 ) -> Result<ProgressBar, indicatif::style::TemplateError> {

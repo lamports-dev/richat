@@ -17,7 +17,7 @@ use {
         },
     },
     arrayvec::ArrayVec,
-    prost::{encoding::decode_varint, Message as _},
+    prost::{bytes::BufMut, encoding::decode_varint, Message as _},
     richat_proto::geyser::{
         subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdateAccount,
         SubscribeUpdateAccountInfo, SubscribeUpdateBlock, SubscribeUpdateSlot,
@@ -745,7 +745,13 @@ pub struct FilteredUpdate<'a> {
 }
 
 impl FilteredUpdate<'_> {
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode_to_vec(&self) -> Vec<u8> {
+        let mut bytes = vec![];
+        self.encode(&mut bytes);
+        bytes
+    }
+
+    pub fn encode(&self, buf: &mut impl BufMut) {
         match &self.filtered_update {
             FilteredUpdateType::Slot { message } => match message {
                 MessageSlot::Limited {
@@ -760,7 +766,7 @@ impl FilteredUpdate<'_> {
                     ),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageSlot::Prost {
                     slot,
                     parent,
@@ -778,7 +784,7 @@ impl FilteredUpdate<'_> {
                     }),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::Account {
                 message,
@@ -828,7 +834,7 @@ impl FilteredUpdate<'_> {
                     }),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageAccount::Prost {
                     account,
                     slot,
@@ -853,7 +859,7 @@ impl FilteredUpdate<'_> {
                     }),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::Transaction { message } => match message {
                 MessageTransaction::Limited {
@@ -868,7 +874,7 @@ impl FilteredUpdate<'_> {
                     ),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageTransaction::Prost {
                     transaction,
                     slot,
@@ -882,7 +888,7 @@ impl FilteredUpdate<'_> {
                     }),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::TransactionStatus { message } => match message {
                 MessageTransaction::Limited {
@@ -905,7 +911,7 @@ impl FilteredUpdate<'_> {
                     ),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageTransaction::Prost {
                     signature,
                     error,
@@ -924,7 +930,7 @@ impl FilteredUpdate<'_> {
                     }),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::Entry { message } => match message {
                 MessageEntry::Limited {
@@ -939,7 +945,7 @@ impl FilteredUpdate<'_> {
                     ),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageEntry::Prost {
                     entry, created_at, ..
                 } => SubscribeUpdateMessageProst {
@@ -947,7 +953,7 @@ impl FilteredUpdate<'_> {
                     update: UpdateOneof::Entry(entry.clone()),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::BlockMeta { message } => match message {
                 MessageBlockMeta::Limited {
@@ -962,7 +968,7 @@ impl FilteredUpdate<'_> {
                     ),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
                 MessageBlockMeta::Prost {
                     block_meta,
                     created_at,
@@ -972,7 +978,7 @@ impl FilteredUpdate<'_> {
                     update: UpdateOneof::BlockMeta(block_meta.clone()),
                     created_at: *created_at,
                 }
-                .encode_to_vec(),
+                .encode(buf),
             },
             FilteredUpdateType::Block {
                 message,
@@ -1061,7 +1067,7 @@ impl FilteredUpdate<'_> {
                         }),
                         created_at,
                     }
-                    .encode_to_vec()
+                    .encode(buf)
                 }
                 MessageBlockCreatedAt::Prost(created_at) => {
                     let block_meta = match message.block_meta.as_ref() {
@@ -1124,10 +1130,11 @@ impl FilteredUpdate<'_> {
                         }),
                         created_at,
                     }
-                    .encode_to_vec()
+                    .encode(buf)
                 }
             },
         }
+        .expect("valid encode");
     }
 }
 
