@@ -728,7 +728,7 @@ impl SenderShared {
     fn new(shared: &Arc<SharedChannel>, max_messages: usize, max_bytes: usize) -> Self {
         Self {
             shared: Arc::clone(shared),
-            head: max_messages as u64,
+            head: max_messages as u64 + 1,
             tail: max_messages as u64,
             bytes_total: 0,
             bytes_max: max_bytes,
@@ -736,17 +736,30 @@ impl SenderShared {
     }
 
     fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
-        let mut slots_lock = self.shared.slots_lock();
         let mut removed_max_slot = None;
 
-        // drop messages by extra bytes
-        self.bytes_total += message.size();
-        while self.bytes_total >= self.bytes_max {
-            assert!(
-                self.head < self.tail,
-                "head overflow tail on remove process by bytes limit"
-            );
+        let mut slots_lock = self.shared.slots_lock();
 
+        // bump current tail
+        self.tail = self.tail.wrapping_add(1);
+
+        // lock and update item
+        self.bytes_total += message.size();
+        let idx = self.shared.get_idx(self.tail);
+        let mut item = self.shared.buffer_idx(idx);
+        if let Some(message) = item.data.take() {
+            self.head = self.head.wrapping_add(1);
+            self.bytes_total -= message.size();
+            removed_max_slot = Some(item.slot);
+        }
+        item.replay_index = replay_index.unwrap_or(u64::MAX);
+        item.pos = self.tail;
+        item.slot = slot;
+        item.data = Some(message);
+        drop(item);
+
+        // drop messages by extra bytes
+        while self.bytes_total >= self.bytes_max && self.head < self.tail {
             let idx = self.shared.get_idx(self.head);
             let mut item = self.shared.buffer_idx(idx);
             let Some(message) = item.data.take() else {
@@ -761,38 +774,13 @@ impl SenderShared {
             });
         }
 
-        // bump current tail
-        let pos = self.tail;
-        self.tail = self.tail.wrapping_add(1);
-
-        // get item
-        let idx = self.shared.get_idx(pos);
-        let mut item = self.shared.buffer_idx(idx);
-
-        // drop existed message
-        if let Some(message) = item.data.take() {
-            self.head = self.head.wrapping_add(1);
-            self.bytes_total -= message.size();
-            removed_max_slot = Some(match removed_max_slot {
-                Some(slot) => item.slot.max(slot),
-                None => item.slot,
-            });
-        }
-
-        // store new message
-        item.reply_index = replay_index.unwrap_or(u64::MAX);
-        item.pos = pos;
-        item.slot = slot;
-        item.data = Some(message);
-        drop(item);
-
         // store new position for receivers
-        self.shared.tail.store(pos, Ordering::Relaxed);
+        self.shared.tail.store(self.tail, Ordering::Relaxed);
 
         // update slot head info
         slots_lock
             .entry(slot)
-            .or_insert_with(|| SlotHead { head: pos });
+            .or_insert_with(|| SlotHead { head: self.tail });
 
         // remove not-complete slots
         if let Some(remove_upto) = removed_max_slot {
@@ -931,7 +919,7 @@ impl SharedChannel {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(Mutex::new(Item {
-                reply_index: u64::MAX,
+                replay_index: u64::MAX,
                 pos: i as u64,
                 slot: 0,
                 data: None,
@@ -958,7 +946,7 @@ impl SharedChannel {
 
             let idx = self.get_idx(mid);
             let item = self.buffer_idx(idx);
-            if item.pos != mid || item.reply_index == u64::MAX {
+            if item.pos != mid || item.replay_index == u64::MAX {
                 head = mid;
             }
 
@@ -968,7 +956,7 @@ impl SharedChannel {
         // verify head
         let idx = self.get_idx(head);
         let item = self.buffer_idx(idx);
-        if item.pos != head || item.reply_index == u64::MAX {
+        if item.pos != head || item.replay_index == u64::MAX {
             return None;
         }
         drop(item);
@@ -981,7 +969,7 @@ impl SharedChannel {
 
             let idx = self.get_idx(mid);
             let item = self.buffer_idx(idx);
-            head = match item.reply_index.cmp(&replay_index) {
+            head = match item.replay_index.cmp(&replay_index) {
                 std::cmp::Ordering::Equal => return Some(item.pos),
                 std::cmp::Ordering::Less => mid,
                 std::cmp::Ordering::Greater => head,
@@ -992,7 +980,7 @@ impl SharedChannel {
 
         let idx = self.get_idx(head);
         let item = self.buffer_idx(idx);
-        (item.reply_index == replay_index).then_some(item.pos)
+        (item.replay_index == replay_index).then_some(item.pos)
     }
 
     #[inline]
@@ -1018,7 +1006,7 @@ impl SharedChannel {
 
 #[derive(Debug)]
 struct Item {
-    reply_index: u64,
+    replay_index: u64,
     pos: u64,
     slot: Slot,
     data: Option<ParsedMessage>,

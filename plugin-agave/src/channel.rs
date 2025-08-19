@@ -49,7 +49,7 @@ impl Sender {
 
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
-                head: max_messages as u64,
+                head: max_messages as u64 + 1,
                 tail: max_messages as u64,
                 slots: BTreeMap::new(),
                 bytes_total: 0,
@@ -126,13 +126,16 @@ impl Sender {
     }
 
     fn push_msg(&self, state: &mut MutexGuard<'_, State>, message: ProtobufMessage, data: Vec<u8>) {
-        // position of the new message
-        let pos = state.tail;
+        let mut removed_max_slot = None;
+
+        // bump current tail
+        state.tail = state.tail.wrapping_add(1);
 
         // update slots info
         let slot = message.get_slot();
+        let head = state.tail;
         let entry = state.slots.entry(slot).or_insert_with(|| SlotInfo {
-            head: pos,
+            head,
             parent_slot: None,
             confirmed: false,
             finalized: false,
@@ -148,15 +151,22 @@ impl Sender {
             }
         }
 
-        // drop extra messages by max bytes
+        // lock and update item
         state.bytes_total += data.len();
-        let mut removed_max_slot = None;
-        while state.bytes_total >= state.bytes_max {
-            assert!(
-                state.head < state.tail,
-                "head overflow tail on remove process by bytes limit"
-            );
+        let idx = self.shared.get_idx(state.tail);
+        let mut item = self.shared.buffer_idx(idx);
+        if let Some(message) = item.data.take() {
+            state.head = state.head.wrapping_add(1);
+            state.bytes_total -= message.1.len();
+            removed_max_slot = Some(item.slot);
+        }
+        item.pos = state.tail;
+        item.slot = slot;
+        item.data = Some((PluginNotification::from(&message), Arc::new(data)));
+        drop(item);
 
+        // drop extra messages by max bytes
+        while state.bytes_total >= state.bytes_max && state.head < state.tail {
             let idx = self.shared.get_idx(state.head);
             let mut item = self.shared.buffer_idx(idx);
             let Some(message) = item.data.take() else {
@@ -170,25 +180,6 @@ impl Sender {
                 None => item.slot,
             });
         }
-
-        // update tail
-        state.tail = state.tail.wrapping_add(1);
-
-        // lock and update item
-        let idx = self.shared.get_idx(pos);
-        let mut item = self.shared.buffer_idx(idx);
-        if let Some(message) = item.data.take() {
-            state.head = state.head.wrapping_add(1);
-            state.bytes_total -= message.1.len();
-            removed_max_slot = Some(match removed_max_slot {
-                Some(slot) => item.slot.max(slot),
-                None => item.slot,
-            });
-        }
-        item.pos = pos;
-        item.slot = slot;
-        item.data = Some((PluginNotification::from(&message), Arc::new(data)));
-        drop(item);
 
         // remove not-complete slots
         if let Some(remove_upto) = removed_max_slot {
