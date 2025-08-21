@@ -12,16 +12,32 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+### Features
+
+### Breaking
+
+## 2025-08-20
+
+- richat-cli-v6.0.0
+- richat-client-v5.0.0
+- richat-filter-v5.0.0
+- richat-metrics-v1.0.1
+- richat-plugin-agave-v5.0.0
+- richat-proto-v5.0.0
+- richat-v5.0.0
+- richat-shared-v5.0.0
+
+### Fixes
+
 - cli: fix positional argument and bool options ([#132](https://github.com/lamports-dev/richat/pull/132))
 - plugin: update positions in channels ([#136](https://github.com/lamports-dev/richat/pull/136))
+- richat: fix default values in the config examples ([#137](https://github.com/lamports-dev/richat/pull/137))
 
 ### Features
 
 - cli: add support of SubscribeReplayInfo ([#133](https://github.com/lamports-dev/richat/pull/133))
 - richat: update yellowstone-grpc-proto ([#134](https://github.com/lamports-dev/richat/pull/134))
 - richat: support replay from disk ([#135](https://github.com/lamports-dev/richat/pull/135))
-
-### Breaking
 
 ## 2025-08-06
 

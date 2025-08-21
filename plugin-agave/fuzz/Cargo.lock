@@ -2985,7 +2985,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "richat-metrics"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "http",
  "http-body-util",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "4.1.0"
+version = "5.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3045,7 +3045,7 @@ dependencies = [
 
 [[package]]
 name = "richat-proto"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "cargo-lock",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "4.1.0"
+version = "5.0.0"
 dependencies = [
  "affinity-linux",
  "anyhow",

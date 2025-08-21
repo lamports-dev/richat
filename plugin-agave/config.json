@@ -7,44 +7,48 @@
     "endpoint": "127.0.0.1:10123"
   },
   "tokio": {
-    "worker_threads": 4,
-    "affinity": "0-3"
+    "worker_threads": null, // by default number of cpus
+    "affinity": null // by default no affinity (taskset syntax)
   },
   "channel": {
     "encoder": "raw",
     "max_messages": "2_097_152",
     "max_bytes": "16_106_127_360"
   },
-  "grpc": {
-    "endpoint": "127.0.0.1:10100",
-    "tls_config": {
-      "cert": "/path/to/cert.cert",
-      "key": "/path/to/key.key"
-    },
-    "compression": {
-      "accept": ["gzip", "zstd"],
-      "send": ["gzip", "zstd"]
-    },
-    "max_decoding_message_size": "4_194_304",
-    "server_tcp_keepalive": "20s",
-    "server_tcp_nodelay": true,
-    "server_http2_adaptive_window": null,
-    "server_http2_keepalive_interval": null,
-    "server_http2_keepalive_timeout": null,
-    "server_initial_connection_window_size": null,
-    "server_initial_stream_window_size": null,
-    "x_tokens": []
-  },
-  "quic": {
-    "endpoint": "127.0.0.1:10101",
-    "tls_config": {
-      // "cert": "/path/to/cert.cert",
-      // "key": "/path/to/key.key",
-      "self_signed_alt_names": ["localhost"]
-    },
-    "expected_rtt": 100,
-    "max_stream_bandwidth": 12500000,
-    "max_recv_streams": 16,
-    "x_tokens": []
-  }
+  // by default gRPC is disabled
+  // "grpc": {
+  //   "endpoint": "127.0.0.1:10100",
+  //   // "tls_config": {
+  //   //   "cert": "/path/to/cert.cert",
+  //   //   "key": "/path/to/key.key"
+  //   // },
+  //   "compression": {
+  //     "accept": [], // valid: gzip, zstd
+  //     "send": [] // valid: gzip, zstd
+  //   },
+  //   "max_decoding_message_size": "4_194_304",
+  //   "server_tcp_keepalive": "15s",
+  //   "server_tcp_nodelay": true,
+  //   "server_http2_adaptive_window": null,
+  //   "server_http2_keepalive_interval": null,
+  //   "server_http2_keepalive_timeout": null,
+  //   "server_initial_connection_window_size": null,
+  //   "server_initial_stream_window_size": null,
+  //   "x_tokens": []
+  // },
+  // by default QUIC is disabled
+  // "quic": {
+  //   "endpoint": "127.0.0.1:10101",
+  //   "tls_config": {
+  //     // "cert": "/path/to/cert.cert",
+  //     // "key": "/path/to/key.key",
+  //     "self_signed_alt_names": ["localhost"]
+  //   },
+  //   "expected_rtt": 100,
+  //   "max_stream_bandwidth": 12_500_000,
+  //   "max_idle_timeout": "30s",
+  //   "max_recv_streams": 16,
+  //   "max_request_size": 1024,
+  //   "x_tokens": []
+  // }
 }

@@ -51,22 +51,13 @@ pub mod gen {
     include!(concat!(env!("OUT_DIR"), "/geyser.Geyser.rs"));
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigGrpcCompression {
     #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
     pub accept: Vec<CompressionEncoding>,
     #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]
     pub send: Vec<CompressionEncoding>,
-}
-
-impl Default for ConfigGrpcCompression {
-    fn default() -> Self {
-        Self {
-            accept: Self::default_compression(),
-            send: Self::default_compression(),
-        }
-    }
 }
 
 impl ConfigGrpcCompression {
@@ -86,10 +77,6 @@ impl ConfigGrpcCompression {
                 ))),
             })
             .collect::<Result<_, _>>()
-    }
-
-    const fn default_compression() -> Vec<CompressionEncoding> {
-        vec![]
     }
 }
 

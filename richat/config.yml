@@ -5,8 +5,8 @@ metrics:
   endpoint: 127.0.0.1:10124
 channel:
   tokio:
-    worker_threads: 2
-    affinity: 0-1
+    worker_threads: null # by default number of cpus
+    affinity: null # by default no affinity (taskset syntax)
   sources:
     - name: plugin-grpc
       parser: prost # valid: prost, limited
@@ -27,10 +27,10 @@ channel:
       tcp_keepalive: 15s
       tcp_nodelay: true
       timeout: null
-      max_decoding_message_size: 16_777_216 # 16MiB
+      max_decoding_message_size: 4_194_304 # 4MiB, better set to 16MiB (because account messages can be more than 10MiB)
       compression:
-        accept: ["gzip", "zstd"]
-        send: ["gzip", "zstd"]
+        accept: [] # valid: gzip, zstd
+        send: [] # valid: gzip, zstd
       x_token: null
     # - name: plugin-quic
     #   parser: prost
@@ -45,7 +45,7 @@ channel:
     #   local_addr: "[::]:0"
     #   expected_rtt: 100
     #   max_stream_bandwidth: 12_500_000 # 100Mbits with 100ms latency
-    #   max_idle_timeout: 30ms
+    #   max_idle_timeout: 30s
     #   server_name: null # localhost
     #   recv_streams: 1
     #   max_backlog: null
@@ -58,7 +58,7 @@ channel:
     # storage:
     #   path: ./db
     #   max_slots: 1024
-    #   serialize_affinity: null
+    #   serialize_affinity: null # taskset syntax
     #   write_affinity: null
     #   messages_compression: none # none, snappy, zlib, bz2, lz4, lz4hc, zstd
     #   replay_inflight_max: 1024
@@ -67,136 +67,139 @@ channel:
     #   replay_decode_per_tick: 256
 apps:
   tokio:
-    worker_threads: 2
-    affinity: 2-3
-  richat:
-    grpc:
-      endpoint: '127.0.0.1:10100'
-      tls_config:
-        cert: /path/to/cert.cert
-        key: /path/to/key.key
-      compression:
-        accept:
-          - gzip
-          - zstd
-        send:
-          - gzip
-          - zstd
-      max_decoding_message_size: '4_194_304'
-      server_tcp_keepalive: 20s
-      server_tcp_nodelay: true
-      server_http2_adaptive_window: null
-      server_http2_keepalive_interval: null
-      server_http2_keepalive_timeout: null
-      server_initial_connection_window_size: null
-      server_initial_stream_window_size: null
-    quic:
-      endpoint: '127.0.0.1:10101'
-      tls_config:
-        # cert: /path/to/cert.cert
-        # key: /path/to/key.key
-        self_signed_alt_names:
-          - localhost
-      expected_rtt: 100
-      max_stream_bandwidth: 12500000
-      max_recv_streams: 16
-      x_tokens: []
-  grpc:
-    server:
-      endpoint: 127.0.0.1:10000
-      tls_config:
-        cert: /path/to/cert.cert
-        key: /path/to/key.key
-      compression:
-        accept:
-        - gzip
-        - zstd
-        send:
-        - gzip
-        - zstd
-      max_decoding_message_size: 4_194_304 # 4MiB
-      server_tcp_keepalive: 20s
-      server_tcp_nodelay: true
-      server_http2_adaptive_window:
-      server_http2_keepalive_interval:
-      server_http2_keepalive_timeout:
-      server_initial_connection_window_size:
-      server_initial_stream_window_size:
-    workers:
-      threads: 2
-      affinity: 4-5
-      messages_cached_max: 1_024
-    stream:
-      messages_len_max: 16_777_216
-      messages_max_per_tick: 100
-      messages_replay_len_max: 268_435_456
-      ping_iterval: 15s
-    unary:
-      enabled: true
-      affinity: 4-5
-      requests_queue_size: 100
-    filters:
-      name_max: 128
-      accounts:
-        max: 1
-        any: false
-        account_max: 10
-        account_reject:
-        - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
-        owner_max: 10
-        owner_reject:
-        - '11111111111111111111111111111111'
-        data_slice_max: 2
-      slots:
-        max: 1
-      transactions:
-        max: 1
-        any: false
-        account_include_max: 10
-        account_include_reject:
-        - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
-        account_exclude_max: 10
-        account_required_max: 10
-      transactions_status:
-        max: 1
-        any: false
-        account_include_max: 10
-        account_include_reject:
-        - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
-        account_exclude_max: 10
-        account_required_max: 10
-      entries:
-        max: 1
-      blocks_meta:
-        max: 1
-      blocks:
-        max: 1
-        account_include_max: 10
-        account_include_any: false
-        account_include_reject:
-        - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
-        include_transactions: true
-        include_accounts: false
-        include_entries: false
-    x_token: []
-  pubsub:
-    endpoint: 0.0.0.0:8000
-    tcp_nodelay: true
-    tls_config:
-      # cert: /path/to/cert.cert
-      # key: /path/to/key.key
-      self_signed_alt_names:
-        - localhost
-    recv_max_message_size: 4_096
-    enable_block_subscription: false
-    enable_transaction_subscription: false
-    clients_requests_channel_size: 8_192
-    subscriptions_worker_affinity: 0
-    subscriptions_workers_count: 2
-    subscriptions_workers_affinity: 0-1
-    subscriptions_max_clients_request_per_tick: 32
-    subscriptions_max_messages_per_commitment_per_tick: 256
-    notifications_messages_max_count: 10_000_000
-    notifications_messages_max_bytes: 34_359_738_368
-    signatures_cache_max: 1_228_800
-    signatures_cache_slots_max: 150
+    worker_threads: null # by default number of cpus
+    affinity: null # by default no affinity (taskset syntax)
+  # disabled by default
+  # richat:
+  #   grpc:
+  #     endpoint: '127.0.0.1:10100'
+  #     # tls_config:
+  #     #   cert: /path/to/cert.cert
+  #     #   key: /path/to/key.key
+  #     compression: # default is no compression
+  #       accept:
+  #         # - gzip
+  #         # - zstd
+  #       send:
+  #         # - gzip
+  #         # - zstd
+  #     max_decoding_message_size: 4_194_304
+  #     server_tcp_keepalive: 15s
+  #     server_tcp_nodelay: true
+  #     server_http2_adaptive_window: null
+  #     server_http2_keepalive_interval: null
+  #     server_http2_keepalive_timeout: null
+  #     server_initial_connection_window_size: null
+  #     server_initial_stream_window_size: null
+  #   quic:
+  #     endpoint: '127.0.0.1:10101'
+  #     tls_config:
+  #       # cert: /path/to/cert.cert
+  #       # key: /path/to/key.key
+  #       self_signed_alt_names:
+  #         - localhost
+  #     expected_rtt: 100
+  #     max_stream_bandwidth: 12_500_000
+  #     max_idle_timeout: 30s
+  #     max_recv_streams: 16
+  #     max_request_size: 1024
+  #     x_tokens: []
+  # disabled by default
+  # grpc:
+  #   server:
+  #     endpoint: 127.0.0.1:10000
+  #     # tls_config:
+  #     #   cert: /path/to/cert.cert
+  #     #   key: /path/to/key.key
+  #     compression:
+  #       accept:
+  #       # - gzip
+  #       # - zstd
+  #       send:
+  #       # - gzip
+  #       # - zstd
+  #     max_decoding_message_size: 4_194_304 # 4MiB
+  #     server_tcp_keepalive: 20s
+  #     server_tcp_nodelay: true
+  #     server_http2_adaptive_window:
+  #     server_http2_keepalive_interval:
+  #     server_http2_keepalive_timeout:
+  #     server_initial_connection_window_size:
+  #     server_initial_stream_window_size:
+  #   workers:
+  #     threads: 2
+  #     affinity: null # by default no affinity (taskset syntax)
+  #     messages_cached_max: 1_024
+  #   stream:
+  #     messages_len_max: 16_777_216
+  #     messages_max_per_tick: 100
+  #     messages_replay_len_max: 268_435_456
+  #     ping_iterval: 15s
+  #   unary:
+  #     enabled: true
+  #     affinity: null # by default no affinity (taskset syntax)
+  #     requests_queue_size: 100
+  #   filters:
+  #     name_max: 128
+  #     accounts:
+  #       max: 1
+  #       any: false
+  #       account_max: 10
+  #       account_reject:
+  #       - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+  #       owner_max: 10
+  #       owner_reject:
+  #       - '11111111111111111111111111111111'
+  #       data_slice_max: 2
+  #     slots:
+  #       max: 1
+  #     transactions:
+  #       max: 1
+  #       any: false
+  #       account_include_max: 10
+  #       account_include_reject:
+  #       - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+  #       account_exclude_max: 10
+  #       account_required_max: 10
+  #     transactions_status:
+  #       max: 1
+  #       any: false
+  #       account_include_max: 10
+  #       account_include_reject:
+  #       - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+  #       account_exclude_max: 10
+  #       account_required_max: 10
+  #     entries:
+  #       max: 1
+  #     blocks_meta:
+  #       max: 1
+  #     blocks:
+  #       max: 1
+  #       account_include_max: 10
+  #       account_include_any: false
+  #       account_include_reject:
+  #       - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+  #       include_transactions: true
+  #       include_accounts: false
+  #       include_entries: false
+  #   x_token: []
+  # disabled by default
+  # pubsub:
+  #   endpoint: 0.0.0.0:8000
+  #   tcp_nodelay: null
+  #   # tls_config:
+  #   #   # cert: /path/to/cert.cert
+  #   #   # key: /path/to/key.key
+  #   recv_max_message_size: 4_096
+  #   enable_block_subscription: false
+  #   enable_transaction_subscription: false
+  #   clients_requests_channel_size: 8_192
+  #   subscriptions_worker_affinity: null # by default no affinity (taskset syntax)
+  #   subscriptions_workers_count: 2
+  #   subscriptions_workers_affinity: null # by default no affinity (taskset syntax)
+  #   subscriptions_max_clients_request_per_tick: 32
+  #   subscriptions_max_messages_per_commitment_per_tick: 256
+  #   notifications_messages_max_count: 10_000_000
+  #   notifications_messages_max_bytes: 34_359_738_368
+  #   signatures_cache_max: 1_228_800
+  #   signatures_cache_slots_max: 150

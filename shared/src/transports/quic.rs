@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::{deserialize_rustls_server_config, deserialize_x_token_set},
+        config::{deserialize_num_str, deserialize_rustls_server_config, deserialize_x_token_set},
         shutdown::Shutdown,
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
         version::Version,
@@ -46,7 +46,10 @@ pub struct ConfigQuicServer {
     #[serde(default = "ConfigQuicServer::default_expected_rtt")]
     pub expected_rtt: u32,
     /// Value in bytes/s, default with expected rtt 100 is 100Mbps
-    #[serde(default = "ConfigQuicServer::default_max_stream_bandwidth")]
+    #[serde(
+        default = "ConfigQuicServer::default_max_stream_bandwidth",
+        deserialize_with = "deserialize_num_str"
+    )]
     pub max_stream_bandwidth: u32,
     /// Maximum duration of inactivity to accept before timing out the connection
     #[serde(default = "ConfigQuicServer::default_max_idle_timeout")]
