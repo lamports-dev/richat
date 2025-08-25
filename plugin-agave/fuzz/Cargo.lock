@@ -3002,8 +3002,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
+name = "richat-metrics"
+version = "1.0.0"
+dependencies = [
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "metrics",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "richat-plugin-agave"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3013,10 +3027,10 @@ dependencies = [
  "futures",
  "git-version",
  "log",
- "metrics",
  "metrics-exporter-prometheus",
  "prost 0.13.5",
  "prost-types 0.13.5",
+ "richat-metrics",
  "richat-proto",
  "richat-shared",
  "rustls",
@@ -3061,7 +3075,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
@@ -3070,11 +3084,7 @@ dependencies = [
  "five8",
  "futures",
  "hostname",
- "http",
- "http-body-util",
  "humantime-serde",
- "hyper",
- "hyper-util",
  "prost 0.13.5",
  "protobuf-src",
  "quinn",

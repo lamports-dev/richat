@@ -3,8 +3,9 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPluginError, Result as PluginResult,
     },
+    richat_metrics::ConfigMetrics,
     richat_shared::{
-        config::{deserialize_num_str, ConfigMetrics, ConfigTokio},
+        config::{deserialize_num_str, ConfigTokio},
         transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     },
     serde::{

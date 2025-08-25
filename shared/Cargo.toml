@@ -1,6 +1,6 @@
 [package]
 name = "richat-shared"
-version = "4.0.0"
+version = "4.1.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Shared code"
@@ -18,11 +18,9 @@ bs58 = { workspace = true, optional = true }
 five8 = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
-humantime-serde = { workspace = true, optional = true }
-http = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
+humantime-serde = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
-hyper-util = { workspace = true, features = ["server-auto", "tokio"], optional = true }
 jsonrpc-core = { workspace = true, optional = true }
 jsonrpsee-types = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
@@ -31,6 +29,7 @@ quanta = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+richat-metrics = { workspace = true, optional = true }
 richat-proto = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["std", "tls12"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
@@ -55,7 +54,6 @@ default = [
     "config",
     "five8",
     "jsonrpc",
-    "metrics",
     "shutdown",
     "transports",
     "version"
@@ -78,22 +76,16 @@ five8 = ["dep:five8", "dep:solana-sdk"]
 jsonrpc = [
     "dep:anyhow",
     "dep:futures",
+    "dep:http-body-util",
+    "dep:hyper",
     "dep:jsonrpc-core",
     "dep:jsonrpsee-types",
     "dep:metrics",
+    "dep:richat-metrics",
     "dep:quanta",
     "dep:serde",
     "dep:serde_json",
     "dep:solana-rpc-client-api",
-    "metrics",
-]
-metrics = [
-    "dep:http",
-    "dep:http-body-util",
-    "dep:hyper",
-    "dep:hyper-util",
-    "dep:tracing",
-    "config",
 ]
 shutdown = ["dep:slab"]
 transports = [

@@ -16,6 +16,17 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-08-06
+
+- richat-metrics-v1.0.0
+- richat-plugin-agave-v4.1.0
+- richat-v4.1.0
+- richat-shared-v4.1.0
+
+### Features
+
+- metrics: add crate ([#6](https://github.com/lamports-dev/richat/pull/131))
+
 ## 2025-07-22
 
 - richat-plugin-agave-v4.0.1

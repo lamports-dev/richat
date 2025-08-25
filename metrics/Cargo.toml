@@ -1,0 +1,24 @@
+[package]
+name = "richat-metrics"
+version = "1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+description = "Richat Metrics code"
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+publish = true
+
+[dependencies]
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
+metrics = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros"] }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

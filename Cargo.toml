@@ -4,6 +4,7 @@ members = [
     "cli",
     "client",
     "filter",
+    "metrics",
     "plugin-agave",
     "proto",
     "richat",
@@ -65,9 +66,10 @@ rcgen = "0.13.2"
 regex = "1.11.1"
 richat-client = { path = "client", version = "4.0.0" }
 richat-filter = { path = "filter", version = "4.0.0" }
-richat-plugin-agave = { path = "plugin-agave", version = "4.0.0" }
+richat-metrics = { path = "metrics", version = "1.0.0" }
+richat-plugin-agave = { path = "plugin-agave", version = "4.1.0" }
 richat-proto = { path = "proto", version = "4.0.0" }
-richat-shared = { path = "shared", version = "4.0.0", default-features = false }
+richat-shared = { path = "shared", version = "4.1.0", default-features = false }
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"

@@ -1,6 +1,6 @@
 [package]
 name = "richat-plugin-agave"
-version = "4.0.1"
+version = "4.1.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Agave Geyser Plugin"
@@ -30,13 +30,13 @@ bincode = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 log = { workspace = true }
-metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 prost = { workspace = true }
 prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
+richat-metrics = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true, features = ["metrics", "shutdown", "transports", "version"] }
+richat-shared = { workspace = true, features = ["shutdown", "transports", "version"] }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -64,7 +64,7 @@ vergen = { workspace = true, features = ["build", "rustc"] }
 default = ["plugin"]
 fixtures = ["dep:prost_011", "dep:solana-storage-proto"]
 plugin = []
-test-validator = []
+rustls-install-default-provider = []
 
 [lints]
 workspace = true

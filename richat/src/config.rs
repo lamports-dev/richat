@@ -6,8 +6,9 @@ use {
     futures::future::{ready, try_join_all, TryFutureExt},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
+    richat_metrics::ConfigMetrics,
     richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, ConfigMetrics, ConfigTokio},
+        config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
         shutdown::Shutdown,
     },
     serde::Deserialize,

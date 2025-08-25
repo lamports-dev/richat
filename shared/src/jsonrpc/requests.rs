@@ -1,16 +1,12 @@
 use {
-    crate::{
-        jsonrpc::{
-            helpers::{
-                get_x_bigtable_disabled, get_x_subscription_id, response_200, response_400,
-                response_500, to_vec, RpcResponse,
-            },
-            metrics::{
-                RPC_REQUESTS_DURATION_SECONDS, RPC_REQUESTS_GENERATED_BYTES_TOTAL,
-                RPC_REQUESTS_TOTAL,
-            },
+    crate::jsonrpc::{
+        helpers::{
+            get_x_bigtable_disabled, get_x_subscription_id, response_200, response_400,
+            response_500, to_vec, RpcResponse,
         },
-        metrics::duration_to_seconds,
+        metrics::{
+            RPC_REQUESTS_DURATION_SECONDS, RPC_REQUESTS_GENERATED_BYTES_TOTAL, RPC_REQUESTS_TOTAL,
+        },
     },
     futures::{
         future::BoxFuture,
@@ -24,6 +20,7 @@ use {
     jsonrpsee_types::{error::ErrorCode, Request, Response, ResponsePayload, TwoPointZero},
     metrics::{counter, histogram},
     quanta::Instant,
+    richat_metrics::duration_to_seconds,
     std::{collections::HashMap, fmt, sync::Arc},
 };
 

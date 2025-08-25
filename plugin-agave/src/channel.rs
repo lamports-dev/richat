@@ -6,10 +6,11 @@ use {
         plugin::PluginNotification,
         protobuf::{ProtobufEncoder, ProtobufMessage},
     },
-    ::metrics::{counter, gauge},
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
+    metrics_exporter_prometheus::PrometheusRecorder,
+    richat_metrics::{counter, gauge, MaybeRecorder},
     richat_proto::richat::RichatFilter,
     richat_shared::{
         mutex_lock,
@@ -30,10 +31,11 @@ use {
 #[derive(Debug, Clone)]
 pub struct Sender {
     shared: Arc<Shared>,
+    recorder: Arc<MaybeRecorder<PrometheusRecorder>>,
 }
 
 impl Sender {
-    pub fn new(config: ConfigChannel) -> Self {
+    pub fn new(config: ConfigChannel, recorder: Arc<MaybeRecorder<PrometheusRecorder>>) -> Self {
         let max_messages = config.max_messages.next_power_of_two();
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
@@ -58,7 +60,7 @@ impl Sender {
             buffer: buffer.into_boxed_slice(),
         });
 
-        Self { shared }
+        Self { shared, recorder }
     }
 
     pub fn push(&self, message: ProtobufMessage, encoder: ProtobufEncoder) {
@@ -105,7 +107,7 @@ impl Sender {
 
                     error!("missed slot status update for {} ({:?})", parent, *status);
                     if matches!(status, SlotStatus::Confirmed | SlotStatus::Rooted) {
-                        counter!(metrics::GEYSER_MISSED_SLOT_STATUS, "status" => status.as_str())
+                        counter!(&self.recorder, metrics::GEYSER_MISSED_SLOT_STATUS, "status" => status.as_str())
                             .increment(1);
                     }
                 }
@@ -204,7 +206,8 @@ impl Sender {
         // update metrics
         if let ProtobufMessage::Slot { status, .. } = message {
             if !matches!(status, SlotStatus::Dead(_)) {
-                gauge!(metrics::GEYSER_SLOT_STATUS, "status" => status.as_str()).set(slot as f64);
+                gauge!(&self.recorder, metrics::GEYSER_SLOT_STATUS, "status" => status.as_str())
+                    .set(slot as f64);
             }
             if *status == SlotStatus::Processed {
                 debug!(
@@ -214,9 +217,10 @@ impl Sender {
                     state.bytes_total
                 );
 
-                gauge!(metrics::CHANNEL_MESSAGES_TOTAL).set((state.tail - state.head) as f64);
-                gauge!(metrics::CHANNEL_SLOTS_TOTAL).set(state.slots.len() as f64);
-                gauge!(metrics::CHANNEL_BYTES_TOTAL).set(state.bytes_total as f64);
+                gauge!(&self.recorder, metrics::CHANNEL_MESSAGES_TOTAL)
+                    .set((state.tail - state.head) as f64);
+                gauge!(&self.recorder, metrics::CHANNEL_SLOTS_TOTAL).set(state.slots.len() as f64);
+                gauge!(&self.recorder, metrics::CHANNEL_BYTES_TOTAL).set(state.bytes_total as f64);
             }
         }
     }

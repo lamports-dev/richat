@@ -11,14 +11,9 @@ use {
         server::conn::auto::Builder as ServerBuilder,
     },
     std::future::Future,
-    tokio::{net::TcpListener, task::JoinError, time::Duration},
+    tokio::{net::TcpListener, task::JoinError},
     tracing::{error, info},
 };
-
-#[inline]
-pub fn duration_to_seconds(d: Duration) -> f64 {
-    d.as_secs() as f64 + d.subsec_nanos() as f64 / 1e9
-}
 
 pub async fn spawn_server(
     ConfigMetrics { endpoint }: ConfigMetrics,

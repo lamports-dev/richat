@@ -1,8 +1,7 @@
 use {
     crate::version::VERSION as VERSION_INFO,
-    metrics::{counter, describe_counter, describe_gauge},
-    metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle},
-    richat_shared::config::ConfigMetrics,
+    metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle, PrometheusRecorder},
+    richat_metrics::{counter, describe_counter, describe_gauge, ConfigMetrics},
     std::{future::Future, io},
     tokio::{
         task::JoinError,
@@ -17,11 +16,13 @@ pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
 pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
 pub const CONNECTIONS_TOTAL: &str = "connections_total"; // transport
 
-pub fn setup() -> Result<PrometheusHandle, BuildError> {
-    let handle = PrometheusBuilder::new().install_recorder()?;
+#[rustfmt::skip]
+pub fn setup() -> PrometheusRecorder {
+    let recorder = PrometheusBuilder::new().build_recorder();
 
-    describe_counter!("version", "Richat Plugin version info");
+    describe_counter!(recorder, "version", "Richat Plugin version info");
     counter!(
+        recorder,
         "version",
         "buildts" => VERSION_INFO.buildts,
         "git" => VERSION_INFO.git,
@@ -33,20 +34,14 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     )
     .absolute(1);
 
-    describe_gauge!(GEYSER_SLOT_STATUS, "Latest slot received from Geyser");
-    describe_counter!(
-        GEYSER_MISSED_SLOT_STATUS,
-        "Number of missed slot status updates"
-    );
-    describe_gauge!(
-        CHANNEL_MESSAGES_TOTAL,
-        "Total number of messages in channel"
-    );
-    describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
-    describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
-    describe_gauge!(CONNECTIONS_TOTAL, "Total number of connections");
+    describe_gauge!(recorder, GEYSER_SLOT_STATUS, "Latest slot received from Geyser");
+    describe_counter!(recorder, GEYSER_MISSED_SLOT_STATUS, "Number of missed slot status updates");
+    describe_gauge!(recorder, CHANNEL_MESSAGES_TOTAL, "Total number of messages in channel");
+    describe_gauge!(recorder, CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
+    describe_gauge!(recorder, CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
+    describe_gauge!(recorder, CONNECTIONS_TOTAL, "Total number of connections");
 
-    Ok(handle)
+    recorder
 }
 
 pub async fn spawn_server(
@@ -62,7 +57,7 @@ pub async fn spawn_server(
         }
     });
 
-    richat_shared::metrics::spawn_server(
+    richat_metrics::spawn_server(
         config,
         move || handle.render().into_bytes(), // metrics
         || true,                              // health

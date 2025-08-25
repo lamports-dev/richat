@@ -18,6 +18,7 @@ use {
         filter::Filter,
         message::MessageRef,
     },
+    richat_metrics::duration_to_seconds,
     richat_proto::geyser::{
         subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
         GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
@@ -27,8 +28,7 @@ use {
         SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
     },
     richat_shared::{
-        jsonrpc::helpers::X_SUBSCRIPTION_ID, metrics::duration_to_seconds, mutex_lock,
-        shutdown::Shutdown, transports::RecvError,
+        jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
     },
     smallvec::SmallVec,
     solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},

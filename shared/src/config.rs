@@ -12,7 +12,6 @@ use {
         collections::HashSet,
         fmt::Display,
         fs, io,
-        net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
         str::FromStr,
         sync::atomic::{AtomicU64, Ordering},
@@ -53,21 +52,6 @@ impl ConfigTokio {
             })
             .enable_all()
             .build()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct ConfigMetrics {
-    /// Endpoint of Prometheus service
-    pub endpoint: SocketAddr,
-}
-
-impl Default for ConfigMetrics {
-    fn default() -> Self {
-        Self {
-            endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 10123),
-        }
     }
 }
 

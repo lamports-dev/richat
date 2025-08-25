@@ -6,7 +6,6 @@ use {
         protobuf::{ProtobufEncoder, ProtobufMessage},
         version::VERSION,
     },
-    ::metrics::gauge,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
         GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
         ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult,
@@ -14,12 +13,13 @@ use {
     },
     futures::future::BoxFuture,
     log::error,
+    richat_metrics::{gauge, MaybeRecorder},
     richat_shared::{
         shutdown::Shutdown,
         transports::{grpc::GrpcServer, quic::QuicServer},
     },
     solana_sdk::clock::Slot,
-    std::{fmt, time::Duration},
+    std::{fmt, sync::Arc, time::Duration},
     tokio::{runtime::Runtime, task::JoinError},
 };
 
@@ -65,12 +65,12 @@ pub struct PluginInner {
 
 impl PluginInner {
     fn new(config: Config) -> PluginResult<Self> {
-        let metrics_handle = if config.metrics.is_some() {
-            Some(metrics::setup().map_err(|error| {
-                GeyserPluginError::Custom(format!("failed to setup metrics: {error:?}").into())
-            })?)
+        let (metrics_recorder, metrics_handle) = if config.metrics.is_some() {
+            let recorder = metrics::setup();
+            let handle = recorder.handle();
+            (Arc::new(recorder.into()), Some(handle))
         } else {
-            None
+            (Arc::new(MaybeRecorder::Noop), None)
         };
 
         // Create Tokio runtime
@@ -80,7 +80,7 @@ impl PluginInner {
             .map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
 
         // Create messages store
-        let messages = Sender::new(config.channel);
+        let messages = Sender::new(config.channel, Arc::clone(&metrics_recorder));
 
         // Spawn servers
         let (messages, shutdown, tasks) = runtime
@@ -90,7 +90,7 @@ impl PluginInner {
 
                 // Start gRPC
                 if let Some(config) = config.grpc {
-                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "grpc");
+                    let connections_inc = gauge!(&metrics_recorder, metrics::CONNECTIONS_TOTAL, "transport" => "grpc");
                     let connections_dec = connections_inc.clone();
                     tasks.push((
                         "gRPC Server",
@@ -110,7 +110,7 @@ impl PluginInner {
 
                 // Start Quic
                 if let Some(config) = config.quic {
-                    let connections_inc = gauge!(metrics::CONNECTIONS_TOTAL, "transport" => "quic");
+                    let connections_inc = gauge!(&metrics_recorder, metrics::CONNECTIONS_TOTAL, "transport" => "quic");
                     let connections_dec = connections_inc.clone();
                     tasks.push((
                         "Quic Server",
@@ -329,7 +329,7 @@ impl GeyserPlugin for Plugin {
 ///
 /// This function returns the Plugin pointer as trait GeyserPlugin.
 pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
-    #[cfg(feature = "test-validator")]
+    #[cfg(feature = "rustls-install-default-provider")]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to call CryptoProvider::install_default()");
