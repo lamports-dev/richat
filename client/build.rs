@@ -32,6 +32,17 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         )
         .method(
             Method::builder()
+                .name("subscribe_jup")
+                .route_name("SubscribeJup")
+                .input_type("richat_proto::richat::SubscribeRequestJup")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc::SubscribeCodec")
+                .client_streaming()
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            Method::builder()
                 .name("subscribe_replay_info")
                 .route_name("SubscribeReplayInfo")
                 .input_type("richat_proto::geyser::SubscribeReplayInfoRequest")
