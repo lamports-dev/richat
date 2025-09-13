@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-09-13
+
+- richat-shared-v5.1.0
+
+### Features
+
+- shared: allow extra headers in RpcRequestProcessor ([#141](https://github.com/lamports-dev/richat/pull/141))
+
 ## 2025-08-20
 
 - richat-cli-v6.0.0
