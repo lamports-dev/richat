@@ -20,14 +20,14 @@ impl<'a> Version<'a> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GrpcVersionInfoExtra {
-    hostname: Option<String>,
+    pub hostname: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GrpcVersionInfo<'a> {
     #[serde(borrow)]
-    version: Version<'a>,
-    extra: GrpcVersionInfoExtra,
+    pub version: Version<'a>,
+    pub extra: GrpcVersionInfoExtra,
 }
 
 impl<'a> GrpcVersionInfo<'a> {
