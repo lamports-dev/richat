@@ -1,17 +1,12 @@
 use {
     http_body_util::{combinators::BoxBody, BodyExt, Full as BodyFull},
-    hyper::{
-        body::Bytes,
-        header::{HeaderName, HeaderValue, CONTENT_TYPE},
-        http::Result as HttpResult,
-        HeaderMap, StatusCode,
-    },
+    hyper::{body::Bytes, header::CONTENT_TYPE, http::Result as HttpResult, HeaderMap, StatusCode},
     jsonrpsee_types::{
         ErrorCode, ErrorObject, ErrorObjectOwned, Id, Response, ResponsePayload, TwoPointZero,
     },
     serde::Serialize,
     solana_rpc_client_api::custom_error::RpcCustomError,
-    std::{collections::HashMap, fmt, sync::Arc},
+    std::{fmt, sync::Arc},
 };
 
 pub const X_SUBSCRIPTION_ID: &str = "x-subscription-id";
@@ -31,10 +26,7 @@ pub fn get_x_bigtable_disabled(headers: &HeaderMap) -> bool {
     headers.get(X_BIGTABLE).is_some_and(|v| v == "disabled")
 }
 
-pub fn response_200<D: Into<Bytes>>(
-    data: D,
-    extra_headers: &HashMap<HeaderName, HeaderValue>,
-) -> HttpResult<RpcResponse> {
+pub fn response_200<D: Into<Bytes>>(data: D, extra_headers: &HeaderMap) -> HttpResult<RpcResponse> {
     let mut builder =
         hyper::Response::builder().header(CONTENT_TYPE, "application/json; charset=utf-8");
     for (key, value) in extra_headers {

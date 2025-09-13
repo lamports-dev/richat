@@ -15,8 +15,8 @@ use {
     http_body_util::{BodyExt, Limited},
     hyper::{
         body::{Bytes, Incoming as BodyIncoming},
-        header::{HeaderName, HeaderValue},
         http::Result as HttpResult,
+        HeaderMap,
     },
     jsonrpsee_types::{error::ErrorCode, Request, Response, ResponsePayload, TwoPointZero},
     metrics::{counter, histogram},
@@ -52,7 +52,7 @@ impl<'a> RpcRequests<'a> {
 pub struct RpcRequestsProcessor<S> {
     body_limit: usize,
     state: S,
-    extra_headers: HashMap<HeaderName, HeaderValue>,
+    extra_headers: HeaderMap,
     methods: HashMap<&'static str, RpcRequestHandler<S>>,
 }
 
@@ -63,11 +63,7 @@ impl<S> fmt::Debug for RpcRequestsProcessor<S> {
 }
 
 impl<S: Clone> RpcRequestsProcessor<S> {
-    pub fn new(
-        body_limit: usize,
-        state: S,
-        extra_headers: HashMap<HeaderName, HeaderValue>,
-    ) -> Self {
+    pub fn new(body_limit: usize, state: S, extra_headers: HeaderMap) -> Self {
         Self {
             body_limit,
             state,
