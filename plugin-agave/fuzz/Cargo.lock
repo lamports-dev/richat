@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "5.0.0"
+version = "5.1.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
