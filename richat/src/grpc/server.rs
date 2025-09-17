@@ -247,7 +247,7 @@ impl GrpcServer {
         shutdown: Shutdown,
     ) -> anyhow::Result<()> {
         let receiver = messages.to_receiver();
-        let mut head = messages.get_current_tail(CommitmentLevel::Processed);
+        let mut head = messages.get_current_tail(CommitmentLevel::Processed) + 1;
 
         const COUNTER_LIMIT: i32 = 10_000;
         let mut counter = 0;

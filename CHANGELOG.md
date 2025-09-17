@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-09-17
+
+- richat-v5.0.1
+
+### Fixes
+
+- richat: fix channel lagged for gRPC/unary ([#142](https://github.com/lamports-dev/richat/pull/142))
+
 ## 2025-09-13
 
 - richat-shared-v5.1.0
