@@ -193,7 +193,7 @@ apps:
   #   recv_max_message_size: 4_096
   #   enable_block_subscription: false
   #   enable_transaction_subscription: false
-  #   enable_token_owner_subscription: false,
+  #   enable_token_owner_subscription: false
   #   clients_requests_channel_size: 8_192
   #   subscriptions_worker_affinity: null # by default no affinity (taskset syntax)
   #   subscriptions_workers_count: 2
