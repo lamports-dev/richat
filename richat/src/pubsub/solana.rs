@@ -32,9 +32,10 @@ use {
         transaction::TransactionError,
     },
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
-    spl_token::instruction::TokenInstruction,
     spl_token_2022::{
-        generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
+        generic_token_account::GenericTokenAccount,
+        instruction::TokenInstruction as SplToken2022Instruction,
+        state::Account as SplToken2022Account,
     },
     std::{
         borrow::Cow,
@@ -683,11 +684,14 @@ impl SubscribeConfig {
                         .unwrap_or_default()
                     {
                         for ix in &inner_ixs.instructions {
-                            if account_keys.get(ix.instruction.program_id_index as usize)
-                                == Some(&spl_token::ID)
+                            let program_id =
+                                account_keys.get(ix.instruction.program_id_index as usize);
+
+                            if program_id == Some(&spl_token::ID)
+                                || program_id == Some(&spl_token_2022::ID)
                             {
-                                match TokenInstruction::unpack(&ix.instruction.data) {
-                                    Ok(TokenInstruction::InitializeAccount)
+                                match SplToken2022Instruction::unpack(&ix.instruction.data) {
+                                    Ok(SplToken2022Instruction::InitializeAccount)
                                         if ix
                                             .instruction
                                             .accounts
@@ -697,17 +701,17 @@ impl SubscribeConfig {
                                     {
                                         selected = true;
                                     }
-                                    Ok(TokenInstruction::InitializeAccount2 { owner })
+                                    Ok(SplToken2022Instruction::InitializeAccount2 { owner })
                                         if &owner == pubkey =>
                                     {
                                         selected = true;
                                     }
-                                    Ok(TokenInstruction::InitializeAccount3 { owner })
+                                    Ok(SplToken2022Instruction::InitializeAccount3 { owner })
                                         if &owner == pubkey =>
                                     {
                                         selected = true;
                                     }
-                                    Ok(TokenInstruction::InitializeImmutableOwner)
+                                    Ok(SplToken2022Instruction::InitializeImmutableOwner)
                                         if ix
                                             .instruction
                                             .accounts
