@@ -4,7 +4,8 @@ use {
         metrics,
         pubsub::{
             notification::{
-                RpcBlockUpdate, RpcNotification, RpcNotifications, RpcTransactionUpdate,
+                RpcBlockUpdate, RpcNotification, RpcNotifications, RpcTokenInitUpdate,
+                RpcTransactionUpdate,
             },
             solana::{SubscribeConfig, SubscribeConfigHashId, SubscribeMethod},
             ClientId, SubscriptionId,
@@ -649,24 +650,20 @@ pub fn subscriptions_worker(
                             }
                         }
                         (SubscribeMethod::TokenInit, ParsedMessage::Transaction(message)) => {
-                            if let Some((
-                                encoding,
-                                transaction_details,
-                                show_rewards,
-                                max_supported_transaction_version,
-                            )) = subscription.config.filter_transaction_token_init(message)
+                            if let Some(accounts) =
+                                subscription.config.filter_transaction_token_init(message)
                             {
                                 let json = RpcNotification::serialize_with_context(
                                     "tokenInitNotification",
                                     subscription.id,
                                     message.slot(),
-                                    RpcTransactionUpdate::new(
-                                        message,
-                                        encoding,
-                                        transaction_details,
-                                        show_rewards,
-                                        max_supported_transaction_version,
-                                    ),
+                                    RpcTokenInitUpdate {
+                                        accounts: accounts
+                                            .into_iter()
+                                            .map(|pk| pk.to_string())
+                                            .collect(),
+                                        signature: signature_encode(message.signature().as_array()),
+                                    },
                                 );
                                 return Some((subscription, false, json));
                             }

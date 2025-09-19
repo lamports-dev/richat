@@ -1,11 +1,7 @@
 use {
     crate::{
         channel::ParsedMessage,
-        pubsub::{
-            config::{ReqTransactionSubscribeConfig, ReqTransactionSubscribeFilter},
-            filter::TransactionFilter,
-            SubscriptionId,
-        },
+        pubsub::{filter::TransactionFilter, SubscriptionId},
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
@@ -194,10 +190,6 @@ pub enum SubscribeConfig {
     },
     TokenInit {
         pubkey: Pubkey,
-        encoding: UiTransactionEncoding,
-        transaction_details: TransactionDetails,
-        show_rewards: bool,
-        max_supported_transaction_version: Option<u8>,
         commitment: CommitmentConfig,
     },
     Unsubscribe {
@@ -359,6 +351,34 @@ impl SubscribeConfig {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
 
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(default)]
+                struct ReqTransactionSubscribeFilterAccounts {
+                    include: Vec<String>,
+                    exclude: Vec<String>,
+                    required: Vec<String>,
+                }
+
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(deny_unknown_fields, default)]
+                struct ReqTransactionSubscribeFilter {
+                    vote: Option<bool>,
+                    failed: Option<bool>,
+                    signature: Option<String>,
+                    accounts: ReqTransactionSubscribeFilterAccounts,
+                }
+
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct ReqTransactionSubscribeConfig {
+                    #[serde(flatten)]
+                    commitment: Option<CommitmentConfig>,
+                    encoding: Option<UiTransactionEncoding>,
+                    transaction_details: Option<TransactionDetails>,
+                    show_rewards: Option<bool>,
+                    max_supported_transaction_version: Option<u8>,
+                }
+
                 #[derive(Debug, Deserialize)]
                 struct ReqParams {
                     filter: ReqTransactionSubscribeFilter,
@@ -392,11 +412,18 @@ impl SubscribeConfig {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
 
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                pub struct ReqTokenInitSubscribeConfig {
+                    #[serde(flatten)]
+                    pub commitment: Option<CommitmentConfig>,
+                }
+
                 #[derive(Debug, Deserialize)]
                 struct ReqParams {
                     pubkey: String,
                     #[serde(default)]
-                    config: Option<ReqTransactionSubscribeConfig>,
+                    config: Option<ReqTokenInitSubscribeConfig>,
                 }
 
                 let ReqParams { pubkey, config } = parse_params(params)?;
@@ -404,10 +431,6 @@ impl SubscribeConfig {
 
                 Ok(Self::TokenInit {
                     pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
-                    encoding: config.encoding.unwrap_or(UiTransactionEncoding::Base64),
-                    transaction_details: config.transaction_details.unwrap_or_default(),
-                    show_rewards: config.show_rewards.unwrap_or_default(),
-                    max_supported_transaction_version: config.max_supported_transaction_version,
                     commitment: config.commitment.unwrap_or_default(),
                 })
             }
@@ -621,17 +644,10 @@ impl SubscribeConfig {
     pub fn filter_transaction_token_init(
         &self,
         message: &MessageTransaction,
-    ) -> Option<(UiTransactionEncoding, TransactionDetails, bool, Option<u8>)> {
+    ) -> Option<Vec<Pubkey>> {
         match self {
-            Self::TokenInit {
-                pubkey,
-                encoding,
-                transaction_details,
-                show_rewards,
-                max_supported_transaction_version,
-                ..
-            } => {
-                let mut selected = false;
+            Self::TokenInit { pubkey, .. } => {
+                let mut accounts = vec![];
 
                 if let Ok(tx_with_meta) = message.as_versioned_transaction_with_status_meta() {
                     let account_keys = tx_with_meta.account_keys();
@@ -649,50 +665,42 @@ impl SubscribeConfig {
                             if program_id == Some(&spl_token::ID)
                                 || program_id == Some(&spl_token_2022::ID)
                             {
-                                match SplToken2022Instruction::unpack(&ix.instruction.data) {
-                                    Ok(SplToken2022Instruction::InitializeAccount)
-                                        if ix
-                                            .instruction
-                                            .accounts
-                                            .get(2)
-                                            .and_then(|ix| account_keys.get(*ix as usize))
-                                            == Some(pubkey) =>
+                                let init =
+                                    match SplToken2022Instruction::unpack(&ix.instruction.data) {
+                                        Ok(SplToken2022Instruction::InitializeAccount)
+                                            if ix
+                                                .instruction
+                                                .accounts
+                                                .get(2)
+                                                .and_then(|ix| account_keys.get(*ix as usize))
+                                                == Some(pubkey) =>
+                                        {
+                                            true
+                                        }
+                                        Ok(SplToken2022Instruction::InitializeAccount2 {
+                                            owner,
+                                        }) if &owner == pubkey => true,
+                                        Ok(SplToken2022Instruction::InitializeAccount3 {
+                                            owner,
+                                        }) if &owner == pubkey => true,
+                                        _ => false,
+                                    };
+                                if init {
+                                    if let Some(pubkey) = ix
+                                        .instruction
+                                        .accounts
+                                        .first()
+                                        .and_then(|ix| account_keys.get(*ix as usize))
                                     {
-                                        selected = true;
+                                        accounts.push(*pubkey);
                                     }
-                                    Ok(SplToken2022Instruction::InitializeAccount2 { owner })
-                                        if &owner == pubkey =>
-                                    {
-                                        selected = true;
-                                    }
-                                    Ok(SplToken2022Instruction::InitializeAccount3 { owner })
-                                        if &owner == pubkey =>
-                                    {
-                                        selected = true;
-                                    }
-                                    Ok(SplToken2022Instruction::InitializeImmutableOwner)
-                                        if ix
-                                            .instruction
-                                            .accounts
-                                            .first()
-                                            .and_then(|ix| account_keys.get(*ix as usize))
-                                            == Some(pubkey) =>
-                                    {
-                                        selected = true;
-                                    }
-                                    _ => {}
                                 }
                             }
                         }
                     }
                 }
 
-                selected.then_some((
-                    *encoding,
-                    *transaction_details,
-                    *show_rewards,
-                    *max_supported_transaction_version,
-                ))
+                (!accounts.is_empty()).then_some(accounts)
             }
             _ => None,
         }

@@ -3,8 +3,6 @@ use {
         deserialize_affinity, deserialize_maybe_rustls_server_config, deserialize_num_str,
     },
     serde::Deserialize,
-    solana_sdk::commitment_config::CommitmentConfig,
-    solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
     std::{
         io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -77,32 +75,4 @@ impl ConfigAppsPubsub {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct ReqTransactionSubscribeFilterAccounts {
-    pub include: Vec<String>,
-    pub exclude: Vec<String>,
-    pub required: Vec<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct ReqTransactionSubscribeFilter {
-    pub vote: Option<bool>,
-    pub failed: Option<bool>,
-    pub signature: Option<String>,
-    pub accounts: ReqTransactionSubscribeFilterAccounts,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReqTransactionSubscribeConfig {
-    #[serde(flatten)]
-    pub commitment: Option<CommitmentConfig>,
-    pub encoding: Option<UiTransactionEncoding>,
-    pub transaction_details: Option<TransactionDetails>,
-    pub show_rewards: Option<bool>,
-    pub max_supported_transaction_version: Option<u8>,
 }
