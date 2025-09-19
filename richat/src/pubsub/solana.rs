@@ -27,16 +27,15 @@ use {
     },
     solana_sdk::{
         commitment_config::{CommitmentConfig, CommitmentLevel},
-        pubkey::{Pubkey, PUBKEY_BYTES},
+        pubkey::Pubkey,
         signature::Signature,
         transaction::TransactionError,
     },
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
-    spl_generic_token::{
-        token::{GenericTokenAccount, SPL_TOKEN_ACCOUNT_OWNER_OFFSET},
-        token_2022::Account as SplToken2022Account,
-    },
     spl_token::instruction::TokenInstruction,
+    spl_token_2022::{
+        generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
+    },
     std::{
         borrow::Cow,
         collections::{hash_map::DefaultHasher, HashSet},
@@ -102,7 +101,7 @@ impl SubscribeMethod {
     pub const fn get_message_methods(message: &ParsedMessage) -> &[Self] {
         match message {
             ParsedMessage::Slot(_) => &[Self::Slot, Self::SlotsUpdates, Self::Root],
-            ParsedMessage::Account(_) => &[Self::Account, Self::Program, Self::TokenOwner],
+            ParsedMessage::Account(_) => &[Self::Account, Self::Program],
             ParsedMessage::Transaction(_) => &[
                 Self::Logs,
                 Self::Signature,
@@ -537,29 +536,6 @@ impl SubscribeConfig {
                 data_slice,
                 ..
             } if pubkey == message.pubkey() => Some((*encoding, *data_slice)),
-            _ => None,
-        }
-    }
-
-    pub fn filter_account_token_owner(
-        &self,
-        message: &MessageAccount,
-    ) -> Option<UiAccountEncoding> {
-        match self {
-            Self::TokenOwner {
-                pubkey,
-                account_encoding,
-                ..
-            } if (message.pubkey() == pubkey)
-                || ((message.owner() == &spl_token::ID
-                    || message.owner() == &spl_token_2022::ID)
-                    && SplToken2022Account::valid_account_data(message.data())
-                    && &message.data()[SPL_TOKEN_ACCOUNT_OWNER_OFFSET
-                        ..SPL_TOKEN_ACCOUNT_OWNER_OFFSET + PUBKEY_BYTES]
-                        == pubkey.as_ref()) =>
-            {
-                Some(*account_encoding)
-            }
             _ => None,
         }
     }
