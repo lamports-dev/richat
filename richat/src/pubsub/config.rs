@@ -58,7 +58,7 @@ impl Default for ConfigAppsPubsub {
             subscriptions_workers_affinity: None,
             subscriptions_max_clients_request_per_tick: 32,
             subscriptions_max_messages_per_commitment_per_tick: 256,
-            notifications_messages_max_count: 10_000_000,
+            notifications_messages_max_count: 16 * 1024 * 1024,
             notifications_messages_max_bytes: 32 * 1024 * 1024 * 1024,
             signatures_cache_max: 150 * 8_192, // 8k more than enough per slot, should be about 300MiB
             signatures_cache_slots_max: 150,

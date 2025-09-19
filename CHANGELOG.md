@@ -12,6 +12,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
+- richat: use IntMap from solana-nohash-hasher ([#144](https://github.com/lamports-dev/richat/pull/144))
+
 ### Features
 
 ### Breaking

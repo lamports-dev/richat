@@ -21,6 +21,7 @@ use {
     richat_proto::{convert_from, geyser::SlotStatus},
     richat_shared::five8::{pubkey_encode, signature_encode},
     solana_account_decoder::encode_ui_account,
+    solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
@@ -67,16 +68,10 @@ struct SubscriptionInfo {
 #[derive(Debug, Default)]
 struct Subscriptions {
     subscription_id: SubscriptionId,
-    subscriptions: HashMap<
-        SubscribeConfigHashId,
-        (CommitmentLevel, SubscribeMethod, SubscriptionId),
-        RandomState,
-    >,
-    subscriptions_per_client: HashMap<
-        ClientId,
-        HashMap<SubscriptionId, (CommitmentLevel, SubscribeMethod), RandomState>,
-        RandomState,
-    >,
+    subscriptions:
+        IntMap<SubscribeConfigHashId, (CommitmentLevel, SubscribeMethod, SubscriptionId)>,
+    subscriptions_per_client:
+        IntMap<ClientId, HashMap<SubscriptionId, (CommitmentLevel, SubscribeMethod), RandomState>>,
     subscriptions_per_method: HashMap<
         (CommitmentLevel, SubscribeMethod),
         HashMap<SubscriptionId, SubscriptionInfo, RandomState>,
@@ -525,7 +520,7 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     &RpcLogsResponse {
-                                        signature: signature_encode(&(*message.signature()).into()),
+                                        signature: signature_encode(message.signature().as_array()),
                                         err,
                                         logs,
                                     },

@@ -17,7 +17,6 @@ use {
         upgrade::{is_upgrade_request, upgrade, UpgradeFut},
         CloseCode, FragmentCollectorRead, Frame, OpCode, Payload, WebSocketError,
     },
-    foldhash::quality::RandomState,
     futures::future::{ready, try_join_all, FutureExt, TryFutureExt},
     http_body_util::{BodyExt, Empty as BodyEmpty},
     hyper::{body::Incoming as BodyIncoming, service::service_fn, Request, Response, StatusCode},
@@ -27,8 +26,9 @@ use {
     },
     jsonrpsee_types::{ResponsePayload, TwoPointZero},
     richat_shared::{jsonrpc::helpers::get_x_subscription_id, shutdown::Shutdown},
+    solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::RpcVersionInfo,
-    std::{collections::HashMap, future::Future, net::TcpListener as StdTcpListener, sync::Arc},
+    std::{future::Future, net::TcpListener as StdTcpListener, sync::Arc},
     tokio::{
         net::TcpListener,
         sync::{broadcast, mpsc, oneshot},
@@ -294,7 +294,7 @@ impl PubSubServer {
         .and_then(ready);
 
         let write_fut = tokio::spawn(async move {
-            let mut subscriptions = HashMap::<SubscriptionId, SubscribeMethod, RandomState>::default();
+            let mut subscriptions = IntMap::<SubscriptionId, SubscribeMethod>::default();
             let maybe_close_reason = loop {
                 tokio::select! {
                     message = read_rx.recv() => match message {

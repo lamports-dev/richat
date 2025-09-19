@@ -199,7 +199,7 @@ apps:
   #   subscriptions_workers_affinity: null # by default no affinity (taskset syntax)
   #   subscriptions_max_clients_request_per_tick: 32
   #   subscriptions_max_messages_per_commitment_per_tick: 256
-  #   notifications_messages_max_count: 10_000_000
+  #   notifications_messages_max_count: 16_777_216
   #   notifications_messages_max_bytes: 34_359_738_368
   #   signatures_cache_max: 1_228_800
   #   signatures_cache_slots_max: 150
