@@ -21,7 +21,7 @@ pub struct ConfigAppsPubsub {
     pub recv_max_message_size: usize,
     pub enable_block_subscription: bool,
     pub enable_transaction_subscription: bool,
-    pub enable_token_owner_subscription: bool,
+    pub enable_token_init_subscription: bool,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub clients_requests_channel_size: usize,
     #[serde(deserialize_with = "deserialize_affinity")]
@@ -53,7 +53,7 @@ impl Default for ConfigAppsPubsub {
             recv_max_message_size: 4 * 1024, // 4KiB
             enable_block_subscription: false,
             enable_transaction_subscription: false,
-            enable_token_owner_subscription: false,
+            enable_token_init_subscription: false,
             clients_requests_channel_size: 8_192,
             subscriptions_worker_affinity: None,
             subscriptions_workers_count: 2,
