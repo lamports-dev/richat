@@ -36,6 +36,7 @@ use {
         token::{GenericTokenAccount, SPL_TOKEN_ACCOUNT_OWNER_OFFSET},
         token_2022::Account as SplToken2022Account,
     },
+    spl_token::instruction::TokenInstruction,
     std::{
         borrow::Cow,
         collections::{hash_map::DefaultHasher, HashSet},
@@ -685,23 +686,74 @@ impl SubscribeConfig {
         &self,
         message: &MessageTransaction,
     ) -> Option<(UiTransactionEncoding, TransactionDetails, bool, Option<u8>)> {
-        // TODO
         match self {
             Self::TokenOwner {
-                // pubkey,
-                // transaction_encoding,
-                // transaction_details,
-                // transaction_show_rewards,
-                // transaction_max_supported_transaction_version,
+                pubkey,
+                transaction_encoding,
+                transaction_details,
+                transaction_show_rewards,
+                transaction_max_supported_transaction_version,
                 ..
             } => {
-                None
-                // Some((
-                //     *transaction_encoding,
-                //     *transaction_details,
-                //     *transaction_show_rewards,
-                //     *max_supported_transaction_version,
-                // ))
+                let mut selected = false;
+
+                if let Ok(tx_with_meta) = message.as_versioned_transaction_with_status_meta() {
+                    let account_keys = tx_with_meta.account_keys();
+
+                    for inner_ixs in tx_with_meta
+                        .meta
+                        .inner_instructions
+                        .as_deref()
+                        .unwrap_or_default()
+                    {
+                        for ix in &inner_ixs.instructions {
+                            if account_keys.get(ix.instruction.program_id_index as usize)
+                                == Some(&spl_token::ID)
+                            {
+                                match TokenInstruction::unpack(&ix.instruction.data) {
+                                    Ok(TokenInstruction::InitializeAccount)
+                                        if ix
+                                            .instruction
+                                            .accounts
+                                            .get(2)
+                                            .and_then(|ix| account_keys.get(*ix as usize))
+                                            == Some(pubkey) =>
+                                    {
+                                        selected = true;
+                                    }
+                                    Ok(TokenInstruction::InitializeAccount2 { owner })
+                                        if &owner == pubkey =>
+                                    {
+                                        selected = true;
+                                    }
+                                    Ok(TokenInstruction::InitializeAccount3 { owner })
+                                        if &owner == pubkey =>
+                                    {
+                                        selected = true;
+                                    }
+                                    Ok(TokenInstruction::InitializeImmutableOwner)
+                                        if ix
+                                            .instruction
+                                            .accounts
+                                            .first()
+                                            .and_then(|ix| account_keys.get(*ix as usize))
+                                            == Some(pubkey) =>
+                                    {
+                                        selected = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+
+                selected.then_some((
+                    *transaction_encoding,
+                    *transaction_details,
+                    *transaction_show_rewards,
+                    *transaction_max_supported_transaction_version,
+                ))
             }
             _ => None,
         }
