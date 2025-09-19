@@ -648,6 +648,48 @@ pub fn subscriptions_worker(
                                 return Some((subscription, false, json));
                             }
                         }
+                        (SubscribeMethod::TokenOwner, ParsedMessage::Account(message)) => {
+                            if let Some(encoding) =
+                                subscription.config.filter_account_token_owner(message)
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    "tokenOwnerNotification",
+                                    subscription.id,
+                                    message.slot(),
+                                    encode_ui_account(
+                                        message.pubkey(),
+                                        message.as_ref(),
+                                        encoding,
+                                        None,
+                                        None,
+                                    ),
+                                );
+                                return Some((subscription, false, json));
+                            }
+                        }
+                        (SubscribeMethod::TokenOwner, ParsedMessage::Transaction(message)) => {
+                            if let Some((
+                                encoding,
+                                transaction_details,
+                                show_rewards,
+                                max_supported_transaction_version,
+                            )) = subscription.config.filter_transaction_token_owner(message)
+                            {
+                                let json = RpcNotification::serialize_with_context(
+                                    "tokenOwnerNotification",
+                                    subscription.id,
+                                    message.slot(),
+                                    RpcTransactionUpdate::new(
+                                        message,
+                                        encoding,
+                                        transaction_details,
+                                        show_rewards,
+                                        max_supported_transaction_version,
+                                    ),
+                                );
+                                return Some((subscription, false, json));
+                            }
+                        }
                         _ => {}
                     };
                     None

@@ -119,6 +119,7 @@ impl PubSubServer {
                 let recv_max_message_size = config.recv_max_message_size;
                 let enable_block_subscription = config.enable_block_subscription;
                 let enable_transaction_subscription = config.enable_transaction_subscription;
+                let enable_token_owner_subscription = config.enable_token_owner_subscription;
                 let service = service_fn({
                     let clients_tx = clients_tx.clone();
                     let notifications = notifications.clone();
@@ -146,6 +147,7 @@ impl PubSubServer {
                                                 recv_max_message_size,
                                                 enable_block_subscription,
                                                 enable_transaction_subscription,
+                                                enable_token_owner_subscription,
                                                 clients_tx,
                                                 notifications,
                                                 shutdown,
@@ -217,6 +219,7 @@ impl PubSubServer {
         recv_max_message_size: usize,
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
+        enable_token_owner_subscription: bool,
         clients_tx: mpsc::Sender<ClientRequest>,
         mut notifications: broadcast::Receiver<RpcNotification>,
         shutdown: Shutdown,
@@ -270,6 +273,7 @@ impl PubSubServer {
                     payload.as_ref(),
                     enable_block_subscription,
                     enable_transaction_subscription,
+                    enable_token_owner_subscription,
                 ) {
                     Ok(Some(msg)) => msg,
                     Ok(None) => continue,

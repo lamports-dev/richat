@@ -3990,6 +3990,8 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "solana-version",
+ "spl-generic-token",
+ "spl-token",
  "spl-token-2022",
  "thiserror 2.0.12",
  "tikv-jemallocator",

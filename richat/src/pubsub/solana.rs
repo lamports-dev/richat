@@ -27,13 +27,14 @@ use {
     },
     solana_sdk::{
         commitment_config::{CommitmentConfig, CommitmentLevel},
-        pubkey::Pubkey,
+        pubkey::{Pubkey, PUBKEY_BYTES},
         signature::Signature,
         transaction::TransactionError,
     },
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
-    spl_token_2022::{
-        generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
+    spl_generic_token::{
+        token::{GenericTokenAccount, SPL_TOKEN_ACCOUNT_OWNER_OFFSET},
+        token_2022::Account as SplToken2022Account,
     },
     std::{
         borrow::Cow,
@@ -54,6 +55,7 @@ impl SubscribeMessage {
         message: &[u8],
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
+        enable_token_owner_subscription: bool,
     ) -> Result<Option<Self>, Response<'static, ()>> {
         let call: Request = serde_json::from_slice(message).map_err(|_error| Response {
             jsonrpc: Some(TwoPointZero),
@@ -66,6 +68,7 @@ impl SubscribeMessage {
             call.params,
             enable_block_subscription,
             enable_transaction_subscription,
+            enable_token_owner_subscription,
         )
         .map_err(|error| Response {
             jsonrpc: Some(TwoPointZero),
@@ -91,14 +94,20 @@ pub enum SubscribeMethod {
     Block,
     Root,
     Transaction,
+    TokenOwner,
 }
 
 impl SubscribeMethod {
     pub const fn get_message_methods(message: &ParsedMessage) -> &[Self] {
         match message {
             ParsedMessage::Slot(_) => &[Self::Slot, Self::SlotsUpdates, Self::Root],
-            ParsedMessage::Account(_) => &[Self::Account, Self::Program],
-            ParsedMessage::Transaction(_) => &[Self::Logs, Self::Signature, Self::Transaction],
+            ParsedMessage::Account(_) => &[Self::Account, Self::Program, Self::TokenOwner],
+            ParsedMessage::Transaction(_) => &[
+                Self::Logs,
+                Self::Signature,
+                Self::Transaction,
+                Self::TokenOwner,
+            ],
             ParsedMessage::Entry(_) => &[],
             ParsedMessage::BlockMeta(_) => &[],
             ParsedMessage::Block(_) => &[Self::Block],
@@ -116,6 +125,7 @@ impl SubscribeMethod {
             Self::Block => "block",
             Self::Root => "root",
             Self::Transaction => "transaction",
+            Self::TokenOwner => "tokenowner",
         }
     }
 }
@@ -177,6 +187,15 @@ pub enum SubscribeConfig {
         max_supported_transaction_version: Option<u8>,
         commitment: CommitmentConfig,
     },
+    TokenOwner {
+        pubkey: Pubkey,
+        account_encoding: UiAccountEncoding,
+        transaction_encoding: UiTransactionEncoding,
+        transaction_details: TransactionDetails,
+        transaction_show_rewards: bool,
+        transaction_max_supported_transaction_version: Option<u8>,
+        commitment: CommitmentConfig,
+    },
     Unsubscribe {
         id: SubscriptionId,
     },
@@ -190,6 +209,7 @@ impl SubscribeConfig {
         params: Option<Cow<'_, RawValue>>,
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
+        enable_token_owner_subscription: bool,
     ) -> Result<Self, ErrorObjectOwned> {
         match method {
             "accountSubscribe" => {
@@ -391,6 +411,46 @@ impl SubscribeConfig {
                     commitment: config.commitment.unwrap_or_default(),
                 })
             }
+            "tokenOwnerSubscribe" => {
+                if !enable_token_owner_subscription {
+                    return Err(ErrorCode::MethodNotFound.into());
+                }
+
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct ReqTokenOwnerSubscribeConfig {
+                    pub account_encoding: Option<UiAccountEncoding>,
+                    pub transaction_encoding: Option<UiTransactionEncoding>,
+                    pub transaction_details: Option<TransactionDetails>,
+                    pub transaction_show_rewards: Option<bool>,
+                    pub transaction_max_supported_transaction_version: Option<u8>,
+                    #[serde(flatten)]
+                    pub commitment: Option<CommitmentConfig>,
+                }
+
+                #[derive(Debug, Deserialize)]
+                struct ReqParams {
+                    pubkey: String,
+                    #[serde(default)]
+                    config: Option<ReqTokenOwnerSubscribeConfig>,
+                }
+
+                let ReqParams { pubkey, config } = parse_params(params)?;
+                let config = config.unwrap_or_default();
+
+                Ok(Self::TokenOwner {
+                    pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
+                    account_encoding: config.account_encoding.unwrap_or(UiAccountEncoding::Binary),
+                    transaction_encoding: config
+                        .transaction_encoding
+                        .unwrap_or(UiTransactionEncoding::Base64),
+                    transaction_details: config.transaction_details.unwrap_or_default(),
+                    transaction_show_rewards: config.transaction_show_rewards.unwrap_or_default(),
+                    transaction_max_supported_transaction_version: config
+                        .transaction_max_supported_transaction_version,
+                    commitment: config.commitment.unwrap_or_default(),
+                })
+            }
             "accountUnsubscribe"
             | "programUnsubscribe"
             | "logsUnsubscribe"
@@ -400,9 +460,11 @@ impl SubscribeConfig {
             | "blockUnsubscribe"
             | "voteUnsubscribe"
             | "rootUnsubscribe"
-            | "transactionUnsubscribe" => {
+            | "transactionUnsubscribe"
+            | "tokenOwnerUnsubscribe" => {
                 if (method == "blockUnsubscribe" && !enable_block_subscription)
                     || (method == "transactionUnsubscribe" && !enable_transaction_subscription)
+                    || (method == "tokenOwnerUnsubscribe" && !enable_token_owner_subscription)
                 {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
@@ -438,6 +500,7 @@ impl SubscribeConfig {
             Self::Block { commitment, .. } => commitment.commitment,
             Self::Root => CommitmentLevel::Processed,
             Self::Transaction { commitment, .. } => commitment.commitment,
+            Self::TokenOwner { commitment, .. } => commitment.commitment,
             Self::Unsubscribe { .. } => unreachable!(),
             Self::GetVersion => unreachable!(),
             Self::GetVersionRichat => unreachable!(),
@@ -455,6 +518,7 @@ impl SubscribeConfig {
             Self::Block { .. } => SubscribeMethod::Block,
             Self::Root => SubscribeMethod::Root,
             Self::Transaction { .. } => SubscribeMethod::Transaction,
+            Self::TokenOwner { .. } => SubscribeMethod::TokenOwner,
             Self::Unsubscribe { .. } => unreachable!(),
             Self::GetVersion => unreachable!(),
             Self::GetVersionRichat => unreachable!(),
@@ -472,6 +536,29 @@ impl SubscribeConfig {
                 data_slice,
                 ..
             } if pubkey == message.pubkey() => Some((*encoding, *data_slice)),
+            _ => None,
+        }
+    }
+
+    pub fn filter_account_token_owner(
+        &self,
+        message: &MessageAccount,
+    ) -> Option<UiAccountEncoding> {
+        match self {
+            Self::TokenOwner {
+                pubkey,
+                account_encoding,
+                ..
+            } if (message.pubkey() == pubkey)
+                || ((message.owner() == &spl_token::ID
+                    || message.owner() == &spl_token_2022::ID)
+                    && SplToken2022Account::valid_account_data(message.data())
+                    && &message.data()[SPL_TOKEN_ACCOUNT_OWNER_OFFSET
+                        ..SPL_TOKEN_ACCOUNT_OWNER_OFFSET + PUBKEY_BYTES]
+                        == pubkey.as_ref()) =>
+            {
+                Some(*account_encoding)
+            }
             _ => None,
         }
     }
@@ -590,6 +677,32 @@ impl SubscribeConfig {
                 *show_rewards,
                 *max_supported_transaction_version,
             )),
+            _ => None,
+        }
+    }
+
+    pub fn filter_transaction_token_owner(
+        &self,
+        message: &MessageTransaction,
+    ) -> Option<(UiTransactionEncoding, TransactionDetails, bool, Option<u8>)> {
+        // TODO
+        match self {
+            Self::TokenOwner {
+                // pubkey,
+                // transaction_encoding,
+                // transaction_details,
+                // transaction_show_rewards,
+                // transaction_max_supported_transaction_version,
+                ..
+            } => {
+                None
+                // Some((
+                //     *transaction_encoding,
+                //     *transaction_details,
+                //     *transaction_show_rewards,
+                //     *max_supported_transaction_version,
+                // ))
+            }
             _ => None,
         }
     }
