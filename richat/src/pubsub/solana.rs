@@ -190,7 +190,6 @@ pub enum SubscribeConfig {
     },
     TokenInit {
         pubkey: Pubkey,
-        account_encoding: UiAccountEncoding,
         transaction_encoding: UiTransactionEncoding,
         transaction_details: TransactionDetails,
         transaction_show_rewards: bool,
@@ -420,7 +419,6 @@ impl SubscribeConfig {
                 #[derive(Debug, Default, Deserialize)]
                 #[serde(rename_all = "camelCase")]
                 struct ReqTokenInitSubscribeConfig {
-                    pub account_encoding: Option<UiAccountEncoding>,
                     pub transaction_encoding: Option<UiTransactionEncoding>,
                     pub transaction_details: Option<TransactionDetails>,
                     pub transaction_show_rewards: Option<bool>,
@@ -441,7 +439,6 @@ impl SubscribeConfig {
 
                 Ok(Self::TokenInit {
                     pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
-                    account_encoding: config.account_encoding.unwrap_or(UiAccountEncoding::Binary),
                     transaction_encoding: config
                         .transaction_encoding
                         .unwrap_or(UiTransactionEncoding::Base64),
