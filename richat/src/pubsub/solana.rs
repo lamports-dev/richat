@@ -1,7 +1,11 @@
 use {
     crate::{
         channel::ParsedMessage,
-        pubsub::{filter::TransactionFilter, SubscriptionId},
+        pubsub::{
+            config::{ReqTransactionSubscribeConfig, ReqTransactionSubscribeFilter},
+            filter::TransactionFilter,
+            SubscriptionId,
+        },
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
@@ -190,10 +194,10 @@ pub enum SubscribeConfig {
     },
     TokenInit {
         pubkey: Pubkey,
-        transaction_encoding: UiTransactionEncoding,
+        encoding: UiTransactionEncoding,
         transaction_details: TransactionDetails,
-        transaction_show_rewards: bool,
-        transaction_max_supported_transaction_version: Option<u8>,
+        show_rewards: bool,
+        max_supported_transaction_version: Option<u8>,
         commitment: CommitmentConfig,
     },
     Unsubscribe {
@@ -355,34 +359,6 @@ impl SubscribeConfig {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
 
-                #[derive(Debug, Default, Deserialize)]
-                #[serde(default)]
-                struct ReqTransactionSubscribeFilterAccounts {
-                    include: Vec<String>,
-                    exclude: Vec<String>,
-                    required: Vec<String>,
-                }
-
-                #[derive(Debug, Default, Deserialize)]
-                #[serde(deny_unknown_fields, default)]
-                struct ReqTransactionSubscribeFilter {
-                    vote: Option<bool>,
-                    failed: Option<bool>,
-                    signature: Option<String>,
-                    accounts: ReqTransactionSubscribeFilterAccounts,
-                }
-
-                #[derive(Debug, Default, Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ReqTransactionSubscribeConfig {
-                    #[serde(flatten)]
-                    pub commitment: Option<CommitmentConfig>,
-                    pub encoding: Option<UiTransactionEncoding>,
-                    pub transaction_details: Option<TransactionDetails>,
-                    pub show_rewards: Option<bool>,
-                    pub max_supported_transaction_version: Option<u8>,
-                }
-
                 #[derive(Debug, Deserialize)]
                 struct ReqParams {
                     filter: ReqTransactionSubscribeFilter,
@@ -416,22 +392,11 @@ impl SubscribeConfig {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
 
-                #[derive(Debug, Default, Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ReqTokenInitSubscribeConfig {
-                    pub transaction_encoding: Option<UiTransactionEncoding>,
-                    pub transaction_details: Option<TransactionDetails>,
-                    pub transaction_show_rewards: Option<bool>,
-                    pub transaction_max_supported_transaction_version: Option<u8>,
-                    #[serde(flatten)]
-                    pub commitment: Option<CommitmentConfig>,
-                }
-
                 #[derive(Debug, Deserialize)]
                 struct ReqParams {
                     pubkey: String,
                     #[serde(default)]
-                    config: Option<ReqTokenInitSubscribeConfig>,
+                    config: Option<ReqTransactionSubscribeConfig>,
                 }
 
                 let ReqParams { pubkey, config } = parse_params(params)?;
@@ -439,13 +404,10 @@ impl SubscribeConfig {
 
                 Ok(Self::TokenInit {
                     pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
-                    transaction_encoding: config
-                        .transaction_encoding
-                        .unwrap_or(UiTransactionEncoding::Base64),
+                    encoding: config.encoding.unwrap_or(UiTransactionEncoding::Base64),
                     transaction_details: config.transaction_details.unwrap_or_default(),
-                    transaction_show_rewards: config.transaction_show_rewards.unwrap_or_default(),
-                    transaction_max_supported_transaction_version: config
-                        .transaction_max_supported_transaction_version,
+                    show_rewards: config.show_rewards.unwrap_or_default(),
+                    max_supported_transaction_version: config.max_supported_transaction_version,
                     commitment: config.commitment.unwrap_or_default(),
                 })
             }
@@ -663,10 +625,10 @@ impl SubscribeConfig {
         match self {
             Self::TokenInit {
                 pubkey,
-                transaction_encoding,
+                encoding,
                 transaction_details,
-                transaction_show_rewards,
-                transaction_max_supported_transaction_version,
+                show_rewards,
+                max_supported_transaction_version,
                 ..
             } => {
                 let mut selected = false;
@@ -726,10 +688,10 @@ impl SubscribeConfig {
                 }
 
                 selected.then_some((
-                    *transaction_encoding,
+                    *encoding,
                     *transaction_details,
-                    *transaction_show_rewards,
-                    *transaction_max_supported_transaction_version,
+                    *show_rewards,
+                    *max_supported_transaction_version,
                 ))
             }
             _ => None,
