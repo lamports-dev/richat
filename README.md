@@ -114,7 +114,7 @@ flowchart LR
 - `filter` — library for filtering geyser messages
 - `plugin-agave` — Agave validator geyser plugin https://docs.anza.xyz/validator/geyser
 - `proto` — library with proto files, re-imports structs from crate `yellowstone-grpc-proto`
-- `richat` — app with full stream consumer and producers: gRPC (`Dragon's Mouth`), Solana PubSub
+- `richat` — app with full stream consumer and producers: gRPC (`Dragon's Mouth`), Solana PubSub (with [transactionSubscribe](https://github.com/solana-foundation/solana-improvement-documents/pull/69) and [tokenInitSubscribe](./token-init.md))
 - `shared` — shared code between components (except `client`)
 
 ## Releases
@@ -125,6 +125,7 @@ flowchart LR
 - `agave-v2.0` — development branch for agave v2.0
 - `agave-v2.1` — development branch for agave v2.1
 - `agave-v2.2` — development branch for agave v2.2
+- `agave-v2.3` — development branch for agave v2.3
 
 #### Tags
 
