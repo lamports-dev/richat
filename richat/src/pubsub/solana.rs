@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::ParsedMessage,
-        pubsub::{filter::TransactionFilter, SubscriptionId},
+        pubsub::{filter::TransactionFilter, tracker::TokenInitParsedTransactions, SubscriptionId},
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
@@ -33,9 +33,7 @@ use {
     },
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
     spl_token_2022::{
-        generic_token_account::GenericTokenAccount,
-        instruction::TokenInstruction as SplToken2022Instruction,
-        state::Account as SplToken2022Account,
+        generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
     },
     std::{
         borrow::Cow,
@@ -644,62 +642,11 @@ impl SubscribeConfig {
     pub fn filter_transaction_token_init(
         &self,
         message: &MessageTransaction,
+        token_init: &TokenInitParsedTransactions,
     ) -> Option<Vec<Pubkey>> {
         match self {
             Self::TokenInit { pubkey, .. } => {
-                let mut accounts = vec![];
-
-                if let Ok(tx_with_meta) = message.as_versioned_transaction_with_status_meta() {
-                    let account_keys = tx_with_meta.account_keys();
-
-                    for inner_ixs in tx_with_meta
-                        .meta
-                        .inner_instructions
-                        .as_deref()
-                        .unwrap_or_default()
-                    {
-                        for ix in &inner_ixs.instructions {
-                            let program_id =
-                                account_keys.get(ix.instruction.program_id_index as usize);
-
-                            if program_id == Some(&spl_token::ID)
-                                || program_id == Some(&spl_token_2022::ID)
-                            {
-                                let init =
-                                    match SplToken2022Instruction::unpack(&ix.instruction.data) {
-                                        Ok(SplToken2022Instruction::InitializeAccount)
-                                            if ix
-                                                .instruction
-                                                .accounts
-                                                .get(2)
-                                                .and_then(|ix| account_keys.get(*ix as usize))
-                                                == Some(pubkey) =>
-                                        {
-                                            true
-                                        }
-                                        Ok(SplToken2022Instruction::InitializeAccount2 {
-                                            owner,
-                                        }) if &owner == pubkey => true,
-                                        Ok(SplToken2022Instruction::InitializeAccount3 {
-                                            owner,
-                                        }) if &owner == pubkey => true,
-                                        _ => false,
-                                    };
-                                if init {
-                                    if let Some(pubkey) = ix
-                                        .instruction
-                                        .accounts
-                                        .first()
-                                        .and_then(|ix| account_keys.get(*ix as usize))
-                                    {
-                                        accounts.push(*pubkey);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
+                let accounts = token_init.get_token_init(message, pubkey);
                 (!accounts.is_empty()).then_some(accounts)
             }
             _ => None,

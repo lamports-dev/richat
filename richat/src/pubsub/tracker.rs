@@ -20,7 +20,10 @@ use {
     },
     richat_filter::message::{MessageSlot, MessageTransaction},
     richat_proto::{convert_from, geyser::SlotStatus},
-    richat_shared::five8::{pubkey_encode, signature_encode},
+    richat_shared::{
+        five8::{pubkey_encode, signature_encode},
+        mutex_lock,
+    },
     solana_account_decoder::encode_ui_account,
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::{
@@ -28,12 +31,14 @@ use {
         SlotTransactionStats, SlotUpdate,
     },
     solana_sdk::{
-        clock::Slot, commitment_config::CommitmentLevel, signature::Signature,
+        clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
         transaction::TransactionError,
     },
+    solana_transaction_status::InnerInstruction,
+    spl_token_2022::instruction::TokenInstruction as SplToken2022Instruction,
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
-        sync::Arc,
+        sync::{Arc, Mutex},
         thread,
         time::Duration,
     },
@@ -339,6 +344,7 @@ pub fn subscriptions_worker(
         }
 
         // Collect messages from channels
+        let token_init = TokenInitParsedTransactions::default();
         let mut jobs = Vec::with_capacity(max_messages_per_commitment_per_tick * 3 * 3);
         let mut messages_processed = Vec::with_capacity(max_messages_per_commitment_per_tick);
         let mut messages_confirmed = Vec::with_capacity(max_messages_per_commitment_per_tick);
@@ -446,7 +452,7 @@ pub fn subscriptions_worker(
                         subscriptions.get_subscriptions(commitment, *method)
                     {
                         for subscription in subscriptions {
-                            jobs.push((*method, message, subscription, None));
+                            jobs.push((*method, message, subscription, &token_init, None));
                         }
                     }
                 }
@@ -458,7 +464,7 @@ pub fn subscriptions_worker(
                 subscriptions.get_subscriptions(CommitmentLevel::Processed, method)
             {
                 for subscription in subscriptions {
-                    jobs.push((method, message, subscription, Some(*stats)));
+                    jobs.push((method, message, subscription, &token_init, Some(*stats)));
                 }
             }
         }
@@ -471,7 +477,7 @@ pub fn subscriptions_worker(
         // Filter messages
         let new_notifications = workers.install(|| {
             jobs.into_par_iter()
-                .filter_map(|(method, message, subscription, extra_info)| {
+                .filter_map(|(method, message, subscription, token_init, extra_info)| {
                     match (method, message) {
                         (SubscribeMethod::Account, ParsedMessage::Account(message)) => {
                             if let Some((encoding, data_slice)) =
@@ -650,8 +656,9 @@ pub fn subscriptions_worker(
                             }
                         }
                         (SubscribeMethod::TokenInit, ParsedMessage::Transaction(message)) => {
-                            if let Some(accounts) =
-                                subscription.config.filter_transaction_token_init(message)
+                            if let Some(accounts) = subscription
+                                .config
+                                .filter_transaction_token_init(message, token_init)
                             {
                                 let json = RpcNotification::serialize_with_context(
                                     "tokenInitNotification",
@@ -864,5 +871,78 @@ impl SlotTransactionStatsItem {
             return Some((ParsedMessage::Slot(Arc::new(message)), stats));
         }
         None
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TokenInitParsedTransactions {
+    #[allow(clippy::type_complexity)]
+    inner: Mutex<HashMap<Signature, Arc<Mutex<Option<HashMap<Pubkey, Vec<Pubkey>>>>>, RandomState>>,
+}
+
+impl TokenInitParsedTransactions {
+    pub fn get_token_init(&self, message: &MessageTransaction, owner: &Pubkey) -> Vec<Pubkey> {
+        let mutex = Arc::clone(
+            mutex_lock(&self.inner)
+                .entry(*message.signature())
+                .or_default(),
+        );
+
+        let mut locked = mutex_lock(&mutex);
+        locked
+            .get_or_insert_with(|| Self::parse(message))
+            .get(owner)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn parse(message: &MessageTransaction) -> HashMap<Pubkey, Vec<Pubkey>> {
+        let mut map = HashMap::<Pubkey, Vec<Pubkey>>::new();
+
+        if let Ok(tx_with_meta) = message.as_versioned_transaction_with_status_meta() {
+            let account_keys = tx_with_meta.account_keys();
+
+            for inner_ixs in tx_with_meta
+                .meta
+                .inner_instructions
+                .as_deref()
+                .unwrap_or_default()
+            {
+                for InnerInstruction {
+                    instruction: ix, ..
+                } in &inner_ixs.instructions
+                {
+                    let program_id = account_keys.get(ix.program_id_index as usize);
+
+                    if program_id == Some(&spl_token::ID) || program_id == Some(&spl_token_2022::ID)
+                    {
+                        if let Some(owner) = match SplToken2022Instruction::unpack(&ix.data) {
+                            Ok(SplToken2022Instruction::InitializeAccount) => ix
+                                .accounts
+                                .get(2)
+                                .and_then(|ix| account_keys.get(*ix as usize))
+                                .copied(),
+                            Ok(SplToken2022Instruction::InitializeAccount2 { owner }) => {
+                                Some(owner)
+                            }
+                            Ok(SplToken2022Instruction::InitializeAccount3 { owner }) => {
+                                Some(owner)
+                            }
+                            _ => None,
+                        } {
+                            if let Some(pubkey) = ix
+                                .accounts
+                                .first()
+                                .and_then(|ix| account_keys.get(*ix as usize))
+                            {
+                                map.entry(owner).or_default().push(*pubkey);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        map
     }
 }
