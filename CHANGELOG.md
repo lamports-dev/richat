@@ -16,6 +16,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: impl subscribe_jup ([#140](https://github.com/lamports-dev/richat/pull/140))
+
 ### Breaking
 
 ## 2025-09-17
