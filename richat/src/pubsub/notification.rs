@@ -367,4 +367,5 @@ pub enum RpcBlockUpdateError {
 pub struct RpcTokenInitUpdate {
     pub accounts: Vec<String>,
     pub signature: String,
+    pub failed: bool,
 }

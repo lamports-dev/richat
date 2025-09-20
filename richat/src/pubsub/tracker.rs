@@ -670,6 +670,7 @@ pub fn subscriptions_worker(
                                             .map(|pk| pk.to_string())
                                             .collect(),
                                         signature: signature_encode(message.signature().as_array()),
+                                        failed: message.failed(),
                                     },
                                 );
                                 return Some((subscription, false, json));

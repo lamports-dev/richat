@@ -10,14 +10,15 @@ It looked like all methods in Agave Pubsub + `transactionSubscribe` allowed to b
 
 ```rust
 #[derive(Debug, Serialize)]
-struct RpcTokenInitResponse {
-    accounts: Vec<String>,
-    signature: String,
+pub struct RpcTokenInitResponse {
+    pub accounts: Vec<String>,
+    pub signature: String,
+    pub failed: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ReqTokenInitConfig {
+pub struct ReqTokenInitConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
 }
@@ -65,6 +66,6 @@ For simplicity I propose to request only confirmed data (and optionally show spi
 6. Request history for Account and all Token Accounts with `getSignaturesForAddress` with `minContextSlot`
 7. If an account update for Token Account is received with owner as System Program and lamports as zero then Token Account is closed (alternatively you can parse transaction from `transactionSubscribe` and parse inner instructions to lookup `CloseAccount` instruction)
 8. If a message from `tokenInitSubscribe` is received wallet needs:
-    1. Subscribe to the new Token Account with `accountSubscribe` and modify `transactionSubscribe`
+    1. Subscribe to the new Token Account with `accountSubscribe` and re-subscribe with `transactionSubscribe`
     2. Request current state with `getAccountInfo` with `minContextSlot`
     3. Request history with `getSignaturesForAddress` with `minContextSlot`
