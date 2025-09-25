@@ -14,27 +14,37 @@ use {
     prost::Message,
     quanta::Instant,
     richat_filter::{
-        config::{ConfigFilter, ConfigLimits as ConfigFilterLimits},
+        config::{
+            ConfigFilter, ConfigFilterAccounts, ConfigFilterSlots,
+            ConfigLimits as ConfigFilterLimits,
+        },
         filter::Filter,
         message::MessageRef,
     },
     richat_metrics::duration_to_seconds,
-    richat_proto::geyser::{
-        subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
-        GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-        GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-        GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-        PongResponse, SubscribeReplayInfoRequest, SubscribeReplayInfoResponse, SubscribeRequest,
-        SubscribeRequestPing, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
+    richat_proto::{
+        geyser::{
+            subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
+            GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
+            GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
+            GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
+            PongResponse, SubscribeReplayInfoRequest, SubscribeReplayInfoResponse,
+            SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
+        },
+        richat::SubscribeRequestJup,
     },
     richat_shared::{
         jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
     },
     smallvec::SmallVec,
-    solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
+    solana_sdk::{
+        clock::{Slot, MAX_PROCESSING_AGE},
+        commitment_config::CommitmentLevel,
+        pubkey::Pubkey,
+    },
     std::{
         borrow::Cow,
-        collections::{LinkedList, VecDeque},
+        collections::{HashSet, LinkedList, VecDeque},
         fmt,
         future::Future,
         pin::Pin,
@@ -378,21 +388,21 @@ impl GrpcServer {
             }
         }
     }
-}
 
-#[tonic::async_trait]
-impl gen::geyser_server::Geyser for GrpcServer {
-    type SubscribeStream = ReceiverStream;
-
-    async fn subscribe(
+    fn subscribe2<T: 'static>(
         &self,
-        request: Request<Streaming<SubscribeRequest>>,
-    ) -> TonicResult<Response<Self::SubscribeStream>> {
+        request: Request<Streaming<T>>,
+        method: &'static str,
+        get_ping: impl Fn(&T) -> Option<i32> + Send + 'static,
+        mut get_filter: impl FnMut(&ConfigFilterLimits, T) -> (Option<Slot>, Result<Filter, Status>)
+            + Send
+            + 'static,
+    ) -> TonicResult<Response<ReceiverStream>> {
         let x_subscription_id: Arc<str> = Self::get_x_subscription_id(&request).into();
         counter!(
             metrics::GRPC_REQUESTS_TOTAL,
             "x_subscription_id" => Arc::clone(&x_subscription_id),
-            "method" => "subscribe"
+            "method" => method
         )
         .increment(1);
 
@@ -447,31 +457,14 @@ impl gen::geyser_server::Geyser for GrpcServer {
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
-                            if let Some(SubscribeRequestPing { id }) = message.ping {
+                            if let Some(id) = get_ping(&message) {
                                 let message = SubscribeClientState::create_pong(id);
                                 let mut state = client.state_lock();
                                 state.push_message(GrpcSubscribeMessage::Pong, message);
                                 continue;
                             }
 
-                            let subscribe_from_slot = message.from_slot;
-                            let new_filter = ConfigFilter::try_from(message)
-                                .map_err(|error| {
-                                    Status::invalid_argument(format!(
-                                        "failed to create filter: {error:?}"
-                                    ))
-                                })
-                                .and_then(|config| {
-                                    limits
-                                        .check_filter(&config)
-                                        .map(|()| Filter::new(&config))
-                                        .map_err(|error| {
-                                            Status::invalid_argument(format!(
-                                                "failed to check filter: {error:?}"
-                                            ))
-                                        })
-                                });
-
+                            let (subscribe_from_slot, new_filter) = get_filter(&limits, message);
                             let mut state = client.state_lock();
                             if let Err(error) = new_filter.and_then(|filter| {
                                 if filter.contains_blocks() && subscribe_from_slot.is_some() {
@@ -522,6 +515,98 @@ impl gen::geyser_server::Geyser for GrpcServer {
         });
 
         Ok(Response::new(ReceiverStream::new(client)))
+    }
+}
+
+#[tonic::async_trait]
+impl gen::geyser_server::Geyser for GrpcServer {
+    type SubscribeStream = ReceiverStream;
+    type SubscribeJupStream = ReceiverStream;
+
+    async fn subscribe(
+        &self,
+        request: Request<Streaming<SubscribeRequest>>,
+    ) -> TonicResult<Response<Self::SubscribeStream>> {
+        self.subscribe2(
+            request,
+            "subscribe",
+            |message| message.ping.map(|msg| msg.id),
+            |limits, message| {
+                let subscribe_from_slot = message.from_slot;
+                let new_filter = ConfigFilter::try_from(message)
+                    .map_err(|error| {
+                        Status::invalid_argument(format!("failed to create filter: {error:?}"))
+                    })
+                    .and_then(|config| {
+                        limits
+                            .check_filter(&config)
+                            .map(|()| Filter::new(&config))
+                            .map_err(|error| {
+                                Status::invalid_argument(format!(
+                                    "failed to check filter: {error:?}"
+                                ))
+                            })
+                    });
+                (subscribe_from_slot, new_filter)
+            },
+        )
+    }
+
+    async fn subscribe_jup(
+        &self,
+        request: Request<Streaming<SubscribeRequestJup>>,
+    ) -> TonicResult<Response<Self::SubscribeStream>> {
+        let mut pubkeys = HashSet::new();
+        self.subscribe2(
+            request,
+            "subscribe_jup",
+            |message| message.ping,
+            move |limits, message| {
+                fn try_conv(pubkeys: Vec<Vec<u8>>) -> impl Iterator<Item = Result<Pubkey, String>> {
+                    pubkeys.into_iter().map(|bytes| {
+                        let slice: [u8; 32] = bytes
+                            .try_into()
+                            .map_err(|_| "invalid pubkey len".to_owned())?;
+                        Ok(Pubkey::from(slice))
+                    })
+                }
+
+                let new_filter = Ok(&mut pubkeys)
+                    .and_then(|pubkeys| {
+                        for item in try_conv(message.add) {
+                            pubkeys.insert(item?);
+                        }
+                        for item in try_conv(message.remove) {
+                            pubkeys.remove(&item?);
+                        }
+                        Ok(pubkeys)
+                    })
+                    .and_then(|pubkeys| {
+                        let config = ConfigFilter {
+                            slots: [("".to_owned(), ConfigFilterSlots::default())]
+                                .into_iter()
+                                .collect(),
+                            accounts: [(
+                                "".to_owned(),
+                                ConfigFilterAccounts {
+                                    account: pubkeys.iter().cloned().collect(),
+                                    ..Default::default()
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                            ..Default::default()
+                        };
+                        limits
+                            .check_filter(&config)
+                            .map(|()| Filter::new(&config))
+                            .map_err(|error| format!("failed to check filter: {error:?}"))
+                    })
+                    .map_err(Status::invalid_argument);
+
+                (message.from_slot, new_filter)
+            },
+        )
     }
 
     async fn subscribe_replay_info(
