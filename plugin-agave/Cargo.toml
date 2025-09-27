@@ -45,6 +45,7 @@ solana-account-decoder = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true }
 solana-storage-proto = { workspace = true, optional = true }
+solana-transaction-context = { workspace = true }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

@@ -37,9 +37,9 @@ use {
         jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
     },
     smallvec::SmallVec,
+    solana_commitment_config::CommitmentLevel,
     solana_sdk::{
         clock::{Slot, MAX_PROCESSING_AGE},
-        commitment_config::CommitmentLevel,
         pubkey::Pubkey,
     },
     std::{
