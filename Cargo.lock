@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "5.0.1"
+version = "6.0.0"
 dependencies = [
  "affinity-linux",
  "agave-reserved-account-keys",
@@ -3810,7 +3810,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "6.0.0"
+version = "7.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3845,7 +3845,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "5.0.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3873,7 +3873,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "5.0.0"
+version = "6.0.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
@@ -3908,7 +3908,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "5.0.0"
+version = "6.0.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3942,7 +3942,7 @@ dependencies = [
 
 [[package]]
 name = "richat-proto"
-version = "5.0.0"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "cargo-lock",
@@ -3954,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "5.1.0"
+version = "6.0.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
