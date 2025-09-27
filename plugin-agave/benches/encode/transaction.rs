@@ -1,5 +1,5 @@
 use {
-    criterion::{black_box, Criterion},
+    criterion::Criterion,
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{
@@ -9,7 +9,7 @@ use {
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageTransaction,
     },
-    std::time::SystemTime,
+    std::{hint::black_box, time::SystemTime},
 };
 
 pub fn bench_encode_transactions(criterion: &mut Criterion) {

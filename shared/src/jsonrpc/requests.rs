@@ -18,7 +18,9 @@ use {
         http::Result as HttpResult,
         HeaderMap,
     },
-    jsonrpsee_types::{error::ErrorCode, Request, Response, ResponsePayload, TwoPointZero},
+    jsonrpsee_types::{
+        error::ErrorCode, Extensions, Request, Response, ResponsePayload, TwoPointZero,
+    },
     metrics::{counter, histogram},
     quanta::Instant,
     richat_metrics::duration_to_seconds,
@@ -154,6 +156,7 @@ impl<S: Clone> RpcRequestsProcessor<S> {
                 jsonrpc: Some(TwoPointZero),
                 payload: ResponsePayload::<()>::error(ErrorCode::MethodNotFound),
                 id: request.id.into_owned(),
+                extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
             }));
         };
 

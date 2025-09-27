@@ -10,7 +10,7 @@ pub use {
 pub mod fixtures {
     use {
         agave_geyser_plugin_interface::geyser_plugin_interface::{
-            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+            ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV3,
             SlotStatus as GeyserSlotStatus,
         },
         prost_011::Message,
@@ -28,7 +28,7 @@ pub mod fixtures {
             message::{v0::LoadedAddresses, SimpleAddressLoader},
             pubkey::Pubkey,
             signature::Signature,
-            transaction::{MessageHash, SanitizedTransaction},
+            transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
         },
         solana_storage_proto::convert::generated,
         solana_transaction_status::{
@@ -376,18 +376,20 @@ pub mod fixtures {
     pub struct GeneratedTransaction {
         pub slot: Slot,
         pub signature: Signature,
+        pub message_hash: Hash,
         pub is_vote: bool,
-        pub sanitized_transaction: SanitizedTransaction,
+        pub versioned_transaction: VersionedTransaction,
         pub transaction_status_meta: TransactionStatusMeta,
         pub index: usize,
     }
 
     impl GeneratedTransaction {
-        pub const fn to_replica(&self) -> (Slot, ReplicaTransactionInfoV2<'_>) {
-            let replica = ReplicaTransactionInfoV2 {
+        pub const fn to_replica(&self) -> (Slot, ReplicaTransactionInfoV3<'_>) {
+            let replica = ReplicaTransactionInfoV3 {
                 signature: &self.signature,
+                message_hash: &self.message_hash,
                 is_vote: self.is_vote,
-                transaction: &self.sanitized_transaction,
+                transaction: &self.versioned_transaction,
                 transaction_status_meta: &self.transaction_status_meta,
                 index: self.index,
             };
@@ -399,7 +401,7 @@ pub mod fixtures {
                 transaction: Some(SubscribeUpdateTransactionInfo {
                     signature: self.signature.as_ref().to_vec(),
                     is_vote: self.is_vote,
-                    transaction: Some(convert_to::create_transaction(&self.sanitized_transaction)),
+                    transaction: Some(convert_to::create_transaction(&self.versioned_transaction)),
                     meta: Some(convert_to::create_transaction_meta(
                         &self.transaction_status_meta,
                     )),
@@ -429,7 +431,7 @@ pub mod fixtures {
                                 None => SimpleAddressLoader::Disabled,
                             };
                         let sanitized_transaction = SanitizedTransaction::try_create(
-                            versioned_transaction,
+                            versioned_transaction.clone(),
                             MessageHash::Compute, // message_hash
                             None,                 // is_simple_vote_tx
                             address_loader,
@@ -440,8 +442,9 @@ pub mod fixtures {
                         GeneratedTransaction {
                             slot,
                             signature: *sanitized_transaction.signature(),
+                            message_hash: *sanitized_transaction.message_hash(),
                             is_vote: sanitized_transaction.is_simple_vote_transaction(),
-                            sanitized_transaction,
+                            versioned_transaction,
                             transaction_status_meta: transaction
                                 .get_status_meta()
                                 .expect("failed to get transaction status meta"),

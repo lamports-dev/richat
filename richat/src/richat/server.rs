@@ -2,11 +2,9 @@ use {
     crate::{channel::Messages, metrics, richat::config::ConfigAppsRichat, version::VERSION},
     ::metrics::gauge,
     futures::future::{try_join_all, FutureExt, TryFutureExt},
-    richat_shared::{
-        shutdown::Shutdown,
-        transports::{grpc::GrpcServer, quic::QuicServer},
-    },
+    richat_shared::transports::{grpc::GrpcServer, quic::QuicServer},
     std::future::Future,
+    tokio_util::sync::CancellationToken,
 };
 
 #[derive(Debug)]
@@ -16,7 +14,7 @@ impl RichatServer {
     pub async fn spawn(
         config: ConfigAppsRichat,
         messages: Messages,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
         let mut tasks = Vec::with_capacity(3);
 

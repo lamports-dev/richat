@@ -1,5 +1,5 @@
 use {
-    criterion::{black_box, Criterion},
+    criterion::Criterion,
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{
@@ -12,7 +12,7 @@ use {
         },
         message::MessageAccount,
     },
-    std::time::SystemTime,
+    std::{hint::black_box, time::SystemTime},
 };
 
 pub fn bench_encode_accounts(criterion: &mut Criterion) {

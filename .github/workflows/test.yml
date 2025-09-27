@@ -7,10 +7,7 @@ on:
   push:
     branches:
       - master
-      - agave-v2.0
-      - agave-v2.1
-      - agave-v2.2
-      - agave-v2.3
+      - agave-v*
   workflow_dispatch:
 
 env:
@@ -79,9 +76,6 @@ jobs:
 
       - name: check features in `richat-shared`
         run: cargo check -p richat-shared --all-targets --no-default-features --features="jsonrpc"
-
-      - name: check features in `richat-shared`
-        run: cargo check -p richat-shared --all-targets --no-default-features --features="shutdown"
 
       - name: check features in `richat-shared`
         run: cargo check -p richat-shared --all-targets --no-default-features --features="transports"

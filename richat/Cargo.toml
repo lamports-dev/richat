@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "5.0.1"
+version = "6.0.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -47,6 +47,7 @@ signal-hook = { workspace = true }
 smallvec = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
+solana-commitment-config = { workspace = true }
 solana-nohash-hasher = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
@@ -57,6 +58,7 @@ thiserror = { workspace = true }
 tikv-jemallocator = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
