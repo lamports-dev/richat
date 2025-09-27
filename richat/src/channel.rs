@@ -20,7 +20,6 @@ use {
     richat_proto::{geyser::SlotStatus, richat::RichatFilter},
     richat_shared::{
         mutex_lock,
-        shutdown::Shutdown,
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     },
     smallvec::SmallVec,
@@ -42,6 +41,7 @@ use {
         },
         task::{Context, Poll, Waker},
     },
+    tokio_util::sync::CancellationToken,
     tracing::debug,
 };
 
@@ -196,7 +196,7 @@ impl Messages {
         richat: bool,
         grpc: bool,
         pubsub: bool,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<(Self, SpawnedThreads)> {
         let storage_max_slots = config
             .storage

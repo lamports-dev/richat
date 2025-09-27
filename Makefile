@@ -30,7 +30,6 @@ ci-check:
 	cargo check -p richat-shared --all-targets --no-default-features --features="config"
 	cargo check -p richat-shared --all-targets --no-default-features --features="five8"
 	cargo check -p richat-shared --all-targets --no-default-features --features="jsonrpc"
-	cargo check -p richat-shared --all-targets --no-default-features --features="shutdown"
 	cargo check -p richat-shared --all-targets --no-default-features --features="transports"
 	cargo check -p richat-shared --all-targets --no-default-features --features="version"
 

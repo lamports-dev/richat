@@ -36,7 +36,7 @@ prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
 richat-metrics = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true, features = ["shutdown", "transports", "version"] }
+richat-shared = { workspace = true, features = ["transports", "version"] }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -48,6 +48,7 @@ solana-storage-proto = { workspace = true, optional = true }
 solana-transaction-context = { workspace = true }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-util = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
