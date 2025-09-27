@@ -1,5 +1,5 @@
 use {
-    criterion::{black_box, Criterion},
+    criterion::Criterion,
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{fixtures::generate_slots, ProtobufEncoder, ProtobufMessage},
@@ -7,7 +7,7 @@ use {
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageSlot,
     },
-    std::time::SystemTime,
+    std::{hint::black_box, time::SystemTime},
 };
 
 pub fn bench_encode_slot(criterion: &mut Criterion) {

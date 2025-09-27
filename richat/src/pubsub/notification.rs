@@ -5,7 +5,7 @@ use {
     },
     ::metrics::gauge,
     agave_reserved_account_keys::ReservedAccountKeys,
-    jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
+    jsonrpsee_types::{Extensions, SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
     richat_shared::five8::signature_encode,
     serde::Serialize,
@@ -50,6 +50,7 @@ impl RpcNotification {
                 subscription: jsonrpsee_types::SubscriptionId::Num(subscription),
                 result,
             },
+            extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
         };
         Arc::new(serde_json::to_string(&response).expect("json serialization never fail"))
     }

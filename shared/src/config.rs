@@ -212,7 +212,7 @@ impl<'a> RustlsServerConfigSignedSelfSigned<'a> {
                         de::Error::custom(format!("failed to generate self-signed cert: {error:?}"))
                     })?;
                 let cert_der = CertificateDer::from(cert.cert);
-                let priv_key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+                let priv_key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
                 (vec![cert_der], priv_key.into())
             }
         };

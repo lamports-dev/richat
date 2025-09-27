@@ -5,8 +5,8 @@ use {
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
-        ErrorCode, ErrorObject, ErrorObjectOwned, Id, Params, Request, Response, ResponsePayload,
-        TwoPointZero,
+        ErrorCode, ErrorObject, ErrorObjectOwned, Extensions, Id, Params, Request, Response,
+        ResponsePayload, TwoPointZero,
     },
     richat_filter::{
         config::MAX_FILTERS,
@@ -55,6 +55,7 @@ impl SubscribeMessage {
             jsonrpc: Some(TwoPointZero),
             payload: ResponsePayload::error(ErrorObjectOwned::from(ErrorCode::ParseError)),
             id: Id::Null,
+            extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
         })?;
 
         let config = SubscribeConfig::parse(
@@ -67,6 +68,7 @@ impl SubscribeMessage {
             jsonrpc: Some(TwoPointZero),
             payload: ResponsePayload::error(error),
             id: call.id.clone().into_owned(),
+            extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
         })?;
 
         Ok(Some(Self {
