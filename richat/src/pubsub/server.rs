@@ -24,7 +24,7 @@ use {
         rt::tokio::{TokioExecutor, TokioIo},
         server::conn::auto::Builder as ServerBuilder,
     },
-    jsonrpsee_types::{ResponsePayload, TwoPointZero},
+    jsonrpsee_types::{Extensions, ResponsePayload, TwoPointZero},
     richat_shared::{jsonrpc::helpers::get_x_subscription_id, shutdown::Shutdown},
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::RpcVersionInfo,
@@ -359,7 +359,8 @@ impl PubSubServer {
                             let vec = serde_json::to_vec(&jsonrpsee_types::Response {
                                 jsonrpc: Some(TwoPointZero),
                                 payload: ResponsePayload::success(result),
-                                id: message.id
+                                id: message.id,
+                                extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
                             }).expect("json serialization never fail");
                             let frame = Frame::text(Payload::Owned(vec));
                             ws_tx.write_frame(frame).await?;

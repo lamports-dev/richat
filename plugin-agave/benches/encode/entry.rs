@@ -1,5 +1,5 @@
 use {
-    criterion::{black_box, BatchSize, Criterion},
+    criterion::{BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{fixtures::generate_entries, ProtobufEncoder, ProtobufMessage},
@@ -7,7 +7,7 @@ use {
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageEntry,
     },
-    std::{sync::Arc, time::SystemTime},
+    std::{hint::black_box, sync::Arc, time::SystemTime},
 };
 
 pub fn bench_encode_entries(criterion: &mut Criterion) {
