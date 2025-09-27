@@ -1,6 +1,6 @@
 use {
     super::{bytes_encode, bytes_encoded_len, RewardWrapper},
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV3,
     prost::{
         bytes::{Buf, BufMut},
         encoding::{self, encoded_len_varint, key_len, DecodeContext, WireType},
@@ -9,16 +9,15 @@ use {
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         clock::Slot,
-        instruction::CompiledInstruction,
         message::{
-            v0::{LoadedMessage, MessageAddressTableLookup},
-            LegacyMessage, MessageHeader, SanitizedMessage,
+            compiled_instruction::CompiledInstruction, v0::MessageAddressTableLookup,
+            MessageHeader, VersionedMessage,
         },
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
-        transaction::{SanitizedTransaction, TransactionError},
-        transaction_context::TransactionReturnData,
+        transaction::{TransactionError, VersionedTransaction},
     },
+    solana_transaction_context::TransactionReturnData,
     solana_transaction_status::{
         InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
     },
@@ -28,11 +27,11 @@ use {
 #[derive(Debug)]
 pub struct Transaction<'a> {
     slot: Slot,
-    transaction: &'a ReplicaTransactionInfoV2<'a>,
+    transaction: &'a ReplicaTransactionInfoV3<'a>,
 }
 
 impl<'a> Transaction<'a> {
-    pub const fn new(slot: Slot, transaction: &'a ReplicaTransactionInfoV2<'a>) -> Self {
+    pub const fn new(slot: Slot, transaction: &'a ReplicaTransactionInfoV3<'a>) -> Self {
         Self { slot, transaction }
     }
 }
@@ -75,10 +74,10 @@ impl Message for Transaction<'_> {
 }
 
 #[derive(Debug)]
-struct ReplicaWrapper<'a>(&'a ReplicaTransactionInfoV2<'a>);
+struct ReplicaWrapper<'a>(&'a ReplicaTransactionInfoV3<'a>);
 
 impl<'a> Deref for ReplicaWrapper<'a> {
-    type Target = ReplicaTransactionInfoV2<'a>;
+    type Target = ReplicaTransactionInfoV3<'a>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -96,7 +95,7 @@ impl Message for ReplicaWrapper<'_> {
         if self.is_vote {
             encoding::bool::encode(2, &self.is_vote, buf)
         }
-        encoding::message::encode(3, &SanitizedTransactionWrapper(self.transaction), buf);
+        encoding::message::encode(3, &VersionedTransactionWrapper(self.transaction), buf);
         encoding::message::encode(
             4,
             &TransactionStatusMetaWrapper(self.transaction_status_meta),
@@ -116,7 +115,7 @@ impl Message for ReplicaWrapper<'_> {
             } else {
                 0
             }
-            + encoding::message::encoded_len(3, &SanitizedTransactionWrapper(self.transaction))
+            + encoding::message::encoded_len(3, &VersionedTransactionWrapper(self.transaction))
             + encoding::message::encoded_len(
                 4,
                 &TransactionStatusMetaWrapper(self.transaction_status_meta),
@@ -147,28 +146,28 @@ impl Message for ReplicaWrapper<'_> {
 }
 
 #[derive(Debug)]
-struct SanitizedTransactionWrapper<'a>(&'a SanitizedTransaction);
+struct VersionedTransactionWrapper<'a>(&'a VersionedTransaction);
 
-impl Deref for SanitizedTransactionWrapper<'_> {
-    type Target = SanitizedTransaction;
+impl Deref for VersionedTransactionWrapper<'_> {
+    type Target = VersionedTransaction;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl Message for SanitizedTransactionWrapper<'_> {
+impl Message for VersionedTransactionWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
     {
-        signatures_encode(1, self.signatures(), buf);
-        encoding::message::encode(2, &SanitizedMessageWrapper(self.message()), buf);
+        signatures_encode(1, &self.signatures, buf);
+        encoding::message::encode(2, &VersionedMessageWrapper(&self.message), buf);
     }
 
     fn encoded_len(&self) -> usize {
-        signatures_encoded_len(1, self.signatures())
-            + encoding::message::encoded_len(2, &SanitizedMessageWrapper(self.message()))
+        signatures_encoded_len(1, &self.signatures)
+            + encoding::message::encoded_len(2, &VersionedMessageWrapper(&self.message))
     }
 
     fn clear(&mut self) {
@@ -200,23 +199,23 @@ const fn signatures_encoded_len(tag: u32, signatures: &[Signature]) -> usize {
 }
 
 #[derive(Debug)]
-struct SanitizedMessageWrapper<'a>(&'a SanitizedMessage);
+struct VersionedMessageWrapper<'a>(&'a VersionedMessage);
 
-impl Deref for SanitizedMessageWrapper<'_> {
-    type Target = SanitizedMessage;
+impl Deref for VersionedMessageWrapper<'_> {
+    type Target = VersionedMessage;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl Message for SanitizedMessageWrapper<'_> {
+impl Message for VersionedMessageWrapper<'_> {
     fn encode_raw(&self, buf: &mut impl BufMut)
     where
         Self: Sized,
     {
         match self.deref() {
-            SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
+            VersionedMessage::Legacy(message) => {
                 encoding::message::encode(1, &MessageHeaderWrapper(message.header), buf);
                 pubkeys_encode(2, &message.account_keys, buf);
                 bytes_encode(3, message.recent_blockhash.as_ref(), buf);
@@ -232,7 +231,7 @@ impl Message for SanitizedMessageWrapper<'_> {
                     buf,
                 );
             }
-            SanitizedMessage::V0(LoadedMessage { message, .. }) => {
+            VersionedMessage::V0(message) => {
                 encoding::message::encode(1, &MessageHeaderWrapper(message.header), buf);
                 pubkeys_encode(2, &message.account_keys, buf);
                 bytes_encode(3, message.recent_blockhash.as_ref(), buf);
@@ -253,7 +252,7 @@ impl Message for SanitizedMessageWrapper<'_> {
 
     fn encoded_len(&self) -> usize {
         match self.deref() {
-            SanitizedMessage::Legacy(LegacyMessage { message, .. }) => {
+            VersionedMessage::Legacy(message) => {
                 encoding::message::encoded_len(1, &MessageHeaderWrapper(message.header))
                     + pubkeys_encoded_len(2, &message.account_keys)
                     + bytes_encoded_len(3, message.recent_blockhash.as_ref())
@@ -267,7 +266,7 @@ impl Message for SanitizedMessageWrapper<'_> {
                         MessageAddressTableLookupWrapper::new(&[]),
                     )
             }
-            SanitizedMessage::V0(LoadedMessage { message, .. }) => {
+            VersionedMessage::V0(message) => {
                 encoding::message::encoded_len(1, &MessageHeaderWrapper(message.header))
                     + pubkeys_encoded_len(2, &message.account_keys)
                     + bytes_encoded_len(3, message.recent_blockhash.as_ref())

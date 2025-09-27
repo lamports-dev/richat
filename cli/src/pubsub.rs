@@ -9,6 +9,7 @@ use {
     serde_json::{json, Value},
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_client::nonblocking::pubsub_client::PubsubClient,
+    solana_commitment_config::CommitmentConfig,
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
@@ -18,7 +19,7 @@ use {
         filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
         response::RpcVersionInfo,
     },
-    solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature},
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
     solana_transaction_status::{TransactionDetails, UiTransactionEncoding},
     std::{collections::HashMap, fmt, str::FromStr},
     tokio::{

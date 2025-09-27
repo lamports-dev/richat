@@ -31,7 +31,8 @@ use {
         jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
     },
     smallvec::SmallVec,
-    solana_sdk::{clock::MAX_PROCESSING_AGE, commitment_config::CommitmentLevel},
+    solana_commitment_config::CommitmentLevel,
+    solana_sdk::clock::MAX_PROCESSING_AGE,
     std::{
         borrow::Cow,
         collections::{LinkedList, VecDeque},

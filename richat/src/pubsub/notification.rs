@@ -231,14 +231,14 @@ impl RpcTransactionUpdate {
         })
     }
 
-    // https://docs.rs/solana-transaction-status/latest/src/solana_transaction_status/lib.rs.html#160
+    // https://docs.rs/solana-transaction-status/3.0.4/src/solana_transaction_status/lib.rs.html#161
     fn build_simple_ui_transaction_status_meta(
         meta: TransactionStatusMeta,
         show_rewards: bool,
     ) -> UiTransactionStatusMeta {
         UiTransactionStatusMeta {
-            err: meta.status.clone().err(),
-            status: meta.status,
+            err: meta.status.clone().map_err(Into::into).err(),
+            status: meta.status.map_err(Into::into),
             fee: meta.fee,
             pre_balances: meta.pre_balances,
             post_balances: meta.post_balances,

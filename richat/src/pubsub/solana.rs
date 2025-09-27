@@ -17,6 +17,7 @@ use {
     serde_json::value::RawValue,
     solana_account::ReadableAccount,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
+    solana_commitment_config::{CommitmentConfig, CommitmentLevel},
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
@@ -25,12 +26,7 @@ use {
         },
         filter::RpcFilterType,
     },
-    solana_sdk::{
-        commitment_config::{CommitmentConfig, CommitmentLevel},
-        pubkey::Pubkey,
-        signature::Signature,
-        transaction::TransactionError,
-    },
+    solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::TransactionError},
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
     spl_token_2022::{
         generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,

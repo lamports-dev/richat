@@ -25,10 +25,9 @@ use {
     },
     smallvec::SmallVec,
     solana_account::ReadableAccount,
+    solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntSet,
-    solana_sdk::{
-        clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
-    },
+    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::{
         collections::{
             btree_map::Entry as BTreeMapEntry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap,
@@ -1417,7 +1416,7 @@ mod test {
             message::{Message, MessageAccount, MessageParserEncoding, MessageRef},
         },
         solana_account::ReadableAccount,
-        solana_sdk::commitment_config::CommitmentLevel,
+        solana_commitment_config::CommitmentLevel,
     };
 
     static MESSAGE: &str = "0a0012af010aa6010a2088f1ffa3a2dfe617bdc4e3573251a322e3fcae81e5a457390e64751c00a465e210e0d54a1a2006aa09548b50476ad462f91f89a3015033264fc9abd5270020a9d142334742fb28ffffffffffffffffff013208c921f474e044612838e3e1acc2b53042405bd620fab28d3c0b78b3ead9f04d1c4d6dffeac4ffa7c679a6570b0226557c10b4c4016d937e06044b4e49d9d7916524d5dfa26297c5f638c3d11f846410bc0510e5ddaca2015a0c08e1c79ec10610ebef838601";

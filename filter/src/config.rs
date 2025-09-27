@@ -21,8 +21,8 @@ use {
         de::{self, Deserializer},
         Deserialize, Serialize,
     },
+    solana_commitment_config::CommitmentLevel,
     solana_sdk::{
-        commitment_config::CommitmentLevel,
         pubkey::{ParsePubkeyError, Pubkey},
         signature::{ParseSignatureError, Signature},
     },

@@ -1,7 +1,7 @@
 use {
     crate::protobuf::encoding,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+        ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV3,
         SlotStatus as GeyserSlotStatus,
     },
     prost::encoding::message,
@@ -29,7 +29,7 @@ pub enum ProtobufMessage<'a> {
     },
     Transaction {
         slot: Slot,
-        transaction: &'a ReplicaTransactionInfoV2<'a>,
+        transaction: &'a ReplicaTransactionInfoV3<'a>,
     },
     Entry {
         entry: &'a ReplicaEntryInfoV2<'a>,

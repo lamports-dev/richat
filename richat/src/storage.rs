@@ -28,7 +28,8 @@ use {
         WriteBatch, DB,
     },
     smallvec::SmallVec,
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
+    solana_commitment_config::CommitmentLevel,
+    solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
         collections::{BTreeMap, VecDeque},
