@@ -48,13 +48,14 @@ doc = false
 bench = false
 
 [dependencies]
-agave-geyser-plugin-interface = "~2.3.3"
+agave-geyser-plugin-interface = "~3.0.4"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 const-hex = "1.14.0"
 libfuzzer-sys = "0.4.8"
 prost = "0.11.9"
 richat-plugin-agave = { path = ".." }
-solana-account-decoder = "~2.3.3"
-solana-sdk = { version = "~2.3.1", features = ["dev-context-only-utils"] }
-solana-storage-proto = "~2.3.3"
-solana-transaction-status = "~2.3.3"
+solana-account-decoder = "~3.0.4"
+solana-sdk = { version = "3.0.0", features = ["dev-context-only-utils"] }
+solana-storage-proto = "~3.0.4"
+solana-transaction-context = "~3.0.4"
+solana-transaction-status = "~3.0.4"

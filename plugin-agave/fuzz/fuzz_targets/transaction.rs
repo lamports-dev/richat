@@ -1,31 +1,29 @@
 #![no_main]
 
 use {
-    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV2,
+    agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV3,
     arbitrary::Arbitrary,
     richat_plugin_agave::protobuf::ProtobufMessage,
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         hash::{Hash, HASH_BYTES},
-        instruction::{CompiledInstruction, InstructionError},
+        instruction::InstructionError,
         message::{
-            legacy, v0, LegacyMessage, MessageHeader, SimpleAddressLoader, VersionedMessage,
+            compiled_instruction::CompiledInstruction, legacy, v0, LegacyMessage, MessageHeader,
+            VersionedMessage,
         },
         pubkey::{Pubkey, PUBKEY_BYTES},
         signature::{Signature, SIGNATURE_BYTES},
         signer::SignerError,
         signers::Signers,
-        transaction::{
-            SanitizedTransaction, SanitizedVersionedTransaction, TransactionError,
-            VersionedTransaction,
-        },
-        transaction_context::TransactionReturnData,
+        transaction::{TransactionError, VersionedTransaction},
     },
+    solana_transaction_context::TransactionReturnData,
     solana_transaction_status::{
         InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
         TransactionTokenBalance,
     },
-    std::{borrow::Cow, collections::HashSet, time::SystemTime},
+    std::{borrow::Cow, time::SystemTime},
 };
 
 #[derive(Debug)]
@@ -227,41 +225,6 @@ impl From<FuzzSanitizedMessage> for VersionedMessage {
 }
 
 #[derive(Debug, Arbitrary)]
-struct FuzzSanitizedTransaction {
-    message: FuzzSanitizedMessage,
-    message_hash: [u8; HASH_BYTES],
-    is_simple_vote_tx: bool,
-    // signatures: Vec<[u8; SIGNATURE_BYTES]>,
-}
-
-impl TryFrom<FuzzSanitizedTransaction> for SanitizedTransaction {
-    type Error = ();
-
-    fn try_from(fuzz: FuzzSanitizedTransaction) -> Result<Self, Self::Error> {
-        let address_loader = match &fuzz.message {
-            FuzzSanitizedMessage::Legacy(_) => SimpleAddressLoader::Disabled,
-            FuzzSanitizedMessage::V0(msg) => {
-                SimpleAddressLoader::Enabled(msg.loaded_addresses.clone().into())
-            }
-        };
-
-        let versioned_transaction =
-            VersionedTransaction::try_new(fuzz.message.into(), &SimpleSigner).map_err(|_| ())?;
-        let sanitized_versioned_transaction =
-            SanitizedVersionedTransaction::try_new(versioned_transaction).map_err(|_| ())?;
-
-        SanitizedTransaction::try_new(
-            sanitized_versioned_transaction,
-            Hash::new_from_array(fuzz.message_hash),
-            fuzz.is_simple_vote_tx,
-            address_loader,
-            &HashSet::new(),
-        )
-        .map_err(|_| ())
-    }
-}
-
-#[derive(Debug, Arbitrary)]
 enum FuzzInstructionError {
     GenericError,
     InvalidArgument,
@@ -307,7 +270,7 @@ enum FuzzInstructionError {
     ProgramFailedToCompile,
     Immutable,
     IncorrectAuthority,
-    BorshIoError(String),
+    BorshIoError,
     AccountNotRentExempt,
     InvalidAccountOwner,
     ArithmeticOverflow,
@@ -367,7 +330,7 @@ impl From<FuzzInstructionError> for InstructionError {
             ProgramFailedToCompile => Self::ProgramFailedToCompile,
             Immutable => Self::Immutable,
             IncorrectAuthority => Self::IncorrectAuthority,
-            BorshIoError(value) => Self::BorshIoError(value),
+            BorshIoError => Self::BorshIoError,
             AccountNotRentExempt => Self::AccountNotRentExempt,
             InvalidAccountOwner => Self::InvalidAccountOwner,
             ArithmeticOverflow => Self::ArithmeticOverflow,
@@ -649,7 +612,7 @@ impl From<FuzzTransactionStatusMeta> for TransactionStatusMeta {
 struct FuzzTransaction {
     signature: [u8; SIGNATURE_BYTES],
     is_vote: bool,
-    transaction: FuzzSanitizedTransaction,
+    message: FuzzSanitizedMessage,
     transaction_status_meta: FuzzTransactionStatusMeta,
     index: usize,
 }
@@ -661,14 +624,17 @@ struct FuzzTransactionMessage {
 }
 
 libfuzzer_sys::fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
-    let Ok(transaction) = fuzz_message.transaction.transaction.try_into() else {
+    let Ok(versioned_transaction) =
+        VersionedTransaction::try_new(fuzz_message.transaction.message.into(), &SimpleSigner)
+    else {
         return;
     };
 
-    let replica = ReplicaTransactionInfoV2 {
+    let replica = ReplicaTransactionInfoV3 {
         signature: &Signature::from(fuzz_message.transaction.signature),
+        message_hash: &versioned_transaction.message.hash(),
         is_vote: fuzz_message.transaction.is_vote,
-        transaction: &transaction,
+        transaction: &versioned_transaction,
         transaction_status_meta: &fuzz_message.transaction.transaction_status_meta.into(),
         index: fuzz_message.transaction.index,
     };
