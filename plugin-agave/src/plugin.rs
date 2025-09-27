@@ -14,13 +14,11 @@ use {
     futures::future::BoxFuture,
     log::error,
     richat_metrics::{gauge, MaybeRecorder},
-    richat_shared::{
-        shutdown::Shutdown,
-        transports::{grpc::GrpcServer, quic::QuicServer},
-    },
+    richat_shared::transports::{grpc::GrpcServer, quic::QuicServer},
     solana_sdk::clock::Slot,
     std::{fmt, sync::Arc, time::Duration},
     tokio::{runtime::Runtime, task::JoinError},
+    tokio_util::sync::CancellationToken,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +57,7 @@ pub struct PluginInner {
     runtime: Runtime,
     messages: Sender,
     encoder: ProtobufEncoder,
-    shutdown: Shutdown,
+    shutdown: CancellationToken,
     tasks: Vec<(&'static str, PluginTask)>,
 }
 
@@ -85,7 +83,7 @@ impl PluginInner {
         // Spawn servers
         let (messages, shutdown, tasks) = runtime
             .block_on(async move {
-                let shutdown = Shutdown::new();
+                let shutdown = CancellationToken::new();
                 let mut tasks = Vec::with_capacity(4);
 
                 // Start gRPC
@@ -133,7 +131,7 @@ impl PluginInner {
                     tasks.push((
                         "Prometheus Server",
                         PluginTask(Box::pin(
-                            metrics::spawn_server(config, metrics_handle, shutdown.clone()).await?,
+                            metrics::spawn_server(config, metrics_handle, shutdown.clone().cancelled_owned()).await?,
                         )),
                     ));
                 }
@@ -183,7 +181,7 @@ impl GeyserPlugin for Plugin {
         if let Some(inner) = self.inner.take() {
             inner.messages.close();
 
-            inner.shutdown.shutdown();
+            inner.shutdown.cancel();
             inner.runtime.block_on(async {
                 for (name, task) in inner.tasks {
                     if let Err(error) = task.0.await {

@@ -25,7 +25,7 @@ use {
         server::conn::auto::Builder as ServerBuilder,
     },
     jsonrpsee_types::{Extensions, ResponsePayload, TwoPointZero},
-    richat_shared::{jsonrpc::helpers::get_x_subscription_id, shutdown::Shutdown},
+    richat_shared::jsonrpc::helpers::get_x_subscription_id,
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::RpcVersionInfo,
     std::{future::Future, net::TcpListener as StdTcpListener, sync::Arc},
@@ -34,6 +34,7 @@ use {
         sync::{broadcast, mpsc, oneshot},
     },
     tokio_rustls::TlsAcceptor,
+    tokio_util::sync::CancellationToken,
     tracing::{error, info, warn},
 };
 
@@ -44,7 +45,7 @@ impl PubSubServer {
     pub fn spawn(
         mut config: ConfigAppsPubsub,
         messages: Messages,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
         let acceptor = config
             .tls_config
@@ -95,7 +96,6 @@ impl PubSubServer {
         // Spawn server
         let server_jh = tokio::spawn(async move {
             let mut client_id = 0;
-            tokio::pin!(shutdown);
             loop {
                 // accept connection
                 let stream = tokio::select! {
@@ -112,7 +112,7 @@ impl PubSubServer {
                             break;
                         }
                     },
-                    () = &mut shutdown => break,
+                    () = shutdown.cancelled() => break,
                 };
 
                 // Create service
@@ -219,7 +219,7 @@ impl PubSubServer {
         enable_transaction_subscription: bool,
         clients_tx: mpsc::Sender<ClientRequest>,
         mut notifications: broadcast::Receiver<RpcNotification>,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut ws = ws_fut.await?;
         ws.set_max_message_size(recv_max_message_size);
@@ -233,7 +233,6 @@ impl PubSubServer {
             let mut send_frame = None;
             let mut last_frame = false;
             let mut send_fn = |_| async { Ok::<(), String>(()) };
-            tokio::pin!(shutdown);
             loop {
                 if let Some(frame) = send_frame.take() {
                     let (tx, rx) = oneshot::channel();
@@ -249,7 +248,7 @@ impl PubSubServer {
                 // read msg
                 let frame = tokio::select! {
                     frame = ws_rx.read_frame(&mut send_fn) => frame?,
-                    () = &mut shutdown => break,
+                    () = shutdown.cancelled() => break,
                 };
                 let payload = match frame.opcode {
                     OpCode::Close => {

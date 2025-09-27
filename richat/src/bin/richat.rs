@@ -9,12 +9,12 @@ use {
         channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
         richat::server::RichatServer, source::Subscriptions, version::VERSION,
     },
-    richat_shared::shutdown::Shutdown,
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
         thread::{self, sleep},
         time::Duration,
     },
+    tokio_util::sync::CancellationToken,
     tracing::{info, warn},
 };
 
@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     info!("version: {} / {}", VERSION.version, VERSION.git);
 
     // Shutdown channel/flag
-    let shutdown = Shutdown::new();
+    let shutdown = CancellationToken::new();
 
     // Create channel runtime (receive messages from solana node / richat)
     let (mut messages, mut threads) = Messages::new(
@@ -87,6 +87,7 @@ fn main() -> anyhow::Result<()> {
                         replay_from_slot,
                     )
                     .await?;
+                    let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
                         let (index, message) = tokio::select! {
@@ -140,10 +141,14 @@ fn main() -> anyhow::Result<()> {
                 let metrics_fut = if let (Some(config), Some(metrics_handle)) =
                     (config.metrics, metrics_handle)
                 {
-                    richat::metrics::spawn_server(config, metrics_handle, shutdown)
-                        .await?
-                        .map_err(anyhow::Error::from)
-                        .boxed()
+                    richat::metrics::spawn_server(
+                        config,
+                        metrics_handle,
+                        shutdown.cancelled_owned(),
+                    )
+                    .await?
+                    .map_err(anyhow::Error::from)
+                    .boxed()
                 } else {
                     ready(Ok(())).boxed()
                 };
@@ -161,12 +166,12 @@ fn main() -> anyhow::Result<()> {
         for signal in signals.pending() {
             match signal {
                 SIGINT => {
-                    if shutdown.is_set() {
+                    if shutdown.is_cancelled() {
                         warn!("SIGINT received again, shutdown now");
                         break 'outer;
                     }
                     info!("SIGINT received...");
-                    shutdown.shutdown();
+                    shutdown.cancel();
                 }
                 _ => unreachable!(),
             }

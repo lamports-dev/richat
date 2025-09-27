@@ -7,10 +7,7 @@ use {
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
     richat_metrics::ConfigMetrics,
-    richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
-        shutdown::Shutdown,
-    },
+    richat_shared::config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
     rocksdb::DBCompressionType,
     serde::Deserialize,
     std::{
@@ -20,6 +17,7 @@ use {
         thread::Builder,
     },
     tokio::time::{sleep, Duration},
+    tokio_util::sync::CancellationToken,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -287,7 +285,7 @@ impl ConfigAppsWorkers {
         self,
         get_name: impl Fn(usize) -> String,
         spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Clone + Send + 'static,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.threads > 0, "number of threads can be zero");
 
@@ -318,7 +316,7 @@ impl ConfigAppsWorkers {
         name: String,
         cpus: Option<Vec<usize>>,
         spawn_fn: impl FnOnce(usize) -> anyhow::Result<()> + Send + 'static,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<impl std::future::Future<Output = anyhow::Result<()>>> {
         let th = Builder::new().name(name).spawn(move || {
             if let Some(cpus) = cpus {
@@ -330,7 +328,7 @@ impl ConfigAppsWorkers {
 
         let jh = tokio::spawn(async move {
             while !th.is_finished() {
-                let ms = if shutdown.is_set() { 10 } else { 2_000 };
+                let ms = if shutdown.is_cancelled() { 10 } else { 2_000 };
                 sleep(Duration::from_millis(ms)).await;
             }
             th.join().expect("failed to join thread")
