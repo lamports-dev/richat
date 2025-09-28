@@ -3770,7 +3770,7 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "solana-version",
- "spl-token-2022 9.0.0",
+ "spl-token-2022",
  "thiserror 2.0.16",
  "tikv-jemallocator",
  "tokio",
@@ -3864,7 +3864,7 @@ dependencies = [
  "solana-commitment-config",
  "solana-sdk",
  "solana-transaction-status",
- "spl-token-2022 9.0.0",
+ "spl-token-2022",
  "thiserror 2.0.16",
 ]
 
@@ -6904,29 +6904,6 @@ dependencies = [
 
 [[package]]
 name = "spl-elgamal-registry"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65edfeed09cd4231e595616aa96022214f9c9d2be02dea62c2b30d5695a6833a"
-dependencies = [
- "bytemuck",
- "solana-account-info 2.3.0",
- "solana-cpi 2.2.1",
- "solana-instruction 2.3.0",
- "solana-msg 2.2.1",
- "solana-program-entrypoint 2.3.0",
- "solana-program-error 2.2.2",
- "solana-pubkey 2.4.0",
- "solana-rent 2.2.1",
- "solana-sdk-ids 2.2.1",
- "solana-system-interface 1.0.0",
- "solana-sysvar 2.3.0",
- "solana-zk-sdk 2.3.11",
- "spl-pod 0.5.1",
- "spl-token-confidential-transfer-proof-extraction 0.3.0",
-]
-
-[[package]]
-name = "spl-elgamal-registry"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56cc66fe64651a48c8deb4793d8a5deec8f8faf19f355b9df294387bc5a36b5f"
@@ -7101,50 +7078,6 @@ dependencies = [
 
 [[package]]
 name = "spl-token-2022"
-version = "8.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f0dfbb079eebaee55e793e92ca5f433744f4b71ee04880bfd6beefba5973e5"
-dependencies = [
- "arrayref",
- "bytemuck",
- "num-derive",
- "num-traits",
- "num_enum",
- "solana-account-info 2.3.0",
- "solana-clock 2.2.2",
- "solana-cpi 2.2.1",
- "solana-decode-error",
- "solana-instruction 2.3.0",
- "solana-msg 2.2.1",
- "solana-native-token 2.3.0",
- "solana-program-entrypoint 2.3.0",
- "solana-program-error 2.2.2",
- "solana-program-memory 2.3.1",
- "solana-program-option 2.2.1",
- "solana-program-pack 2.2.1",
- "solana-pubkey 2.4.0",
- "solana-rent 2.2.1",
- "solana-sdk-ids 2.2.1",
- "solana-security-txt",
- "solana-system-interface 1.0.0",
- "solana-sysvar 2.3.0",
- "solana-zk-sdk 2.3.11",
- "spl-elgamal-registry 0.2.0",
- "spl-memo",
- "spl-pod 0.5.1",
- "spl-token",
- "spl-token-confidential-transfer-ciphertext-arithmetic",
- "spl-token-confidential-transfer-proof-extraction 0.3.0",
- "spl-token-confidential-transfer-proof-generation 0.4.1",
- "spl-token-group-interface 0.6.0",
- "spl-token-metadata-interface 0.7.0",
- "spl-transfer-hook-interface",
- "spl-type-length-value 0.8.0",
- "thiserror 2.0.16",
-]
-
-[[package]]
-name = "spl-token-2022"
 version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "707d8237d17d857246b189d0fb278797dcd7cf6219374547791b231fd35a8cc8"
@@ -7173,7 +7106,7 @@ dependencies = [
  "solana-system-interface 1.0.0",
  "solana-sysvar 2.3.0",
  "solana-zk-sdk 2.3.11",
- "spl-elgamal-registry 0.3.0",
+ "spl-elgamal-registry",
  "spl-memo",
  "spl-pod 0.5.1",
  "spl-token",
@@ -7225,26 +7158,6 @@ dependencies = [
  "bytemuck",
  "solana-curve25519",
  "solana-zk-sdk 2.3.11",
-]
-
-[[package]]
-name = "spl-token-confidential-transfer-proof-extraction"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe2629860ff04c17bafa9ba4bed8850a404ecac81074113e1f840dbd0ebb7bd6"
-dependencies = [
- "bytemuck",
- "solana-account-info 2.3.0",
- "solana-curve25519",
- "solana-instruction 2.3.0",
- "solana-instructions-sysvar 2.2.2",
- "solana-msg 2.2.1",
- "solana-program-error 2.2.2",
- "solana-pubkey 2.4.0",
- "solana-sdk-ids 2.2.1",
- "solana-zk-sdk 2.3.11",
- "spl-pod 0.5.1",
- "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -8798,7 +8711,7 @@ dependencies = [
 [[package]]
 name = "yellowstone-grpc-proto"
 version = "10.0.0"
-source = "git+https://github.com/rpcpool/yellowstone-grpc.git?tag=v10.0.0%2Bsolana.3.0.0#73c43e1112f6b3432a6b2df9bad73438f6c51034"
+source = "git+https://github.com/fanatid/yellowstone-grpc.git?rev=ab77f8b#ab77f8bdd1af6e6b2393dd61febdd5c9e0ca0261"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -8822,8 +8735,8 @@ dependencies = [
  "solana-transaction-context",
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
- "spl-token-2022 8.0.1",
- "thiserror 1.0.69",
+ "spl-token-2022",
+ "thiserror 2.0.16",
  "tonic",
  "tonic-build 0.14.2",
  "tonic-prost",
