@@ -108,7 +108,7 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 vergen = "9.0.2"
 webpki-roots = "1.0.1"
-yellowstone-grpc-proto = { git = "https://github.com/fanatid/yellowstone-grpc.git", rev = "ab77f8b" }
+yellowstone-grpc-proto = { git = "https://github.com/fanatid/yellowstone-grpc.git", rev = "8624f14" }
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"

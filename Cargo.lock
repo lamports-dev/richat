@@ -8711,7 +8711,7 @@ dependencies = [
 [[package]]
 name = "yellowstone-grpc-proto"
 version = "10.0.0"
-source = "git+https://github.com/fanatid/yellowstone-grpc.git?rev=ab77f8b#ab77f8bdd1af6e6b2393dd61febdd5c9e0ca0261"
+source = "git+https://github.com/fanatid/yellowstone-grpc.git?rev=8624f14#8624f14d015af0ba559f8b4c009325764c89ec94"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
