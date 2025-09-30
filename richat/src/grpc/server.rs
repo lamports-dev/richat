@@ -76,7 +76,7 @@ pub struct GrpcServer {
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
     filter_limits: Arc<ConfigFilterLimits>,
-    ping_iterval: Duration,
+    ping_interval: Duration,
     subscribe_id: Arc<AtomicU64>,
     subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
     subscribe_messages_len_max: usize,
@@ -121,7 +121,7 @@ impl GrpcServer {
             messages,
             block_meta,
             filter_limits: Arc::new(config.filter_limits),
-            ping_iterval: config.stream.ping_iterval,
+            ping_interval: config.stream.ping_interval,
             subscribe_id: Arc::new(AtomicU64::new(0)),
             subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
             subscribe_messages_len_max: config.stream.messages_len_max,
@@ -417,7 +417,7 @@ impl GrpcServer {
 
         tokio::spawn({
             let shutdown = self.shutdown.clone();
-            let ping_interval = self.ping_iterval;
+            let ping_interval = self.ping_interval;
             let client = client.clone();
             async move {
                 tokio::pin!(shutdown);
