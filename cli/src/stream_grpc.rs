@@ -1,22 +1,31 @@
 use {
     crate::stream::handle_stream,
     clap::{Args, Subcommand, ValueEnum},
-    futures::stream::{StreamExt, TryStreamExt},
+    futures::{
+        future::{BoxFuture, FutureExt},
+        sink::SinkExt,
+        stream::{StreamExt, TryStreamExt},
+    },
     indicatif::MultiProgress,
     prost::Message,
-    richat_client::grpc::GrpcClient,
-    richat_proto::geyser::{
-        subscribe_request_filter_accounts_filter::Filter as AccountsFilterOneof,
-        subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
-        subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
-        CommitmentLevel, SubscribeRequest, SubscribeRequestAccountsDataSlice,
-        SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
-        SubscribeRequestFilterAccountsFilterLamports, SubscribeRequestFilterAccountsFilterMemcmp,
-        SubscribeRequestFilterBlocks, SubscribeRequestFilterBlocksMeta,
-        SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
-        SubscribeRequestFilterTransactions, SubscribeRequestPing, SubscribeUpdate,
+    richat_client::grpc::{GrpcClient, GrpcClientStream},
+    richat_proto::{
+        geyser::{
+            subscribe_request_filter_accounts_filter::Filter as AccountsFilterOneof,
+            subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
+            subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
+            CommitmentLevel, SubscribeRequest, SubscribeRequestAccountsDataSlice,
+            SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
+            SubscribeRequestFilterAccountsFilterLamports,
+            SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterBlocks,
+            SubscribeRequestFilterBlocksMeta, SubscribeRequestFilterEntry,
+            SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions, SubscribeRequestPing,
+            SubscribeUpdate,
+        },
+        richat::SubscribeAccountsRequest,
     },
-    std::{collections::HashMap, fs::File, path::PathBuf, sync::Arc, time::Duration},
+    solana_sdk::pubkey::Pubkey,
+    std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, sync::Arc, time::Duration},
     tonic::service::Interceptor,
     tracing::info,
 };
@@ -160,7 +169,32 @@ impl ArgsAppStreamGrpc {
                     .await?
                     .expect("subscribe action");
 
-                return geyser_subscribe(client, request, stats, verify_encoding).await;
+                return geyser_subscribe(
+                    || async move { client.subscribe_dragons_mouth_once(request).await }.boxed(),
+                    stats,
+                    verify_encoding,
+                )
+                .await;
+            }
+            Action::SubscribeAccounts(action_subscribe) => {
+                let (request, stats, verify_encoding) = action_subscribe
+                    .get_subscribe_request()
+                    .await?
+                    .expect("subscribe action");
+
+                return geyser_subscribe(
+                    || {
+                        async move {
+                            let (mut tx, stream) = client.subscribe_accounts().await?;
+                            tx.send(request).await.expect("failed to send request");
+                            Ok(stream)
+                        }
+                        .boxed()
+                    },
+                    stats,
+                    verify_encoding,
+                )
+                .await;
             }
             Action::SubscribeReplayInfo => client
                 .subscribe_replay_info()
@@ -216,6 +250,7 @@ impl From<ArgsCommitment> for CommitmentLevel {
 #[derive(Debug, Clone, Subcommand)]
 enum Action {
     Subscribe(Box<ActionSubscribe>),
+    SubscribeAccounts(Box<ActionSubscribeAccounts>),
     SubscribeReplayInfo,
     Ping {
         #[clap(long, short, default_value_t = 0)]
@@ -568,17 +603,74 @@ impl ActionSubscribe {
     }
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct ActionSubscribeAccounts {
+    /// Send ping in subscribe request
+    #[clap(long)]
+    ping: Option<i32>,
+
+    /// Re-send message from slot
+    #[clap(long)]
+    from_slot: Option<u64>,
+
+    /// Filter name
+    filter: String,
+
+    /// Filter by Account Pubkey
+    #[clap(long)]
+    account: Vec<String>,
+
+    /// Path to a JSON array of account addresses
+    #[clap(long)]
+    account_path: Option<String>,
+
+    /// Show total stat instead of messages
+    #[clap(long, default_value_t = false)]
+    stats: bool,
+
+    /// Verify manually implemented encoding against prost
+    #[clap(long, default_value_t = false)]
+    verify_encoding: bool,
+}
+
+impl ActionSubscribeAccounts {
+    async fn get_subscribe_request(
+        self,
+    ) -> anyhow::Result<Option<(SubscribeAccountsRequest, bool, bool)>> {
+        let mut accounts = self.account;
+        if let Some(path) = self.account_path {
+            accounts.extend(tokio::task::block_in_place(move || {
+                let file = File::open(path)?;
+                Ok::<Vec<String>, anyhow::Error>(serde_json::from_reader(file)?)
+            })?);
+        }
+
+        Ok(Some((
+            SubscribeAccountsRequest {
+                ping: self.ping,
+                from_slot: self.from_slot,
+                filter: self.filter,
+                add: accounts
+                    .into_iter()
+                    .map(|s| Pubkey::from_str(&s).map(|pk| pk.to_bytes().to_vec()))
+                    .collect::<Result<Vec<_>, _>>()?,
+                remove: vec![],
+            },
+            self.stats,
+            self.verify_encoding,
+        )))
+    }
+}
+
 async fn geyser_subscribe(
-    mut client: GrpcClient<impl Interceptor>,
-    request: SubscribeRequest,
+    get_stream: impl FnOnce() -> BoxFuture<'static, tonic::Result<GrpcClientStream>>,
     stats: bool,
     verify_encoding: bool,
 ) -> anyhow::Result<()> {
     let pb_multi = Arc::new(MultiProgress::new());
 
     let pb_multi_stream = Arc::clone(&pb_multi);
-    let stream = client
-        .subscribe_dragons_mouth_once(request)
+    let stream = get_stream()
         .await?
         .and_then(move |vec| {
             let pb_multi_stream = Arc::clone(&pb_multi_stream);

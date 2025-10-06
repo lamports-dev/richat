@@ -583,7 +583,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                     })
                     .and_then(|pubkeys| {
                         let config = ConfigFilter {
-                            slots: [("".to_owned(), ConfigFilterSlots::default())]
+                            slots: [(message.filter, ConfigFilterSlots::default())]
                                 .into_iter()
                                 .collect(),
                             accounts: [(
