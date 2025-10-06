@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "6.0.0"
+version = "6.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -4039,7 +4039,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "5.0.0"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4134,7 +4134,7 @@ dependencies = [
 
 [[package]]
 name = "richat-proto"
-version = "5.0.0"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "cargo-lock",
