@@ -31,7 +31,7 @@ use {
             PongResponse, SubscribeReplayInfoRequest, SubscribeReplayInfoResponse,
             SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
         },
-        richat::SubscribeRequestJup,
+        richat::SubscribeAccountsRequest,
     },
     richat_shared::{
         jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
@@ -521,7 +521,7 @@ impl GrpcServer {
 #[tonic::async_trait]
 impl gen::geyser_server::Geyser for GrpcServer {
     type SubscribeStream = ReceiverStream;
-    type SubscribeJupStream = ReceiverStream;
+    type SubscribeAccountsStream = ReceiverStream;
 
     async fn subscribe(
         &self,
@@ -552,14 +552,14 @@ impl gen::geyser_server::Geyser for GrpcServer {
         )
     }
 
-    async fn subscribe_jup(
+    async fn subscribe_accounts(
         &self,
-        request: Request<Streaming<SubscribeRequestJup>>,
+        request: Request<Streaming<SubscribeAccountsRequest>>,
     ) -> TonicResult<Response<Self::SubscribeStream>> {
         let mut pubkeys = HashSet::new();
         self.subscribe2(
             request,
-            "subscribe_jup",
+            "subscribe_accounts",
             |message| message.ping,
             move |limits, message| {
                 fn try_conv(pubkeys: Vec<Vec<u8>>) -> impl Iterator<Item = Result<Pubkey, String>> {

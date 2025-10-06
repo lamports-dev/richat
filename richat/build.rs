@@ -68,9 +68,9 @@ fn generate_grpc_geyser() -> anyhow::Result<()> {
         )
         .method(
             Method::builder()
-                .name("subscribe_jup")
-                .route_name("SubscribeJup")
-                .input_type("richat_proto::richat::SubscribeRequestJup")
+                .name("subscribe_accounts")
+                .route_name("SubscribeAccounts")
+                .input_type("richat_proto::richat::SubscribeAccountsRequest")
                 .output_type("Vec<u8>")
                 .codec_path("richat_shared::transports::grpc::SubscribeCodec")
                 .client_streaming()
