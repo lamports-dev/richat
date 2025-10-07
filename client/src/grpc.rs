@@ -21,7 +21,7 @@ use {
             IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeReplayInfoRequest,
             SubscribeReplayInfoResponse, SubscribeRequest,
         },
-        richat::GrpcSubscribeRequest,
+        richat::{GrpcSubscribeRequest, SubscribeAccountsRequest},
     },
     richat_shared::{
         config::{deserialize_maybe_x_token, deserialize_num_str},
@@ -423,6 +423,25 @@ impl<F: Interceptor> GrpcClient<F> {
             .await
             .expect("failed to send to unbounded channel");
         Ok(rx)
+    }
+
+    // Subscribe Accounts
+    pub async fn subscribe_accounts(
+        &mut self,
+    ) -> Result<
+        (
+            mpsc::UnboundedSender<SubscribeAccountsRequest>,
+            GrpcClientStream,
+        ),
+        Status,
+    > {
+        let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
+        let response: Response<Streaming<Vec<u8>>> =
+            self.geyser.subscribe_accounts(subscribe_rx).await?;
+        let stream = GrpcClientStream {
+            stream: response.into_inner(),
+        };
+        Ok((subscribe_tx, stream))
     }
 
     // Subscribe Richat

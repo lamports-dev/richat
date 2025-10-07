@@ -18,6 +18,17 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-10-07
+
+- richat-cli-v6.1.0
+- richat-client-v5.1.0
+- richat-proto-v5.1.0
+- richat-v5.1.0
+
+### Features
+
+- richat: impl subscribe_accounts ([#140](https://github.com/lamports-dev/richat/pull/140))
+
 ## 2025-09-17
 
 - richat-v5.0.1

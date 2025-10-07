@@ -46,3 +46,11 @@ enum QuicSubscribeCloseError {
   LAGGED = 0;
   CLOSED = 1;
 }
+
+message SubscribeAccountsRequest {
+  optional int32 ping = 1;
+  optional uint64 from_slot = 2;
+  string filter = 3;
+  repeated bytes add = 4;
+  repeated bytes remove = 5;
+}
