@@ -3,8 +3,11 @@ fn main() {}
 
 #[cfg(feature = "transports")]
 fn main() -> anyhow::Result<()> {
+    // Use vendored protoc to avoid building C++ protobuf via autotools
+    let protoc_path = protoc_bin_vendored::protoc_bin_path()?;
+    std::env::set_var("PROTOC", protoc_path);
+
     // build protos
-    std::env::set_var("PROTOC", protobuf_src::protoc());
     generate_grpc_geyser()
 }
 

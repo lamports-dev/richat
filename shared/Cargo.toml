@@ -47,7 +47,7 @@ tracing = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow = { workspace = true, optional = true }
-protobuf-src = { workspace = true, optional = true }
+protoc-bin-vendored = { workspace = true, optional = true }
 tonic-build = { workspace = true, optional = true }
 
 [features]
@@ -92,7 +92,7 @@ transports = [
     "dep:futures",
     "dep:humantime-serde",
     "dep:prost",
-    "dep:protobuf-src",
+    "dep:protoc-bin-vendored",
     "dep:quinn",
     "dep:richat-proto",
     "dep:socket2",

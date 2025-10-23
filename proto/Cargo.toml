@@ -17,7 +17,7 @@ yellowstone-grpc-proto = { workspace = true }
 [build-dependencies]
 anyhow = { workspace = true }
 cargo-lock = { workspace = true }
-protobuf-src = { workspace = true }
+protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
 [features]

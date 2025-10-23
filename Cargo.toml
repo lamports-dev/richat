@@ -59,7 +59,7 @@ num_cpus = "1.16.0"
 prost = "0.14.1"
 prost-types = "0.14.1"
 prost_011 = { package = "prost", version = "0.11.9" }
-protobuf-src = "1.1.0"
+protoc-bin-vendored = "3.2.0"
 quanta = "0.12.5"
 quinn = "0.11.6"
 rayon = "1.10.0"
