@@ -2,7 +2,7 @@ use {
     crate::config::ConfigAppsWorkers,
     richat_filter::config::ConfigLimits as ConfigFilterLimits,
     richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, deserialize_x_token_set},
+        config::{deserialize_affinity, deserialize_num_str, deserialize_x_tokens_set},
         transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
     serde::Deserialize,
@@ -17,8 +17,8 @@ pub struct ConfigAppsGrpc {
     pub stream: ConfigAppsGrpcStream,
     pub unary: ConfigAppsGrpcUnary,
     pub filter_limits: ConfigFilterLimits,
-    #[serde(deserialize_with = "deserialize_x_token_set")]
-    pub x_token: HashSet<Vec<u8>>,
+    #[serde(deserialize_with = "deserialize_x_tokens_set")]
+    pub x_tokens: HashSet<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -49,7 +49,7 @@ pub struct ConfigAppsGrpcStream {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub messages_replay_len_max: usize,
     #[serde(with = "humantime_serde")]
-    pub ping_iterval: Duration,
+    pub ping_interval: Duration,
 }
 
 impl Default for ConfigAppsGrpcStream {
@@ -58,7 +58,7 @@ impl Default for ConfigAppsGrpcStream {
             messages_len_max: 16 * 1024 * 1024,
             messages_max_per_tick: 100,
             messages_replay_len_max: 256 * 1024 * 1024,
-            ping_iterval: Duration::from_secs(15),
+            ping_interval: Duration::from_secs(15),
         }
     }
 }

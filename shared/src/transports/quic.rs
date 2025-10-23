@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::{deserialize_num_str, deserialize_rustls_server_config, deserialize_x_token_set},
+        config::{deserialize_num_str, deserialize_rustls_server_config, deserialize_x_tokens_set},
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
         version::Version,
     },
@@ -60,7 +60,7 @@ pub struct ConfigQuicServer {
     /// Max request size in bytes
     #[serde(default = "ConfigQuicServer::default_max_request_size")]
     pub max_request_size: usize,
-    #[serde(default, deserialize_with = "deserialize_x_token_set")]
+    #[serde(default, deserialize_with = "deserialize_x_tokens_set")]
     pub x_tokens: HashSet<Vec<u8>>,
 }
 
