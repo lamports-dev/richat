@@ -162,11 +162,13 @@ impl GrpcServer {
         let server = tokio::spawn(async move {
             if let Err(error) = server_builder
                 .layer(InterceptorLayer::new(move |request: Request<()>| {
-                    if config.x_token.is_empty() {
+                    if config.x_tokens.is_empty() {
                         Ok(request)
                     } else {
                         match request.metadata().get("x-token") {
-                            Some(token) if config.x_token.contains(token.as_bytes()) => Ok(request),
+                            Some(token) if config.x_tokens.contains(token.as_bytes()) => {
+                                Ok(request)
+                            }
                             _ => Err(Status::unauthenticated("No valid auth token")),
                         }
                     }

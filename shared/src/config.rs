@@ -120,7 +120,7 @@ where
         .transpose()
 }
 
-pub fn deserialize_x_token_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
+pub fn deserialize_x_tokens_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
 where
     D: Deserializer<'de>,
 {
