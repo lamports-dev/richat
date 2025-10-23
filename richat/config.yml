@@ -134,7 +134,7 @@ apps:
   #     messages_len_max: 16_777_216
   #     messages_max_per_tick: 100
   #     messages_replay_len_max: 268_435_456
-  #     ping_iterval: 15s
+  #     ping_interval: 15s
   #   unary:
   #     enabled: true
   #     affinity: null # by default no affinity (taskset syntax)

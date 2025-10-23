@@ -12,7 +12,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
-- richat: use IntMap from solana-nohash-hasher ([#144](https://github.com/lamports-dev/richat/pull/144))
+- richat: fix `ping_interval` typo ([#148](https://github.com/lamports-dev/richat/pull/148))
 
 ### Features
 
@@ -24,6 +24,10 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat-client-v5.1.0
 - richat-proto-v5.1.0
 - richat-v5.1.0
+
+### Fixes
+
+- richat: use IntMap from solana-nohash-hasher ([#144](https://github.com/lamports-dev/richat/pull/144))
 
 ### Features
 
