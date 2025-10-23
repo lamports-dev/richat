@@ -2,7 +2,7 @@ use {
     crate::config::ConfigAppsWorkers,
     richat_filter::config::ConfigLimits as ConfigFilterLimits,
     richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, deserialize_x_token_set},
+        config::{deserialize_affinity, deserialize_num_str, deserialize_x_tokens_set},
         transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
     serde::Deserialize,
@@ -17,8 +17,8 @@ pub struct ConfigAppsGrpc {
     pub stream: ConfigAppsGrpcStream,
     pub unary: ConfigAppsGrpcUnary,
     pub filter_limits: ConfigFilterLimits,
-    #[serde(deserialize_with = "deserialize_x_token_set")]
-    pub x_token: HashSet<Vec<u8>>,
+    #[serde(deserialize_with = "deserialize_x_tokens_set")]
+    pub x_tokens: HashSet<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

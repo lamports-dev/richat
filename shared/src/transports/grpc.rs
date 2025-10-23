@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::{deserialize_num_str, deserialize_x_token_set},
+        config::{deserialize_num_str, deserialize_x_tokens_set},
         shutdown::Shutdown,
         transports::{RecvError, RecvStream, Subscribe, SubscribeError},
         version::Version,
@@ -100,7 +100,7 @@ pub struct ConfigGrpcServer {
     pub server_http2_keepalive_timeout: Option<Duration>,
     pub server_initial_connection_window_size: Option<u32>,
     pub server_initial_stream_window_size: Option<u32>,
-    #[serde(deserialize_with = "deserialize_x_token_set")]
+    #[serde(deserialize_with = "deserialize_x_tokens_set")]
     pub x_tokens: HashSet<Vec<u8>>,
 }
 
