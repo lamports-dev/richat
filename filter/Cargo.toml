@@ -24,7 +24,7 @@ solana-account = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
-spl-token-2022 = { workspace = true }
+spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

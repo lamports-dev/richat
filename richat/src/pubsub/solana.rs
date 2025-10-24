@@ -28,7 +28,7 @@ use {
     },
     solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::TransactionError},
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
-    spl_token_2022::{
+    spl_token_2022_interface::{
         generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,
     },
     std::{

@@ -3834,7 +3834,7 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "solana-version",
- "spl-token-2022",
+ "spl-token-2022-interface",
  "thiserror 2.0.16",
  "tikv-jemallocator",
  "tokio",
@@ -3928,7 +3928,7 @@ dependencies = [
  "solana-commitment-config",
  "solana-sdk",
  "solana-transaction-status",
- "spl-token-2022",
+ "spl-token-2022-interface",
  "thiserror 2.0.16",
 ]
 
@@ -6968,9 +6968,9 @@ dependencies = [
 
 [[package]]
 name = "spl-elgamal-registry"
-version = "0.3.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56cc66fe64651a48c8deb4793d8a5deec8f8faf19f355b9df294387bc5a36b5f"
+checksum = "65edfeed09cd4231e595616aa96022214f9c9d2be02dea62c2b30d5695a6833a"
 dependencies = [
  "bytemuck",
  "solana-account-info 2.3.0",
@@ -6982,12 +6982,11 @@ dependencies = [
  "solana-pubkey 2.4.0",
  "solana-rent 2.2.1",
  "solana-sdk-ids 2.2.1",
- "solana-security-txt",
  "solana-system-interface 1.0.0",
  "solana-sysvar 2.3.0",
  "solana-zk-sdk 2.3.11",
  "spl-pod 0.5.1",
- "spl-token-confidential-transfer-proof-extraction 0.4.1",
+ "spl-token-confidential-transfer-proof-extraction 0.3.0",
 ]
 
 [[package]]
@@ -7142,9 +7141,9 @@ dependencies = [
 
 [[package]]
 name = "spl-token-2022"
-version = "9.0.0"
+version = "8.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707d8237d17d857246b189d0fb278797dcd7cf6219374547791b231fd35a8cc8"
+checksum = "31f0dfbb079eebaee55e793e92ca5f433744f4b71ee04880bfd6beefba5973e5"
 dependencies = [
  "arrayref",
  "bytemuck",
@@ -7175,7 +7174,7 @@ dependencies = [
  "spl-pod 0.5.1",
  "spl-token",
  "spl-token-confidential-transfer-ciphertext-arithmetic",
- "spl-token-confidential-transfer-proof-extraction 0.4.1",
+ "spl-token-confidential-transfer-proof-extraction 0.3.0",
  "spl-token-confidential-transfer-proof-generation 0.4.1",
  "spl-token-group-interface 0.6.0",
  "spl-token-metadata-interface 0.7.0",
@@ -7226,9 +7225,9 @@ dependencies = [
 
 [[package]]
 name = "spl-token-confidential-transfer-proof-extraction"
-version = "0.4.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "512c85bdbbb4cbcc2038849a9e164c958b16541f252b53ea1a3933191c0a4a1a"
+checksum = "fe2629860ff04c17bafa9ba4bed8850a404ecac81074113e1f840dbd0ebb7bd6"
 dependencies = [
  "bytemuck",
  "solana-account-info 2.3.0",
@@ -8774,8 +8773,9 @@ dependencies = [
 
 [[package]]
 name = "yellowstone-grpc-proto"
-version = "10.0.0"
-source = "git+https://github.com/fanatid/yellowstone-grpc.git?rev=8624f14#8624f14d015af0ba559f8b4c009325764c89ec94"
+version = "10.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26f23e3315e5e3900acc2ef377cb51b35429ead734936f42912188e297e27059"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -8800,7 +8800,7 @@ dependencies = [
  "solana-transaction-error 3.0.0",
  "solana-transaction-status",
  "spl-token-2022",
- "thiserror 2.0.16",
+ "thiserror 1.0.69",
  "tonic",
  "tonic-build 0.14.2",
  "tonic-prost",

@@ -93,7 +93,7 @@ solana-storage-proto = "~3.0.4"
 solana-transaction-context = "~3.0.4"
 solana-transaction-status = "~3.0.4"
 solana-version = "~3.0.4"
-spl-token-2022 = "9.0.0"
+spl-token-2022-interface = "2.0.0"
 thiserror = "2.0.7"
 tikv-jemallocator = { version = "0.6.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 tokio = "1.42.0"
@@ -108,7 +108,7 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 vergen = "9.0.2"
 webpki-roots = "1.0.1"
-yellowstone-grpc-proto = { git = "https://github.com/fanatid/yellowstone-grpc.git", rev = "8624f14" }
+yellowstone-grpc-proto = "10.0.1"
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"
