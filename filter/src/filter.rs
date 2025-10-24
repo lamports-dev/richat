@@ -25,8 +25,11 @@ use {
     },
     smallvec::{smallvec_inline, SmallVec},
     solana_account::ReadableAccount,
-    solana_sdk::{commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature},
-    spl_token_2022::{generic_token_account::GenericTokenAccount, state::Account as TokenAccount},
+    solana_commitment_config::CommitmentLevel,
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
+    spl_token_2022_interface::{
+        generic_token_account::GenericTokenAccount, state::Account as TokenAccount,
+    },
     std::{
         borrow::{Borrow, Cow},
         collections::{HashMap, HashSet},

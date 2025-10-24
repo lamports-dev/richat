@@ -12,13 +12,30 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
-- richat: use IntMap from solana-nohash-hasher ([#144](https://github.com/lamports-dev/richat/pull/144))
-
 ### Features
 
 - richat: support tokenInitSubscribe in pubsub ([#143](https://github.com/lamports-dev/richat/pull/143))
 
 ### Breaking
+
+## 2025-10-24
+
+- richat-cli-v7.0.0
+- richat-client-v6.0.0
+- richat-filter-v6.0.0
+- richat-plugin-agave-v6.0.0
+- richat-proto-v6.0.0
+- richat-v6.0.0
+- richat-shared-v6.0.0
+
+### Fixes
+
+- richat: fix `ping_interval` typo ([#148](https://github.com/lamports-dev/richat/pull/148))
+- richat: fix `x_tokens` typo ([#149](https://github.com/lamports-dev/richat/pull/149))
+
+### Breaking
+
+- richat: upgrade to agave 3.0 ([#146](https://github.com/lamports-dev/richat/pull/146))
 
 ## 2025-10-07
 
@@ -26,6 +43,10 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat-client-v5.1.0
 - richat-proto-v5.1.0
 - richat-v5.1.0
+
+### Fixes
+
+- richat: use IntMap from solana-nohash-hasher ([#144](https://github.com/lamports-dev/richat/pull/144))
 
 ### Features
 

@@ -120,7 +120,7 @@ where
         .transpose()
 }
 
-pub fn deserialize_x_token_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
+pub fn deserialize_x_tokens_set<'de, D>(deserializer: D) -> Result<HashSet<Vec<u8>>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -212,7 +212,7 @@ impl<'a> RustlsServerConfigSignedSelfSigned<'a> {
                         de::Error::custom(format!("failed to generate self-signed cert: {error:?}"))
                     })?;
                 let cert_der = CertificateDer::from(cert.cert);
-                let priv_key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
+                let priv_key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
                 (vec![cert_der], priv_key.into())
             }
         };

@@ -1,7 +1,6 @@
 use {
     crate::{
-        config::{deserialize_num_str, deserialize_rustls_server_config, deserialize_x_token_set},
-        shutdown::Shutdown,
+        config::{deserialize_num_str, deserialize_rustls_server_config, deserialize_x_tokens_set},
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
         version::Version,
     },
@@ -32,6 +31,7 @@ use {
         io::{AsyncReadExt, AsyncWriteExt},
         task::{JoinError, JoinSet},
     },
+    tokio_util::sync::CancellationToken,
     tracing::{error, info},
 };
 
@@ -60,7 +60,7 @@ pub struct ConfigQuicServer {
     /// Max request size in bytes
     #[serde(default = "ConfigQuicServer::default_max_request_size")]
     pub max_request_size: usize,
-    #[serde(default, deserialize_with = "deserialize_x_token_set")]
+    #[serde(default, deserialize_with = "deserialize_x_tokens_set")]
     pub x_tokens: HashSet<Vec<u8>>,
 }
 
@@ -160,7 +160,7 @@ impl QuicServer {
         on_conn_new_cb: impl Fn() + Clone + Send + 'static,
         on_conn_drop_cb: impl Fn() + Clone + Send + 'static,
         version: Version<'static>,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> Result<impl Future<Output = Result<(), JoinError>>, CreateEndpointError> {
         let endpoint = config.create_endpoint()?;
         info!("start server at {}", config.endpoint);
@@ -171,7 +171,6 @@ impl QuicServer {
             let x_tokens = Arc::new(config.x_tokens);
 
             let mut id = 0;
-            tokio::pin!(shutdown);
             loop {
                 tokio::select! {
                     incoming = endpoint.accept() => {
@@ -203,7 +202,7 @@ impl QuicServer {
                         });
                         id += 1;
                     }
-                    () = &mut shutdown => {
+                    () = shutdown.cancelled() => {
                         endpoint.close(0u32.into(), b"shutdown");
                         info!("shutdown");
                         break

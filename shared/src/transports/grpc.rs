@@ -1,7 +1,6 @@
 use {
     crate::{
-        config::{deserialize_num_str, deserialize_x_token_set},
-        shutdown::Shutdown,
+        config::{deserialize_num_str, deserialize_x_tokens_set},
         transports::{RecvError, RecvStream, Subscribe, SubscribeError},
         version::Version,
     },
@@ -32,6 +31,7 @@ use {
     },
     thiserror::Error,
     tokio::task::JoinError,
+    tokio_util::sync::CancellationToken,
     tonic::{
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
         service::interceptor::InterceptorLayer,
@@ -100,7 +100,7 @@ pub struct ConfigGrpcServer {
     pub server_http2_keepalive_timeout: Option<Duration>,
     pub server_initial_connection_window_size: Option<u32>,
     pub server_initial_stream_window_size: Option<u32>,
-    #[serde(deserialize_with = "deserialize_x_token_set")]
+    #[serde(deserialize_with = "deserialize_x_tokens_set")]
     pub x_tokens: HashSet<Vec<u8>>,
 }
 
@@ -227,7 +227,7 @@ where
         on_conn_new_cb: F1,
         on_conn_drop_cb: F2,
         version: Version<'static>,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> Result<impl Future<Output = Result<(), JoinError>>, CreateServerError> {
         let (incoming, server_builder) = config.create_server_builder()?;
         info!("start server at {}", config.endpoint);
@@ -263,7 +263,7 @@ where
                     }
                 }))
                 .add_service(service)
-                .serve_with_incoming_shutdown(incoming, shutdown)
+                .serve_with_incoming_shutdown(incoming, shutdown.cancelled())
                 .await
             {
                 error!("server error: {error:?}")

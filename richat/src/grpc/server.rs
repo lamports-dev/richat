@@ -33,13 +33,11 @@ use {
         },
         richat::SubscribeAccountsRequest,
     },
-    richat_shared::{
-        jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, shutdown::Shutdown, transports::RecvError,
-    },
+    richat_shared::{jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, transports::RecvError},
     smallvec::SmallVec,
+    solana_commitment_config::CommitmentLevel,
     solana_sdk::{
         clock::{Slot, MAX_PROCESSING_AGE},
-        commitment_config::CommitmentLevel,
         pubkey::Pubkey,
     },
     std::{
@@ -56,6 +54,7 @@ use {
         thread::sleep,
         time::{Duration, SystemTime},
     },
+    tokio_util::sync::CancellationToken,
     tonic::{
         service::interceptor::InterceptorLayer, Request, Response, Result as TonicResult, Status,
         Streaming,
@@ -72,11 +71,11 @@ pub mod gen {
 
 #[derive(Debug, Clone)]
 pub struct GrpcServer {
-    shutdown: Shutdown,
+    shutdown: CancellationToken,
     messages: Messages,
     block_meta: Option<Arc<BlockMetaStorage>>,
     filter_limits: Arc<ConfigFilterLimits>,
-    ping_iterval: Duration,
+    ping_interval: Duration,
     subscribe_id: Arc<AtomicU64>,
     subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
     subscribe_messages_len_max: usize,
@@ -87,7 +86,7 @@ impl GrpcServer {
     pub fn spawn(
         config: ConfigAppsGrpc,
         messages: Messages,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>> {
         // Create gRPC server
         let (incoming, server_builder) = config.server.create_server_builder()?;
@@ -121,7 +120,7 @@ impl GrpcServer {
             messages,
             block_meta,
             filter_limits: Arc::new(config.filter_limits),
-            ping_iterval: config.stream.ping_iterval,
+            ping_interval: config.stream.ping_interval,
             subscribe_id: Arc::new(AtomicU64::new(0)),
             subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
             subscribe_messages_len_max: config.stream.messages_len_max,
@@ -162,17 +161,19 @@ impl GrpcServer {
         let server = tokio::spawn(async move {
             if let Err(error) = server_builder
                 .layer(InterceptorLayer::new(move |request: Request<()>| {
-                    if config.x_token.is_empty() {
+                    if config.x_tokens.is_empty() {
                         Ok(request)
                     } else {
                         match request.metadata().get("x-token") {
-                            Some(token) if config.x_token.contains(token.as_bytes()) => Ok(request),
+                            Some(token) if config.x_tokens.contains(token.as_bytes()) => {
+                                Ok(request)
+                            }
                             _ => Err(Status::unauthenticated("No valid auth token")),
                         }
                     }
                 }))
                 .add_service(service)
-                .serve_with_incoming_shutdown(incoming, shutdown)
+                .serve_with_incoming_shutdown(incoming, shutdown.cancelled())
                 .await
             {
                 error!("server error: {error:?}")
@@ -254,7 +255,7 @@ impl GrpcServer {
     fn worker_block_meta(
         messages: Messages,
         block_meta: BlockMetaStorage,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let receiver = messages.to_receiver();
         let mut head = messages.get_current_tail(CommitmentLevel::Processed) + 1;
@@ -265,7 +266,7 @@ impl GrpcServer {
             counter += 1;
             if counter > COUNTER_LIMIT {
                 counter = 0;
-                if shutdown.is_set() {
+                if shutdown.is_cancelled() {
                     info!("gRPC block meta thread shutdown");
                     return Ok(());
                 }
@@ -292,7 +293,7 @@ impl GrpcServer {
         index: usize,
         messages_cached_max: usize,
         messages_max_per_tick: usize,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let messages_cached_max = messages_cached_max.next_power_of_two();
         let mut messages_cache_processed = MessagesCache::new(messages_cached_max);
@@ -307,7 +308,7 @@ impl GrpcServer {
             shutdown_counter += 1;
             if shutdown_counter > SHUTDOWN_COUNTER_LIMIT {
                 shutdown_counter = 0;
-                if shutdown.is_set() {
+                if shutdown.is_cancelled() {
                     while self.pop_client(None).is_some() {}
                     info!("gRPC worker#{index:02} shutdown");
                     return Ok(());
@@ -417,14 +418,13 @@ impl GrpcServer {
 
         tokio::spawn({
             let shutdown = self.shutdown.clone();
-            let ping_interval = self.ping_iterval;
+            let ping_interval = self.ping_interval;
             let client = client.clone();
             async move {
-                tokio::pin!(shutdown);
                 let mut ts_latest = Instant::now();
                 loop {
                     tokio::select! {
-                        () = &mut shutdown => {
+                        () = shutdown.cancelled() => {
                             tracing::error!("push error");
                             let mut state = client.state_lock();
                             state.push_error(Status::internal("shutdown"));

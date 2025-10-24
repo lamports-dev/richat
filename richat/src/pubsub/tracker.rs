@@ -25,17 +25,17 @@ use {
         mutex_lock,
     },
     solana_account_decoder::encode_ui_account,
+    solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
     },
     solana_sdk::{
-        clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey, signature::Signature,
-        transaction::TransactionError,
+        clock::Slot, pubkey::Pubkey, signature::Signature, transaction::TransactionError,
     },
     solana_transaction_status::InnerInstruction,
-    spl_token_2022::instruction::TokenInstruction as SplToken2022Instruction,
+    spl_token_2022_interface::instruction::TokenInstruction as SplToken2022Instruction,
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         sync::{Arc, Mutex},
@@ -168,7 +168,7 @@ impl Subscriptions {
                             subscription_id,
                             slot,
                             RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                                err,
+                                err: err.map(Into::into),
                             }),
                         );
                         notifications.push(
@@ -528,7 +528,7 @@ pub fn subscriptions_worker(
                                     message.slot(),
                                     &RpcLogsResponse {
                                         signature: signature_encode(message.signature().as_array()),
-                                        err,
+                                        err: err.map(Into::into),
                                         logs,
                                     },
                                 );
@@ -542,7 +542,9 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err },
+                                        ProcessedSignatureResult {
+                                            err: err.map(Into::into),
+                                        },
                                     ),
                                 );
                                 return Some((subscription, true, json));
@@ -915,7 +917,8 @@ impl TokenInitParsedTransactions {
                 {
                     let program_id = account_keys.get(ix.program_id_index as usize);
 
-                    if program_id == Some(&spl_token::ID) || program_id == Some(&spl_token_2022::ID)
+                    if program_id == Some(&spl_token_interface::ID)
+                        || program_id == Some(&spl_token_2022_interface::ID)
                     {
                         if let Some(owner) = match SplToken2022Instruction::unpack(&ix.data) {
                             Ok(SplToken2022Instruction::InitializeAccount) => ix
