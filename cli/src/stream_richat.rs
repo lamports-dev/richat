@@ -1,7 +1,7 @@
 use {
     crate::stream::handle_stream,
     agave_geyser_plugin_interface::geyser_plugin_interface::{
-        ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV2,
+        ReplicaAccountInfoV3, ReplicaBlockInfoV4, ReplicaEntryInfoV2, ReplicaTransactionInfoV3,
         SlotStatus as GeyserSlotStatus,
     },
     anyhow::Context,
@@ -26,10 +26,8 @@ use {
     richat_shared::transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     solana_sdk::{
         clock::Slot,
-        message::{
-            v0::LoadedAddresses, LegacyMessage, Message, SanitizedMessage, SimpleAddressLoader,
-        },
-        transaction::{MessageHash, SanitizedTransaction},
+        message::{LegacyMessage, Message, SanitizedMessage},
+        transaction::SanitizedTransaction,
     },
     std::{collections::HashSet, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration},
     tonic::service::Interceptor,
@@ -415,22 +413,6 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
                 .ok_or(anyhow::anyhow!("no tx message"))?;
             let versioned_transaction =
                 convert_from::create_tx_versioned(value).map_err(|error| anyhow::anyhow!(error))?;
-            let address_loader = match versioned_transaction.message.address_table_lookups() {
-                Some(vec_atl) => SimpleAddressLoader::Enabled(LoadedAddresses {
-                    writable: vec_atl.iter().map(|atl| atl.account_key).collect(),
-                    readonly: vec_atl.iter().map(|atl| atl.account_key).collect(),
-                }),
-                None => SimpleAddressLoader::Disabled,
-            };
-            let Ok(sanitized_transaction) = SanitizedTransaction::try_create(
-                versioned_transaction,
-                MessageHash::Compute, // message_hash
-                None,                 // is_simple_vote_tx
-                address_loader,
-                &HashSet::new(), // reserved_account_keys
-            ) else {
-                return Ok(None);
-            };
 
             let value = tx.meta.clone().ok_or(anyhow::anyhow!("no meta message"))?;
             let transaction_status_meta =
@@ -438,14 +420,15 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
 
             let msg = ProtobufMessage::Transaction {
                 slot: *slot,
-                transaction: &ReplicaTransactionInfoV2 {
+                transaction: &ReplicaTransactionInfoV3 {
                     signature: &tx
                         .signature
                         .as_slice()
                         .try_into()
                         .context("failed to create signature")?,
+                    message_hash: &versioned_transaction.message.hash(),
                     is_vote: tx.is_vote,
-                    transaction: &sanitized_transaction,
+                    transaction: &versioned_transaction,
                     transaction_status_meta: &transaction_status_meta,
                     index: tx.index as usize,
                 },

@@ -2,7 +2,8 @@ use {
     http_body_util::{combinators::BoxBody, BodyExt, Full as BodyFull},
     hyper::{body::Bytes, header::CONTENT_TYPE, http::Result as HttpResult, HeaderMap, StatusCode},
     jsonrpsee_types::{
-        ErrorCode, ErrorObject, ErrorObjectOwned, Id, Response, ResponsePayload, TwoPointZero,
+        ErrorCode, ErrorObject, ErrorObjectOwned, Extensions, Id, Response, ResponsePayload,
+        TwoPointZero,
     },
     serde::Serialize,
     solana_rpc_client_api::custom_error::RpcCustomError,
@@ -52,6 +53,7 @@ pub fn jsonrpc_response_success<T: Clone + Serialize>(id: Id<'_>, payload: T) ->
         jsonrpc: Some(TwoPointZero),
         payload: ResponsePayload::success(payload),
         id,
+        extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
     })
 }
 
@@ -60,6 +62,7 @@ pub fn jsonrpc_response_error(id: Id<'_>, error: ErrorObjectOwned) -> Vec<u8> {
         jsonrpc: Some(TwoPointZero),
         payload: ResponsePayload::<()>::error(error),
         id,
+        extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
     })
 }
 

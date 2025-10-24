@@ -5,7 +5,7 @@ use {
     },
     ::metrics::gauge,
     agave_reserved_account_keys::ReservedAccountKeys,
-    jsonrpsee_types::{SubscriptionPayload, SubscriptionResponse, TwoPointZero},
+    jsonrpsee_types::{Extensions, SubscriptionPayload, SubscriptionResponse, TwoPointZero},
     richat_filter::message::{MessageBlock, MessageTransaction},
     richat_shared::five8::signature_encode,
     serde::Serialize,
@@ -50,6 +50,7 @@ impl RpcNotification {
                 subscription: jsonrpsee_types::SubscriptionId::Num(subscription),
                 result,
             },
+            extensions: Extensions::default(), // doesn't matter, as it is not used in serialize
         };
         Arc::new(serde_json::to_string(&response).expect("json serialization never fail"))
     }
@@ -231,14 +232,14 @@ impl RpcTransactionUpdate {
         })
     }
 
-    // https://docs.rs/solana-transaction-status/latest/src/solana_transaction_status/lib.rs.html#160
+    // https://docs.rs/solana-transaction-status/3.0.4/src/solana_transaction_status/lib.rs.html#161
     fn build_simple_ui_transaction_status_meta(
         meta: TransactionStatusMeta,
         show_rewards: bool,
     ) -> UiTransactionStatusMeta {
         UiTransactionStatusMeta {
-            err: meta.status.clone().err(),
-            status: meta.status,
+            err: meta.status.clone().map_err(Into::into).err(),
+            status: meta.status.map_err(Into::into),
             fee: meta.fee,
             pre_balances: meta.pre_balances,
             post_balances: meta.post_balances,

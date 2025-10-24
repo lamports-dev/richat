@@ -22,13 +22,14 @@ use {
     },
     richat_metrics::duration_to_seconds,
     richat_proto::geyser::SlotStatus,
-    richat_shared::{mutex_lock, shutdown::Shutdown},
+    richat_shared::mutex_lock,
     rocksdb::{
         ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
         WriteBatch, DB,
     },
     smallvec::SmallVec,
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
+    solana_commitment_config::CommitmentLevel,
+    solana_sdk::clock::Slot,
     std::{
         borrow::Cow,
         collections::{BTreeMap, VecDeque},
@@ -36,6 +37,7 @@ use {
         thread,
         time::Duration,
     },
+    tokio_util::sync::CancellationToken,
     tonic::Status,
 };
 
@@ -136,7 +138,7 @@ impl Storage {
     pub fn open(
         config: ConfigStorage,
         parser: MessageParserEncoding,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<(Self, SpawnedThreads)> {
         let db_options = Self::get_db_options();
         let cf_descriptors = Self::cf_descriptors(config.messages_compression.into());
@@ -358,14 +360,14 @@ impl Storage {
         replay_queue: Arc<Mutex<ReplayQueue>>,
         parser: MessageParserEncoding,
         messages_decode_per_tick: usize,
-        shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut shutdown_ts = Instant::now();
         let mut prev_request = None;
         loop {
             // get request and lock state
             let Some(mut req) = ReplayQueue::pop_next(&replay_queue, prev_request.take()) else {
-                if shutdown.is_set() {
+                if shutdown.is_cancelled() {
                     break;
                 }
                 thread::sleep(Duration::from_millis(1));
@@ -374,7 +376,7 @@ impl Storage {
             let ts = Instant::now();
             if ts.duration_since(shutdown_ts) > Duration::from_millis(100) {
                 shutdown_ts = ts;
-                if shutdown.is_set() {
+                if shutdown.is_cancelled() {
                     break;
                 }
             }

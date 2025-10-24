@@ -21,15 +21,13 @@ use {
     richat_proto::{convert_from, geyser::SlotStatus},
     richat_shared::five8::{pubkey_encode, signature_encode},
     solana_account_decoder::encode_ui_account,
+    solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
     },
-    solana_sdk::{
-        clock::Slot, commitment_config::CommitmentLevel, signature::Signature,
-        transaction::TransactionError,
-    },
+    solana_sdk::{clock::Slot, signature::Signature, transaction::TransactionError},
     std::{
         collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
         sync::Arc,
@@ -162,7 +160,7 @@ impl Subscriptions {
                             subscription_id,
                             slot,
                             RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                                err,
+                                err: err.map(Into::into),
                             }),
                         );
                         notifications.push(
@@ -521,7 +519,7 @@ pub fn subscriptions_worker(
                                     message.slot(),
                                     &RpcLogsResponse {
                                         signature: signature_encode(message.signature().as_array()),
-                                        err,
+                                        err: err.map(Into::into),
                                         logs,
                                     },
                                 );
@@ -535,7 +533,9 @@ pub fn subscriptions_worker(
                                     subscription.id,
                                     message.slot(),
                                     RpcSignatureResult::ProcessedSignature(
-                                        ProcessedSignatureResult { err },
+                                        ProcessedSignatureResult {
+                                            err: err.map(Into::into),
+                                        },
                                     ),
                                 );
                                 return Some((subscription, true, json));
