@@ -5,6 +5,7 @@ Richat is a streaming system designed to provide low latency and reliable stream
 Richat offers a set of functionality to consume, filter and distribute streams of transactions, accounts and slots:
 
 - Multiplexing, listening to multiple sources and providing a single stream output
+- High performance filtering and de-duplication
 - QUIC based streaming for higher throughput and lower latency
 - gRPC support compatible with [Dragon's Mouth](https://github.com/rpcpool/yellowstone-grpc) clients
 - Websockets interface compatible with the Websockets API provided by Agave
