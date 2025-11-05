@@ -1,12 +1,45 @@
 # richat
 
-Next iteration of [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/rpcpool/yellowstone-grpc) that was originally developed and currently maintained by [Triton One](https://triton.one/). `Richat` includes code derived from `Dragon's Mouth` (copyright `Triton One Limited`) with significant architecture changes.
+Richat is a streaming system designed to provide low latency and reliable streams of Solana blockchain data.
 
-In addition to `Yellowstone Drangon's Mouth / Geyser gRPC` richat includes Solana PubSub implementation.
+Richat offers a set of functionality to consume, filter and distribute streams of transactions, accounts and slots:
+
+- Multiplexing, listening to multiple sources and providing a single stream output
+- High performance filtering and de-duplication
+- QUIC based streaming for higher throughput and lower latency
+- gRPC support compatible with [Dragon's Mouth](https://github.com/rpcpool/yellowstone-grpc) clients
+- Websockets interface compatible with the Websockets API provided by Agave
+
+Richat can connect to a variety of sources even combining multiple different sources:
+
+- Any [Yellowstone Dragon's Mouth / Geyser gRPC](https://github.com/rpcpool/yellowstone-grpc) compatible streaming endpoint
+- Solana nodes running the included [richat-plugin-agave plugin](./plugin-agave)
+- Solana nodes running the [Yellowstone Dragon's Mouth Geyser gRPC plugin](https://github.com/rpcpool/yellowstone-grpc)
+- Other instances of Richat to create hierarchical streaming topologies with filtering at each level (see below)
+
+Use Richat to build your own streaming infrastructure, whether you require websockets for browser clients or gRPC/QUIC for high performance backends. Richat is compatbile with the gRPC endpoints provided by most commerical Solana RPC providers and allows you to leverage a small number of incoming streams to serve a large number of clients.
 
 Please use issues only for reporting bugs or discussing feature-related topics. If you're having trouble loading a plugin or need guidance on how to use crates, please post your question in the Telegram group: [https://t.me/lamportsdev](https://t.me/lamportsdev)
 
+## Building and running
+
+Build Richat by running
+
+```bash
+cargo build --release
+```
+
+Then create a config with your details following the example [config.yml](./rochat/config.yml) and run Richat with:
+
+```bash
+./target/release/richat --config path/to/your/config.yml
+```
+
+
 ## Sponsored by
+
+
+
 
 ## Blueprint
 
