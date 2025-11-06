@@ -1,6 +1,6 @@
 [package]
 name = "richat-shared"
-version = "6.0.0"
+version = "6.1.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Shared code"
@@ -19,6 +19,7 @@ five8 = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
+human-size = { workspace = true, optional = true }
 humantime-serde = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 jsonrpc-core = { workspace = true, optional = true }
@@ -62,6 +63,7 @@ config = [
     "dep:affinity-linux",
     "dep:base64",
     "dep:bs58",
+    "dep:human-size",
     "dep:rcgen",
     "dep:regex",
     "dep:rustls",

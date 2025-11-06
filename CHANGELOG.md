@@ -18,11 +18,17 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ## 2025-11-06
 
+- richat-cli-v7.1.0
+- richat-client-v6.1.0
+- richat-filter-v6.1.0
+- richat-plugin-agave-v6.1.0
 - richat-v6.1.0
+- richat-shared-v6.1.0
 
 ### Features
 
 - richat: add metric `channel_events_received` ([#153](https://github.com/lamports-dev/richat/pull/153))
+- shared: support size suffix ([#154](https://github.com/lamports-dev/richat/pull/154))
 
 ## 2025-10-24
 

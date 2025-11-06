@@ -24,7 +24,7 @@ use {
         richat::{GrpcSubscribeRequest, SubscribeAccountsRequest},
     },
     richat_shared::{
-        config::{deserialize_maybe_x_token, deserialize_num_str},
+        config::{deserialize_humansize_usize, deserialize_maybe_x_token},
         transports::grpc::{ConfigGrpcCompression, ConfigGrpcServer},
     },
     serde::Deserialize,
@@ -72,7 +72,7 @@ pub struct ConfigGrpcClient {
     pub tcp_nodelay: bool,
     #[serde(with = "humantime_serde")]
     pub timeout: Option<Duration>,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub max_decoding_message_size: usize,
     pub compression: ConfigGrpcCompression,
     #[serde(deserialize_with = "deserialize_maybe_x_token")]

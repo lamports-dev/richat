@@ -2,7 +2,10 @@ use {
     crate::config::ConfigAppsWorkers,
     richat_filter::config::ConfigLimits as ConfigFilterLimits,
     richat_shared::{
-        config::{deserialize_affinity, deserialize_num_str, deserialize_x_tokens_set},
+        config::{
+            deserialize_affinity, deserialize_humansize_usize, deserialize_num_str,
+            deserialize_x_tokens_set,
+        },
         transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
     serde::Deserialize,
@@ -42,11 +45,11 @@ impl Default for ConfigAppsGrpcWorkers {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigAppsGrpcStream {
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub messages_len_max: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub messages_max_per_tick: usize,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub messages_replay_len_max: usize,
     #[serde(with = "humantime_serde")]
     pub ping_interval: Duration,

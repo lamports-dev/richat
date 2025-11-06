@@ -1,6 +1,7 @@
 use {
     richat_shared::config::{
-        deserialize_affinity, deserialize_maybe_rustls_server_config, deserialize_num_str,
+        deserialize_affinity, deserialize_humansize_usize, deserialize_maybe_rustls_server_config,
+        deserialize_num_str,
     },
     serde::Deserialize,
     std::{
@@ -17,7 +18,7 @@ pub struct ConfigAppsPubsub {
     pub tcp_nodelay: Option<bool>,
     #[serde(deserialize_with = "deserialize_maybe_rustls_server_config")]
     pub tls_config: Option<rustls::ServerConfig>,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub recv_max_message_size: usize,
     pub enable_block_subscription: bool,
     pub enable_transaction_subscription: bool,
@@ -35,7 +36,7 @@ pub struct ConfigAppsPubsub {
     pub subscriptions_max_messages_per_commitment_per_tick: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub notifications_messages_max_count: usize,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub notifications_messages_max_bytes: usize,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub signatures_cache_max: usize,

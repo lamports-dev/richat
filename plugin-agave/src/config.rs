@@ -5,7 +5,7 @@ use {
     },
     richat_metrics::ConfigMetrics,
     richat_shared::{
-        config::{deserialize_num_str, ConfigTokio},
+        config::{deserialize_humansize_usize, deserialize_num_str, ConfigTokio},
         transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     },
     serde::{
@@ -62,7 +62,7 @@ pub struct ConfigChannel {
     pub encoder: ProtobufEncoder,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_messages: usize,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub max_bytes: usize,
 }
 

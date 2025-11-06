@@ -13,7 +13,7 @@
   "channel": {
     "encoder": "raw",
     "max_messages": "2_097_152",
-    "max_bytes": "16_106_127_360"
+    "max_bytes": "16GiB"
   },
   // by default gRPC is disabled
   // "grpc": {
@@ -26,7 +26,7 @@
   //     "accept": [], // valid: gzip, zstd
   //     "send": [] // valid: gzip, zstd
   //   },
-  //   "max_decoding_message_size": "4_194_304",
+  //   "max_decoding_message_size": "4MiB",
   //   "server_tcp_keepalive": "15s",
   //   "server_tcp_nodelay": true,
   //   "server_http2_adaptive_window": null,

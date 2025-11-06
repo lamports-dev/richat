@@ -1,6 +1,7 @@
 use {
     crate::five8::{pubkey_decode, signature_decode},
     base64::{engine::general_purpose::STANDARD as base64_engine, Engine},
+    human_size::Size,
     regex::Regex,
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
@@ -62,19 +63,31 @@ enum ValueNumStr<'a, T> {
     Str(&'a str),
 }
 
+impl<T> ValueNumStr<'_, T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Display,
+{
+    fn parse(self) -> Result<T, String> {
+        match self {
+            Self::Num(value) => Ok(value),
+            Self::Str(value) => value
+                .replace('_', "")
+                .parse::<T>()
+                .map_err(|x| x.to_string()),
+        }
+    }
+}
+
 pub fn deserialize_num_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de> + FromStr,
     <T as FromStr>::Err: Display,
 {
-    match ValueNumStr::deserialize(deserializer)? {
-        ValueNumStr::Num(value) => Ok(value),
-        ValueNumStr::Str(value) => value
-            .replace('_', "")
-            .parse::<T>()
-            .map_err(de::Error::custom),
-    }
+    ValueNumStr::deserialize(deserializer)?
+        .parse()
+        .map_err(de::Error::custom)
 }
 
 pub fn deserialize_maybe_num_str<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -84,14 +97,29 @@ where
     <T as FromStr>::Err: Display,
 {
     match Option::<ValueNumStr<T>>::deserialize(deserializer)? {
-        Some(ValueNumStr::Num(value)) => Ok(Some(value)),
-        Some(ValueNumStr::Str(value)) => value
-            .replace('_', "")
-            .parse::<T>()
-            .map_err(de::Error::custom)
-            .map(Some),
+        Some(value) => Ok(Some(value.parse().map_err(de::Error::custom)?)),
         None => Ok(None),
     }
+}
+
+pub fn deserialize_humansize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let size: &str = Deserialize::deserialize(deserializer)?;
+
+    Size::from_str(size)
+        .map(|size| size.to_bytes())
+        .map_err(|error| de::Error::custom(format!("failed to parse size {size:?}: {error}")))
+}
+
+pub fn deserialize_humansize_usize<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_humansize(deserializer)?
+        .try_into()
+        .map_err(|_| de::Error::custom("size value exceeds usize maximum"))
 }
 
 #[derive(Debug, Error)]

@@ -27,7 +27,7 @@ channel:
       tcp_keepalive: 15s
       tcp_nodelay: true
       timeout: null
-      max_decoding_message_size: 4_194_304 # 4MiB, better set to 16MiB (because account messages can be more than 10MiB)
+      max_decoding_message_size: 4MiB # better set to 16MiB (because account messages can be more than 10MiB)
       compression:
         accept: [] # valid: gzip, zstd
         send: [] # valid: gzip, zstd
@@ -54,7 +54,7 @@ channel:
     #   x_token: null
   config:
     max_messages: 2_097_152
-    max_bytes: 16_106_127_360
+    max_bytes: 16GiB
     # storage:
     #   path: ./db
     #   max_slots: 1024
@@ -83,7 +83,7 @@ apps:
   #       send:
   #         # - gzip
   #         # - zstd
-  #     max_decoding_message_size: 4_194_304
+  #     max_decoding_message_size: 4MiB
   #     server_tcp_keepalive: 15s
   #     server_tcp_nodelay: true
   #     server_http2_adaptive_window: null
@@ -118,7 +118,7 @@ apps:
   #       send:
   #       # - gzip
   #       # - zstd
-  #     max_decoding_message_size: 4_194_304 # 4MiB
+  #     max_decoding_message_size: 4MiB
   #     server_tcp_keepalive: 20s
   #     server_tcp_nodelay: true
   #     server_http2_adaptive_window:
@@ -131,9 +131,9 @@ apps:
   #     affinity: null # by default no affinity (taskset syntax)
   #     messages_cached_max: 1_024
   #   stream:
-  #     messages_len_max: 16_777_216
+  #     messages_len_max: 16MiB
   #     messages_max_per_tick: 100
-  #     messages_replay_len_max: 268_435_456
+  #     messages_replay_len_max: 256MiB
   #     ping_interval: 15s
   #   unary:
   #     enabled: true
@@ -190,7 +190,7 @@ apps:
   #   # tls_config:
   #   #   # cert: /path/to/cert.cert
   #   #   # key: /path/to/key.key
-  #   recv_max_message_size: 4_096
+  #   recv_max_message_size: 4KiB
   #   enable_block_subscription: false
   #   enable_transaction_subscription: false
   #   clients_requests_channel_size: 8_192
@@ -200,6 +200,6 @@ apps:
   #   subscriptions_max_clients_request_per_tick: 32
   #   subscriptions_max_messages_per_commitment_per_tick: 256
   #   notifications_messages_max_count: 16_777_216
-  #   notifications_messages_max_bytes: 34_359_738_368
+  #   notifications_messages_max_bytes: 32GiB
   #   signatures_cache_max: 1_228_800
   #   signatures_cache_slots_max: 150
