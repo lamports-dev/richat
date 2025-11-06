@@ -9,7 +9,10 @@ use {
     richat_metrics::ConfigMetrics,
     richat_shared::config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
     rocksdb::DBCompressionType,
-    serde::Deserialize,
+    serde::{
+        de::{self, Deserializer},
+        Deserialize,
+    },
     std::{
         collections::HashSet,
         fs,
@@ -58,25 +61,60 @@ pub struct ConfigChannel {
     /// Runtime for receiving plugin messages
     #[serde(default)]
     pub tokio: ConfigTokio,
+    #[serde(deserialize_with = "ConfigChannel::deserialize_sources")]
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
     pub config: ConfigChannelInner,
 }
 
 impl ConfigChannel {
-    pub fn get_messages_parser(&self) -> anyhow::Result<MessageParserEncoding> {
-        let mut set = HashSet::new();
-        for source in self.sources.iter() {
-            set.insert(match source {
+    pub fn get_messages_parser(&self) -> MessageParserEncoding {
+        if let Some(source) = self.sources.first() {
+            return match source {
                 ConfigChannelSource::Quic { general, .. } => general.parser,
                 ConfigChannelSource::Grpc { general, .. } => general.parser,
-            });
+            };
         }
-        anyhow::ensure!(
-            set.len() == 1,
-            "multiple messages parsers: {set:?} (only same parser can be used)"
-        );
-        Ok(set.into_iter().next().unwrap())
+        unreachable!("deserialize should check sources")
+    }
+
+    fn deserialize_sources<'de, D>(deserializer: D) -> Result<Vec<ConfigChannelSource>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let sources = Vec::<ConfigChannelSource>::deserialize(deserializer)?;
+        if sources.is_empty() {
+            return Err(de::Error::custom("at least one source should be used"));
+        }
+
+        let mut names = HashSet::new();
+        let mut parsers = HashSet::new();
+        for source in sources.iter() {
+            match source {
+                ConfigChannelSource::Quic { general, .. } => {
+                    names.insert(&general.name);
+                    parsers.insert(general.parser);
+                }
+                ConfigChannelSource::Grpc { general, .. } => {
+                    names.insert(&general.name);
+                    parsers.insert(general.parser);
+                }
+            }
+        }
+
+        if names.len() != sources.len() {
+            return Err(de::Error::custom(
+                "only unique name for sources can be used",
+            ));
+        }
+
+        if parsers.len() != 1 {
+            return Err(de::Error::custom(format!(
+                "multiple messages parsers: {parsers:?} (only same parser can be used)"
+            )));
+        }
+
+        Ok(sources)
     }
 }
 
