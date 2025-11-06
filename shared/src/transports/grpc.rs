@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::{deserialize_num_str, deserialize_x_tokens_set},
+        config::{deserialize_humansize_usize, deserialize_x_tokens_set},
         transports::{RecvError, RecvStream, Subscribe, SubscribeError},
         version::Version,
     },
@@ -88,7 +88,7 @@ pub struct ConfigGrpcServer {
     pub tls_config: Option<ServerTlsConfig>,
     pub compression: ConfigGrpcCompression,
     /// Limits the maximum size of a decoded message, default is 4MiB
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub max_decoding_message_size: usize,
     #[serde(with = "humantime_serde")]
     pub server_tcp_keepalive: Option<Duration>,

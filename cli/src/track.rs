@@ -20,7 +20,7 @@ use {
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },
-    richat_shared::config::deserialize_num_str,
+    richat_shared::config::deserialize_humansize_usize,
     serde::Deserialize,
     solana_sdk::clock::Slot,
     std::{
@@ -196,7 +196,7 @@ impl ConfigSourceRichatPluginAgave {
 #[serde(deny_unknown_fields)]
 struct ConfigYellowstoneGrpc {
     endpoint: String,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     max_decoding_message_size: usize,
 }
 

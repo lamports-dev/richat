@@ -23,6 +23,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - richat: add metric `channel_events_received` ([#153](https://github.com/lamports-dev/richat/pull/153))
+- shared: support size suffix ([#154](https://github.com/lamports-dev/richat/pull/154))
 
 ## 2025-10-24
 

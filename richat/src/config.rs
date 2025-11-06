@@ -7,7 +7,9 @@ use {
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
     richat_metrics::ConfigMetrics,
-    richat_shared::config::{deserialize_affinity, deserialize_num_str, ConfigTokio},
+    richat_shared::config::{
+        deserialize_affinity, deserialize_humansize_usize, deserialize_num_str, ConfigTokio,
+    },
     rocksdb::DBCompressionType,
     serde::{
         de::{self, Deserializer},
@@ -192,7 +194,7 @@ pub enum ConfigGrpcClientSource {
 pub struct ConfigChannelInner {
     #[serde(deserialize_with = "deserialize_num_str")]
     pub max_messages: usize,
-    #[serde(deserialize_with = "deserialize_num_str")]
+    #[serde(deserialize_with = "deserialize_humansize_usize")]
     pub max_bytes: usize,
     pub storage: Option<ConfigStorage>,
 }

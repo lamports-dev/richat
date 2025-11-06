@@ -43,6 +43,7 @@ git-version = "0.3.9"
 hostname = "0.4.0"
 http = "1.1.0"
 http-body-util = "0.1.2"
+human-size = "0.4.3"
 humantime-serde = "1.1.1"
 hyper = "1.4.1"
 hyper-util = "0.1.7"
@@ -65,12 +66,12 @@ quinn = "0.11.6"
 rayon = "1.10.0"
 rcgen = "0.14.0"
 regex = "1.11.1"
-richat-client = { path = "client", version = "6.0.0" }
-richat-filter = { path = "filter", version = "6.0.0" }
+richat-client = { path = "client", version = "6.1.0" }
+richat-filter = { path = "filter", version = "6.1.0" }
 richat-metrics = { path = "metrics", version = "1.0.1" }
-richat-plugin-agave = { path = "plugin-agave", version = "6.0.0" }
+richat-plugin-agave = { path = "plugin-agave", version = "6.1.0" }
 richat-proto = { path = "proto", version = "6.0.0" }
-richat-shared = { path = "shared", version = "6.0.0", default-features = false }
+richat-shared = { path = "shared", version = "6.1.0", default-features = false }
 rocksdb = "0.24.0"
 rustls = { version = "0.23.20", default-features = false }
 rustls-native-certs = "0.8.1"
@@ -108,7 +109,7 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 vergen = "9.0.2"
 webpki-roots = "1.0.1"
-yellowstone-grpc-proto = "10.0.1"
+yellowstone-grpc-proto = "10.1.1"
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"
