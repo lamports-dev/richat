@@ -117,7 +117,9 @@ pub fn deserialize_humansize_usize<'de, D>(deserializer: D) -> Result<usize, D::
 where
     D: Deserializer<'de>,
 {
-    deserialize_humansize(deserializer).map(|value| value as usize)
+    deserialize_humansize(deserializer)?
+        .try_into()
+        .map_err(|_| de::Error::custom("size value exceeds usize maximum"))
 }
 
 #[derive(Debug, Error)]
