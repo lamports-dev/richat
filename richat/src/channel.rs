@@ -462,9 +462,9 @@ pub struct Sender {
 impl Sender {
     pub fn push(
         &mut self,
+        index_info: Option<(usize, usize)>,
         source_name: &'static str,
         message: Message,
-        index_info: Option<(usize, usize)>,
     ) {
         let slot = message.slot();
 

@@ -105,7 +105,7 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             Some((index, streams_total))
                         };
-                        messages.push(source_name, message, index_info);
+                        messages.push(index_info, source_name, message);
                     }
                 })
             }
