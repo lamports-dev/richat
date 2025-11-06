@@ -3,7 +3,7 @@ use {
         config::ConfigChannelInner, grpc::server::SubscribeClient, metrics, storage::Storage,
         util::SpawnedThreads,
     },
-    ::metrics::{gauge, Gauge},
+    ::metrics::{counter, gauge, Gauge},
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
     prost::{
@@ -82,6 +82,17 @@ impl<'a> From<&'a ParsedMessage> for MessageRef<'a> {
 }
 
 impl ParsedMessage {
+    pub const fn as_str_type(&self) -> &'static str {
+        match self {
+            Self::Slot(_msg) => "slot",
+            Self::Account(_msg) => "account",
+            Self::Transaction(_msg) => "transaction",
+            Self::Entry(_msg) => "entry",
+            Self::BlockMeta(_msg) => "blockmeta",
+            Self::Block(_msg) => "block",
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         match self {
             Self::Slot(msg) => msg.slot(),
@@ -449,7 +460,12 @@ pub struct Sender {
 }
 
 impl Sender {
-    pub fn push(&mut self, message: Message, index_info: Option<(usize, usize)>) {
+    pub fn push(
+        &mut self,
+        source_name: &'static str,
+        message: Message,
+        index_info: Option<(usize, usize)>,
+    ) {
         let slot = message.slot();
 
         // early return, probably nothing can be received after finalized slot status?
@@ -558,6 +574,13 @@ impl Sender {
         };
         let mut clean_after_finalized = false;
         for message in messages {
+            counter!(
+                metrics::CHANNEL_EVENTS_RECEIVED,
+                "source" => source_name,
+                "type" => message.as_str_type()
+            )
+            .increment(1);
+
             let mut slot_init = false;
             let slot_info = self.slots.entry(slot).or_insert_with(|| {
                 slot_init = true;

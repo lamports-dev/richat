@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 
     // Create channel runtime (receive messages from solana node / richat)
     let (mut messages, mut threads) = Messages::new(
-        config.channel.get_messages_parser()?,
+        config.channel.get_messages_parser(),
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
-                        let (index, message) = tokio::select! {
+                        let (index, source_name, message) = tokio::select! {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
@@ -105,7 +105,7 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             Some((index, streams_total))
                         };
-                        messages.push(message, index_info);
+                        messages.push(source_name, message, index_info);
                     }
                 })
             }

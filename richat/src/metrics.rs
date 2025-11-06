@@ -14,6 +14,7 @@ use {
 };
 
 pub const BLOCK_MESSAGE_FAILED: &str = "block_message_failed"; // reason
+pub const CHANNEL_EVENTS_RECEIVED: &str = "channel_events_received"; // source, type
 pub const CHANNEL_SLOT: &str = "channel_slot"; // commitment
 pub const CHANNEL_MESSAGES_TOTAL: &str = "channel_messages_total";
 pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
@@ -58,6 +59,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     .absolute(1);
 
     describe_counter!(BLOCK_MESSAGE_FAILED, "Block message reconstruction errors");
+    describe_counter!(CHANNEL_EVENTS_RECEIVED, "Total number of received messages by source");
     describe_gauge!(CHANNEL_SLOT, "Latest slot in channel by commitment");
     describe_gauge!(CHANNEL_MESSAGES_TOTAL, "Total number of messages in channel");
     describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");

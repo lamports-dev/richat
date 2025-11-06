@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-06
+
+- richat-v6.1.0
+
+### Features
+
+- richat: add metric `channel_events_received` ([#153](https://github.com/lamports-dev/richat/pull/153))
+
 ## 2025-10-24
 
 - richat-cli-v7.0.0
