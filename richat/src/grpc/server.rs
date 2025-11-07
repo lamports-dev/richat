@@ -7,6 +7,7 @@ use {
         version::VERSION,
     },
     ::metrics::{counter, gauge, Gauge},
+    crossbeam_queue::SegQueue,
     futures::{
         future::{ready, try_join_all, FutureExt, TryFutureExt},
         stream::Stream,
@@ -42,7 +43,7 @@ use {
     },
     std::{
         borrow::Cow,
-        collections::{HashSet, LinkedList, VecDeque},
+        collections::{HashSet, LinkedList},
         fmt,
         future::Future,
         pin::Pin,
@@ -77,7 +78,7 @@ pub struct GrpcServer {
     filter_limits: Arc<ConfigFilterLimits>,
     ping_interval: Duration,
     subscribe_id: Arc<AtomicU64>,
-    subscribe_clients: Arc<Mutex<VecDeque<SubscribeClient>>>,
+    subscribe_clients: Arc<SegQueue<SubscribeClient>>,
     subscribe_messages_len_max: usize,
     subscribe_messages_replay_len_max: usize,
 }
@@ -122,7 +123,7 @@ impl GrpcServer {
             filter_limits: Arc::new(config.filter_limits),
             ping_interval: config.stream.ping_interval,
             subscribe_id: Arc::new(AtomicU64::new(0)),
-            subscribe_clients: Arc::new(Mutex::new(VecDeque::new())),
+            subscribe_clients: Arc::new(SegQueue::new()),
             subscribe_messages_len_max: config.stream.messages_len_max,
             subscribe_messages_replay_len_max: config.stream.messages_replay_len_max,
         };
@@ -234,22 +235,16 @@ impl GrpcServer {
     }
 
     #[inline]
-    fn subscribe_clients_lock(&self) -> MutexGuard<'_, VecDeque<SubscribeClient>> {
-        mutex_lock(&self.subscribe_clients)
-    }
-
-    #[inline]
     fn push_client(&self, client: SubscribeClient) {
-        self.subscribe_clients_lock().push_back(client);
+        self.subscribe_clients.push(client);
     }
 
     #[inline]
     fn pop_client(&self, prev_client: Option<SubscribeClient>) -> Option<SubscribeClient> {
-        let mut state = self.subscribe_clients_lock();
         if let Some(client) = prev_client {
-            state.push_back(client);
+            self.subscribe_clients.push(client);
         }
-        state.pop_front()
+        self.subscribe_clients.pop()
     }
 
     fn worker_block_meta(
