@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-08
+
+- richat-v6.2.0
+
+### Features
+
+- richat: use lock-free for clients queue ([#155](https://github.com/lamports-dev/richat/pull/155))
+
 ## 2025-11-06
 
 - richat-cli-v7.1.0
