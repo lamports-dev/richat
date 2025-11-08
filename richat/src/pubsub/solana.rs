@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::ParsedMessage,
-        pubsub::{filter::TransactionFilter, SubscriptionId},
+        pubsub::{filter::TransactionFilter, tracker::TokenInitParsedTransactions, SubscriptionId},
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
@@ -50,6 +50,7 @@ impl SubscribeMessage {
         message: &[u8],
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
+        enable_token_init_subscription: bool,
     ) -> Result<Option<Self>, Response<'static, ()>> {
         let call: Request = serde_json::from_slice(message).map_err(|_error| Response {
             jsonrpc: Some(TwoPointZero),
@@ -63,6 +64,7 @@ impl SubscribeMessage {
             call.params,
             enable_block_subscription,
             enable_transaction_subscription,
+            enable_token_init_subscription,
         )
         .map_err(|error| Response {
             jsonrpc: Some(TwoPointZero),
@@ -89,6 +91,7 @@ pub enum SubscribeMethod {
     Block,
     Root,
     Transaction,
+    TokenInit,
 }
 
 impl SubscribeMethod {
@@ -96,7 +99,12 @@ impl SubscribeMethod {
         match message {
             ParsedMessage::Slot(_) => &[Self::Slot, Self::SlotsUpdates, Self::Root],
             ParsedMessage::Account(_) => &[Self::Account, Self::Program],
-            ParsedMessage::Transaction(_) => &[Self::Logs, Self::Signature, Self::Transaction],
+            ParsedMessage::Transaction(_) => &[
+                Self::Logs,
+                Self::Signature,
+                Self::Transaction,
+                Self::TokenInit,
+            ],
             ParsedMessage::Entry(_) => &[],
             ParsedMessage::BlockMeta(_) => &[],
             ParsedMessage::Block(_) => &[Self::Block],
@@ -114,6 +122,7 @@ impl SubscribeMethod {
             Self::Block => "block",
             Self::Root => "root",
             Self::Transaction => "transaction",
+            Self::TokenInit => "tokeninit",
         }
     }
 }
@@ -175,6 +184,10 @@ pub enum SubscribeConfig {
         max_supported_transaction_version: Option<u8>,
         commitment: CommitmentConfig,
     },
+    TokenInit {
+        pubkey: Pubkey,
+        commitment: CommitmentConfig,
+    },
     Unsubscribe {
         id: SubscriptionId,
     },
@@ -188,6 +201,7 @@ impl SubscribeConfig {
         params: Option<Cow<'_, RawValue>>,
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
+        enable_token_init_subscription: bool,
     ) -> Result<Self, ErrorObjectOwned> {
         match method {
             "accountSubscribe" => {
@@ -354,11 +368,11 @@ impl SubscribeConfig {
                 #[serde(rename_all = "camelCase")]
                 struct ReqTransactionSubscribeConfig {
                     #[serde(flatten)]
-                    pub commitment: Option<CommitmentConfig>,
-                    pub encoding: Option<UiTransactionEncoding>,
-                    pub transaction_details: Option<TransactionDetails>,
-                    pub show_rewards: Option<bool>,
-                    pub max_supported_transaction_version: Option<u8>,
+                    commitment: Option<CommitmentConfig>,
+                    encoding: Option<UiTransactionEncoding>,
+                    transaction_details: Option<TransactionDetails>,
+                    show_rewards: Option<bool>,
+                    max_supported_transaction_version: Option<u8>,
                 }
 
                 #[derive(Debug, Deserialize)]
@@ -389,6 +403,33 @@ impl SubscribeConfig {
                     commitment: config.commitment.unwrap_or_default(),
                 })
             }
+            "tokenInitSubscribe" => {
+                if !enable_token_init_subscription {
+                    return Err(ErrorCode::MethodNotFound.into());
+                }
+
+                #[derive(Debug, Default, Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                pub struct ReqTokenInitSubscribeConfig {
+                    #[serde(flatten)]
+                    pub commitment: Option<CommitmentConfig>,
+                }
+
+                #[derive(Debug, Deserialize)]
+                struct ReqParams {
+                    pubkey: String,
+                    #[serde(default)]
+                    config: Option<ReqTokenInitSubscribeConfig>,
+                }
+
+                let ReqParams { pubkey, config } = parse_params(params)?;
+                let config = config.unwrap_or_default();
+
+                Ok(Self::TokenInit {
+                    pubkey: param::<Pubkey>(&pubkey, "pubkey")?,
+                    commitment: config.commitment.unwrap_or_default(),
+                })
+            }
             "accountUnsubscribe"
             | "programUnsubscribe"
             | "logsUnsubscribe"
@@ -398,9 +439,11 @@ impl SubscribeConfig {
             | "blockUnsubscribe"
             | "voteUnsubscribe"
             | "rootUnsubscribe"
-            | "transactionUnsubscribe" => {
+            | "transactionUnsubscribe"
+            | "tokenInitUnsubscribe" => {
                 if (method == "blockUnsubscribe" && !enable_block_subscription)
                     || (method == "transactionUnsubscribe" && !enable_transaction_subscription)
+                    || (method == "tokenInitUnsubscribe" && !enable_token_init_subscription)
                 {
                     return Err(ErrorCode::MethodNotFound.into());
                 }
@@ -436,6 +479,7 @@ impl SubscribeConfig {
             Self::Block { commitment, .. } => commitment.commitment,
             Self::Root => CommitmentLevel::Processed,
             Self::Transaction { commitment, .. } => commitment.commitment,
+            Self::TokenInit { commitment, .. } => commitment.commitment,
             Self::Unsubscribe { .. } => unreachable!(),
             Self::GetVersion => unreachable!(),
             Self::GetVersionRichat => unreachable!(),
@@ -453,6 +497,7 @@ impl SubscribeConfig {
             Self::Block { .. } => SubscribeMethod::Block,
             Self::Root => SubscribeMethod::Root,
             Self::Transaction { .. } => SubscribeMethod::Transaction,
+            Self::TokenInit { .. } => SubscribeMethod::TokenInit,
             Self::Unsubscribe { .. } => unreachable!(),
             Self::GetVersion => unreachable!(),
             Self::GetVersionRichat => unreachable!(),
@@ -588,6 +633,20 @@ impl SubscribeConfig {
                 *show_rewards,
                 *max_supported_transaction_version,
             )),
+            _ => None,
+        }
+    }
+
+    pub fn filter_transaction_token_init(
+        &self,
+        message: &MessageTransaction,
+        token_init: &TokenInitParsedTransactions,
+    ) -> Option<Vec<Pubkey>> {
+        match self {
+            Self::TokenInit { pubkey, .. } => {
+                let accounts = token_init.get_token_init(message, pubkey);
+                (!accounts.is_empty()).then_some(accounts)
+            }
             _ => None,
         }
     }

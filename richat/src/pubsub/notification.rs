@@ -363,3 +363,10 @@ pub enum RpcBlockUpdateError {
     #[error("failed to parse proto: {0}")]
     Parse(&'static str),
 }
+
+#[derive(Debug, Serialize)]
+pub struct RpcTokenInitUpdate {
+    pub accounts: Vec<String>,
+    pub signature: String,
+    pub failed: bool,
+}

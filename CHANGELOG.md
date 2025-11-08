@@ -14,6 +14,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: support tokenInitSubscribe in pubsub ([#143](https://github.com/lamports-dev/richat/pull/143))
+
 ### Breaking
 
 ## 2025-11-08
