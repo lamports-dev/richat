@@ -149,6 +149,10 @@ impl GrpcServer {
                         grpc_server.worker_messages(
                             index,
                             config.workers.messages_cached_max,
+                            config
+                                .workers
+                                .ticks_without_messages_max
+                                .unwrap_or(usize::MAX),
                             config.stream.messages_max_per_tick,
                             shutdown,
                         )
@@ -287,6 +291,7 @@ impl GrpcServer {
         &self,
         index: usize,
         messages_cached_max: usize,
+        ticks_without_messages_max: usize,
         messages_max_per_tick: usize,
         shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -296,6 +301,7 @@ impl GrpcServer {
         let mut messages_cache_finalized = MessagesCache::new(messages_cached_max);
 
         let receiver = self.messages.to_receiver();
+        let mut ticks_without_messages = 0;
         const SHUTDOWN_COUNTER_LIMIT: i32 = 50_000;
         let mut shutdown_counter = 0;
         let mut prev_client = None;
@@ -373,14 +379,26 @@ impl GrpcServer {
                     }
                 }
             }
-            if messages_counter > 0 {
+            if messages_counter == 0 {
+                ticks_without_messages += 1;
+            } else {
                 state
                     .metric_cpu_usage
                     .increment(duration_to_seconds(ts.elapsed()));
+                ticks_without_messages = 0;
             }
             drop(state);
             if !errored {
                 prev_client = Some(client);
+            }
+
+            // sleep a little if no new messages during some ticks
+            if ticks_without_messages >= ticks_without_messages_max {
+                ticks_without_messages = 0;
+                if let Some(client) = prev_client.take() {
+                    self.push_client(client);
+                }
+                sleep(Duration::from_micros(1));
             }
         }
     }
