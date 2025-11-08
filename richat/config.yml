@@ -130,6 +130,7 @@ apps:
   #     threads: 2
   #     affinity: null # by default no affinity (taskset syntax)
   #     messages_cached_max: 1_024
+  #     ticks_without_messages_max: None
   #   stream:
   #     messages_len_max: 16MiB
   #     messages_max_per_tick: 100

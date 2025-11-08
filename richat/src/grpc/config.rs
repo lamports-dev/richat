@@ -3,8 +3,8 @@ use {
     richat_filter::config::ConfigLimits as ConfigFilterLimits,
     richat_shared::{
         config::{
-            deserialize_affinity, deserialize_humansize_usize, deserialize_num_str,
-            deserialize_x_tokens_set,
+            deserialize_affinity, deserialize_humansize_usize, deserialize_maybe_num_str,
+            deserialize_num_str, deserialize_x_tokens_set,
         },
         transports::grpc::ConfigGrpcServer as ConfigAppGrpcServer,
     },
@@ -31,6 +31,8 @@ pub struct ConfigAppsGrpcWorkers {
     pub threads: ConfigAppsWorkers,
     #[serde(deserialize_with = "deserialize_num_str")]
     pub messages_cached_max: usize,
+    #[serde(default, deserialize_with = "deserialize_maybe_num_str")]
+    pub ticks_without_messages_max: Option<usize>,
 }
 
 impl Default for ConfigAppsGrpcWorkers {
@@ -38,6 +40,7 @@ impl Default for ConfigAppsGrpcWorkers {
         Self {
             threads: ConfigAppsWorkers::default(),
             messages_cached_max: 1_024,
+            ticks_without_messages_max: None,
         }
     }
 }

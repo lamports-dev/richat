@@ -23,6 +23,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Features
 
 - richat: use lock-free for clients queue ([#155](https://github.com/lamports-dev/richat/pull/155))
+- richat: small sleep in worker if no work with subscriptions ([#156](https://github.com/lamports-dev/richat/pull/156))
 
 ## 2025-11-06
 
