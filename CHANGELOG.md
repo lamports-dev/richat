@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-11
+
+- richat-cli-v7.2.0
+
+### Features
+
+- cli: improve logs ([#157](https://github.com/lamports-dev/richat/pull/157))
+
 ## 2025-11-08
 
 - richat-v6.2.0

@@ -3803,13 +3803,12 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "7.1.0"
+version = "7.2.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
  "clap",
  "const-hex",
- "env_logger",
  "futures",
  "indicatif",
  "jsonrpsee-types",
@@ -3834,6 +3833,7 @@ dependencies = [
  "tokio-tungstenite 0.28.0",
  "tonic",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
