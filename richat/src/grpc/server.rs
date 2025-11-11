@@ -608,6 +608,7 @@ impl gen::geyser_server::Geyser for GrpcServer {
                             )]
                             .into_iter()
                             .collect(),
+                            blocks_meta: ["".to_owned()].into_iter().collect(),
                             ..Default::default()
                         };
                         limits
