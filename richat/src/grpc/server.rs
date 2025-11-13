@@ -63,7 +63,7 @@ use {
     tracing::{error, info, warn},
 };
 
-pub mod r#gen {
+pub mod geyser_gen {
     #![allow(clippy::clone_on_ref_ptr)]
     #![allow(clippy::missing_const_for_fn)]
 
@@ -128,7 +128,7 @@ impl GrpcServer {
             subscribe_messages_replay_len_max: config.stream.messages_replay_len_max,
         };
 
-        let mut service = r#gen::geyser_server::GeyserServer::new(grpc_server.clone())
+        let mut service = geyser_gen::geyser_server::GeyserServer::new(grpc_server.clone())
             .max_decoding_message_size(config.server.max_decoding_message_size);
         for encoding in config.server.compression.accept {
             service = service.accept_compressed(encoding);
@@ -538,7 +538,7 @@ impl GrpcServer {
 }
 
 #[tonic::async_trait]
-impl r#gen::geyser_server::Geyser for GrpcServer {
+impl geyser_gen::geyser_server::Geyser for GrpcServer {
     type SubscribeStream = ReceiverStream;
     type SubscribeAccountsStream = ReceiverStream;
 

@@ -44,7 +44,7 @@ use {
     tracing::{error, info},
 };
 
-pub mod r#gen {
+pub mod geyser_gen {
     #![allow(clippy::clone_on_ref_ptr)]
     #![allow(clippy::missing_const_for_fn)]
 
@@ -232,7 +232,7 @@ where
         let (incoming, server_builder) = config.create_server_builder()?;
         info!("start server at {}", config.endpoint);
 
-        let mut service = r#gen::geyser_server::GeyserServer::new(Self {
+        let mut service = geyser_gen::geyser_server::GeyserServer::new(Self {
             messages,
             subscribe_id: AtomicU64::new(0),
             on_conn_new_cb,
@@ -275,7 +275,7 @@ where
 }
 
 #[tonic::async_trait]
-impl<S, F1, F2> r#gen::geyser_server::Geyser for GrpcServer<S, F1, F2>
+impl<S, F1, F2> geyser_gen::geyser_server::Geyser for GrpcServer<S, F1, F2>
 where
     S: Subscribe + Send + Sync + 'static,
     F2: Fn() + Clone + Unpin + Send + Sync + 'static,

@@ -1,4 +1,4 @@
-pub mod r#gen {
+pub mod geyser_gen {
     include!(concat!(env!("OUT_DIR"), "/geyser.Geyser.rs"));
 }
 
@@ -10,7 +10,7 @@ use {
         sink::{Sink, SinkExt},
         stream::{Stream, StreamExt},
     },
-    r#gen::geyser_client::GeyserClient,
+    geyser_gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
     prost::Message,
     richat_proto::{

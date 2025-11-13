@@ -28,7 +28,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-- richat: upgrade edition to 2024 ([#158](https://github.com/lamports-dev/richat/pull/158))
+- richat: upgrade edition to 2024 ([#159](https://github.com/lamports-dev/richat/pull/159))
 
 ## 2025-11-11
 
