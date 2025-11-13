@@ -2,7 +2,7 @@ use {
     criterion::{BatchSize, Criterion},
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin_agave::protobuf::{fixtures::generate_entries, ProtobufEncoder, ProtobufMessage},
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage, fixtures::generate_entries},
     richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageEntry,

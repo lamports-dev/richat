@@ -1,6 +1,6 @@
 use {
-    http_body_util::{combinators::BoxBody, BodyExt, Full as BodyFull},
-    hyper::{body::Bytes, header::CONTENT_TYPE, http::Result as HttpResult, HeaderMap, StatusCode},
+    http_body_util::{BodyExt, Full as BodyFull, combinators::BoxBody},
+    hyper::{HeaderMap, StatusCode, body::Bytes, header::CONTENT_TYPE, http::Result as HttpResult},
     jsonrpsee_types::{
         ErrorCode, ErrorObject, ErrorObjectOwned, Extensions, Id, Response, ResponsePayload,
         TwoPointZero,

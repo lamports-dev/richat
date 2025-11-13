@@ -4,7 +4,7 @@ use {
     foldhash::quality::RandomState,
     futures::future::TryFutureExt,
     richat_proto::geyser::{CommitmentLevel as CommitmentLevelProto, SlotStatus},
-    solana_sdk::clock::{Slot, MAX_PROCESSING_AGE},
+    solana_sdk::clock::{MAX_PROCESSING_AGE, Slot},
     std::{collections::HashMap, future::Future, sync::Arc},
     tokio::sync::{mpsc, oneshot},
     tonic::Status,

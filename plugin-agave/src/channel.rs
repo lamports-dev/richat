@@ -10,7 +10,7 @@ use {
     futures::stream::{Stream, StreamExt},
     log::{debug, error},
     metrics_exporter_prometheus::PrometheusRecorder,
-    richat_metrics::{counter, gauge, MaybeRecorder},
+    richat_metrics::{MaybeRecorder, counter, gauge},
     richat_proto::richat::RichatFilter,
     richat_shared::{
         mutex_lock,
@@ -315,7 +315,7 @@ impl Receiver {
             match plugin_notification {
                 PluginNotification::Account if !self.enable_notifications_accounts => continue,
                 PluginNotification::Transaction if !self.enable_notifications_transactions => {
-                    continue
+                    continue;
                 }
                 PluginNotification::Entry if !self.enable_notifications_entries => continue,
                 _ => {}

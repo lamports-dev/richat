@@ -4,11 +4,11 @@ use {
         config::ConfigStorage,
         grpc::server::SubscribeClient,
         metrics::{
-            GrpcSubscribeMessage, CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
+            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX, GrpcSubscribeMessage,
         },
         util::SpawnedThreads,
     },
-    ::metrics::{counter, Gauge},
+    ::metrics::{Gauge, counter},
     anyhow::Context,
     hyper::body::Buf,
     prost::{
@@ -24,8 +24,8 @@ use {
     richat_proto::geyser::SlotStatus,
     richat_shared::mutex_lock,
     rocksdb::{
-        ColumnFamily, ColumnFamilyDescriptor, DBCompressionType, Direction, IteratorMode, Options,
-        WriteBatch, DB,
+        ColumnFamily, ColumnFamilyDescriptor, DB, DBCompressionType, Direction, IteratorMode,
+        Options, WriteBatch,
     },
     smallvec::SmallVec,
     solana_commitment_config::CommitmentLevel,
@@ -33,7 +33,7 @@ use {
     std::{
         borrow::Cow,
         collections::{BTreeMap, VecDeque},
-        sync::{mpsc, Arc, Mutex},
+        sync::{Arc, Mutex, mpsc},
         thread,
         time::Duration,
     },

@@ -10,7 +10,7 @@ use {
         io::{self, IoSlice},
         pin::Pin,
         sync::Arc,
-        task::{ready, Context, Poll},
+        task::{Context, Poll, ready},
     },
     thiserror::Error,
     tokio::io::AsyncWrite,

@@ -6,10 +6,10 @@ use {
         metrics::{self, GrpcSubscribeMessage},
         version::VERSION,
     },
-    ::metrics::{counter, gauge, Gauge},
+    ::metrics::{Gauge, counter, gauge},
     crossbeam_queue::SegQueue,
     futures::{
-        future::{ready, try_join_all, FutureExt, TryFutureExt},
+        future::{FutureExt, TryFutureExt, ready, try_join_all},
         stream::Stream,
     },
     prost::Message,
@@ -25,12 +25,12 @@ use {
     richat_metrics::duration_to_seconds,
     richat_proto::{
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel as CommitmentLevelProto,
-            GetBlockHeightRequest, GetBlockHeightResponse, GetLatestBlockhashRequest,
-            GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse, GetVersionRequest,
-            GetVersionResponse, IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest,
-            PongResponse, SubscribeReplayInfoRequest, SubscribeReplayInfoResponse,
-            SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing, SubscribeUpdatePong,
+            CommitmentLevel as CommitmentLevelProto, GetBlockHeightRequest, GetBlockHeightResponse,
+            GetLatestBlockhashRequest, GetLatestBlockhashResponse, GetSlotRequest, GetSlotResponse,
+            GetVersionRequest, GetVersionResponse, IsBlockhashValidRequest,
+            IsBlockhashValidResponse, PingRequest, PongResponse, SubscribeReplayInfoRequest,
+            SubscribeReplayInfoResponse, SubscribeRequest, SubscribeUpdate, SubscribeUpdatePing,
+            SubscribeUpdatePong, subscribe_update::UpdateOneof,
         },
         richat::SubscribeAccountsRequest,
     },
@@ -38,7 +38,7 @@ use {
     smallvec::SmallVec,
     solana_commitment_config::CommitmentLevel,
     solana_sdk::{
-        clock::{Slot, MAX_PROCESSING_AGE},
+        clock::{MAX_PROCESSING_AGE, Slot},
         pubkey::Pubkey,
     },
     std::{
@@ -48,8 +48,8 @@ use {
         future::Future,
         pin::Pin,
         sync::{
-            atomic::{AtomicU64, Ordering},
             Arc, Mutex, MutexGuard,
+            atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
         thread::sleep,
@@ -57,13 +57,13 @@ use {
     },
     tokio_util::sync::CancellationToken,
     tonic::{
-        service::interceptor::InterceptorLayer, Request, Response, Result as TonicResult, Status,
-        Streaming,
+        Request, Response, Result as TonicResult, Status, Streaming,
+        service::interceptor::InterceptorLayer,
     },
     tracing::{error, info, warn},
 };
 
-pub mod gen {
+pub mod r#gen {
     #![allow(clippy::clone_on_ref_ptr)]
     #![allow(clippy::missing_const_for_fn)]
 
@@ -128,7 +128,7 @@ impl GrpcServer {
             subscribe_messages_replay_len_max: config.stream.messages_replay_len_max,
         };
 
-        let mut service = gen::geyser_server::GeyserServer::new(grpc_server.clone())
+        let mut service = r#gen::geyser_server::GeyserServer::new(grpc_server.clone())
             .max_decoding_message_size(config.server.max_decoding_message_size);
         for encoding in config.server.compression.accept {
             service = service.accept_compressed(encoding);
@@ -409,8 +409,8 @@ impl GrpcServer {
         method: &'static str,
         get_ping: impl Fn(&T) -> Option<i32> + Send + 'static,
         mut get_filter: impl FnMut(&ConfigFilterLimits, T) -> (Option<Slot>, Result<Filter, Status>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) -> TonicResult<Response<ReceiverStream>> {
         let x_subscription_id: Arc<str> = Self::get_x_subscription_id(&request).into();
         counter!(
@@ -445,6 +445,7 @@ impl GrpcServer {
                         }
                         () = tokio::time::sleep(Duration::from_millis(500)) => {
                             let mut state = client.state_lock();
+                            info!(id, finished = state.finished, "ping and dead check");
                             if state.finished {
                                 break
                             }
@@ -470,6 +471,7 @@ impl GrpcServer {
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
+                            info!(id, "got new message");
                             if let Some(id) = get_ping(&message) {
                                 let message = SubscribeClientState::create_pong(id);
                                 let mut state = client.state_lock();
@@ -478,7 +480,9 @@ impl GrpcServer {
                             }
 
                             let (subscribe_from_slot, new_filter) = get_filter(&limits, message);
+                            info!(id, "filter created");
                             let mut state = client.state_lock();
+                            info!(id, "state locked");
                             if let Err(error) = new_filter.and_then(|filter| {
                                 if filter.contains_blocks() && subscribe_from_slot.is_some() {
                                     return Err(Status::invalid_argument(
@@ -490,12 +494,14 @@ impl GrpcServer {
                                 state.commitment = filter.commitment().into();
                                 if state.filter.is_none() || state.commitment != commitment_prev {
                                     let current_head = state.head;
+                                    info!(id, "attempt to get new head");
                                     state.head = messages
                                         .get_current_tail_with_replay(
                                             state.commitment,
                                             subscribe_from_slot,
                                         )
                                         .map_err(Status::invalid_argument)?;
+                                    info!(id, "got new head");
                                     if !matches!(current_head, IndexLocation::Storage(_))
                                         && matches!(state.head, IndexLocation::Storage(_))
                                     {
@@ -532,7 +538,7 @@ impl GrpcServer {
 }
 
 #[tonic::async_trait]
-impl gen::geyser_server::Geyser for GrpcServer {
+impl r#gen::geyser_server::Geyser for GrpcServer {
     type SubscribeStream = ReceiverStream;
     type SubscribeAccountsStream = ReceiverStream;
 

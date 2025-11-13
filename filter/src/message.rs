@@ -4,13 +4,13 @@ use {
         UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
         UpdateOneofLimitedDecodeSlot, UpdateOneofLimitedDecodeTransaction,
     },
-    prost::{encoding::decode_varint, Message as _},
+    prost::{Message as _, encoding::decode_varint},
     prost_types::Timestamp,
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo,
-            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
+            SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
+            SubscribeUpdateEntry, SubscribeUpdateTransactionInfo, subscribe_update::UpdateOneof,
         },
         solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
     },
@@ -18,8 +18,8 @@ use {
     solana_account::ReadableAccount,
     solana_sdk::{
         clock::{Epoch, Slot},
-        pubkey::{Pubkey, PUBKEY_BYTES},
-        signature::{Signature, SIGNATURE_BYTES},
+        pubkey::{PUBKEY_BYTES, Pubkey},
+        signature::{SIGNATURE_BYTES, Signature},
     },
     solana_transaction_status::{
         ConfirmedBlock, TransactionWithStatusMeta, VersionedTransactionWithStatusMeta,
@@ -286,7 +286,7 @@ impl MessageParserLimited {
                     })
                 }
                 UpdateOneofLimitedDecode::TransactionStatus(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
+                    return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"));
                 }
                 UpdateOneofLimitedDecode::Entry(range) => {
                     let entry = UpdateOneofLimitedDecodeEntry::decode(
@@ -319,13 +319,13 @@ impl MessageParserLimited {
                     })
                 }
                 UpdateOneofLimitedDecode::Block(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("Block"))
+                    return Err(MessageParseError::InvalidUpdateMessage("Block"));
                 }
                 UpdateOneofLimitedDecode::Ping(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("Ping"))
+                    return Err(MessageParseError::InvalidUpdateMessage("Ping"));
                 }
                 UpdateOneofLimitedDecode::Pong(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("Pong"))
+                    return Err(MessageParseError::InvalidUpdateMessage("Pong"));
                 }
             },
         )
@@ -408,7 +408,7 @@ impl MessageParserProst {
                     })
                 }
                 UpdateOneof::TransactionStatus(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"))
+                    return Err(MessageParseError::InvalidUpdateMessage("TransactionStatus"));
                 }
                 UpdateOneof::Entry(entry) => Message::Entry(MessageEntry::Prost {
                     entry,
@@ -528,10 +528,10 @@ impl MessageParserProst {
                     })
                 }
                 UpdateOneof::Ping(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("Ping"))
+                    return Err(MessageParseError::InvalidUpdateMessage("Ping"));
                 }
                 UpdateOneof::Pong(_) => {
-                    return Err(MessageParseError::InvalidUpdateMessage("Pong"))
+                    return Err(MessageParseError::InvalidUpdateMessage("Pong"));
                 }
             },
         )

@@ -2,7 +2,7 @@ use {
     criterion::Criterion,
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin_agave::protobuf::{fixtures::generate_slots, ProtobufEncoder, ProtobufMessage},
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage, fixtures::generate_slots},
     richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         message::MessageSlot,

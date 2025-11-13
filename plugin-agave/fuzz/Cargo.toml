@@ -2,7 +2,7 @@
 name = "richat-plugin-agave-fuzz"
 version = "0.0.0"
 authors = ["Lamports Dev"]
-edition = "2021"
+edition = "2024"
 description = "Richat Agave Geyser Plugin Fuzz Tests"
 publish = false
 

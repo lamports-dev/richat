@@ -1,7 +1,7 @@
 use {
     crate::{channel::Messages, metrics, richat::config::ConfigAppsRichat, version::VERSION},
     ::metrics::gauge,
-    futures::future::{try_join_all, FutureExt, TryFutureExt},
+    futures::future::{FutureExt, TryFutureExt, try_join_all},
     richat_shared::transports::{grpc::GrpcServer, quic::QuicServer},
     std::future::Future,
     tokio_util::sync::CancellationToken,

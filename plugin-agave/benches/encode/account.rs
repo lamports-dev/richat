@@ -3,12 +3,12 @@ use {
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{
-        fixtures::generate_accounts, ProtobufEncoder, ProtobufMessage,
+        ProtobufEncoder, ProtobufMessage, fixtures::generate_accounts,
     },
     richat_proto::plugin::{
         filter::{
-            message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
             FilterAccountsDataSlice,
+            message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
         },
         message::MessageAccount,
     },
