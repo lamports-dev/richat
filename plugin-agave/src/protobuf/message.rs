@@ -71,10 +71,10 @@ impl ProtobufMessage<'_> {
             richat_proto::{
                 convert_to,
                 geyser::{
-                    subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate,
-                    SubscribeUpdateAccount, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
-                    SubscribeUpdateEntry, SubscribeUpdateSlot, SubscribeUpdateTransaction,
-                    SubscribeUpdateTransactionInfo,
+                    SlotStatus, SubscribeUpdate, SubscribeUpdateAccount,
+                    SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta, SubscribeUpdateEntry,
+                    SubscribeUpdateSlot, SubscribeUpdateTransaction,
+                    SubscribeUpdateTransactionInfo, subscribe_update::UpdateOneof,
                 },
             },
         };

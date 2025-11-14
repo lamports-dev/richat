@@ -5,13 +5,13 @@ use {
         version::Version,
     },
     futures::{
-        future::{pending, FutureExt},
+        future::{FutureExt, pending},
         stream::StreamExt,
     },
     prost::Message,
     quinn::{
-        crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
         Connection, Endpoint, Incoming, SendStream, VarInt,
+        crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
     },
     richat_proto::richat::{
         QuicSubscribeClose, QuicSubscribeCloseError, QuicSubscribeRequest, QuicSubscribeResponse,

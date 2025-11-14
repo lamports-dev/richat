@@ -2,7 +2,7 @@ mod encoding;
 mod message;
 
 pub use {
-    encoding::{bytes_encode, bytes_encoded_len, Account, BlockMeta, Entry, Slot, Transaction},
+    encoding::{Account, BlockMeta, Entry, Slot, Transaction, bytes_encode, bytes_encoded_len},
     message::{ProtobufEncoder, ProtobufMessage},
 };
 
@@ -24,8 +24,8 @@ pub mod fixtures {
         },
         solana_sdk::{
             clock::Slot,
-            hash::{Hash, HASH_BYTES},
-            message::{v0::LoadedAddresses, SimpleAddressLoader},
+            hash::{HASH_BYTES, Hash},
+            message::{SimpleAddressLoader, v0::LoadedAddresses},
             pubkey::Pubkey,
             signature::Signature,
             transaction::{MessageHash, SanitizedTransaction, VersionedTransaction},
@@ -469,87 +469,87 @@ pub mod fixtures {
 mod tests {
     use {
         super::{
+            ProtobufEncoder, ProtobufMessage,
             fixtures::{
                 generate_accounts, generate_block_metas, generate_entries, generate_slots,
                 generate_transactions,
             },
-            ProtobufEncoder, ProtobufMessage,
         },
         prost::Message,
-        richat_proto::geyser::{subscribe_update::UpdateOneof, SubscribeUpdate},
+        richat_proto::geyser::{SubscribeUpdate, subscribe_update::UpdateOneof},
         std::time::SystemTime,
     };
 
     #[test]
     pub fn test_encode_account() {
         let created_at = SystemTime::now();
-        for gen in generate_accounts() {
-            let (slot, replica) = gen.to_replica();
+        for item in generate_accounts() {
+            let (slot, replica) = item.to_replica();
             let msg_richat = ProtobufMessage::Account {
                 slot,
                 account: &replica,
             };
             let vec_richat1 = msg_richat.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
             let vec_richat2 = msg_richat.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
-            assert_eq!(vec_richat1, vec_richat2, "account: {gen:?}");
+            assert_eq!(vec_richat1, vec_richat2, "account: {item:?}");
 
             let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Account(gen.to_prost())),
+                update_oneof: Some(UpdateOneof::Account(item.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = msg_prost.encode_to_vec();
-            assert_eq!(vec_richat1, vec_prost, "account: {gen:?}");
+            assert_eq!(vec_richat1, vec_prost, "account: {item:?}");
         }
     }
 
     #[test]
     pub fn test_encode_block_meta() {
         let created_at = SystemTime::now();
-        for gen in generate_block_metas() {
-            let replica = gen.to_replica();
+        for item in generate_block_metas() {
+            let replica = item.to_replica();
             let msg_richat = ProtobufMessage::BlockMeta {
                 blockinfo: &replica,
             };
             let vec_richat1 = msg_richat.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
             let vec_richat2 = msg_richat.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
-            assert_eq!(vec_richat1, vec_richat2, "block meta: {gen:?}");
+            assert_eq!(vec_richat1, vec_richat2, "block meta: {item:?}");
 
             let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::BlockMeta(gen.to_prost())),
+                update_oneof: Some(UpdateOneof::BlockMeta(item.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = msg_prost.encode_to_vec();
-            assert_eq!(vec_richat1, vec_prost, "block meta: {gen:?}");
+            assert_eq!(vec_richat1, vec_prost, "block meta: {item:?}");
         }
     }
 
     #[test]
     pub fn test_encode_entry() {
         let created_at = SystemTime::now();
-        for gen in generate_entries() {
-            let replica = gen.to_replica();
+        for item in generate_entries() {
+            let replica = item.to_replica();
             let msg_richat = ProtobufMessage::Entry { entry: &replica };
             let vec_richat1 = msg_richat.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
             let vec_richat2 = msg_richat.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
-            assert_eq!(vec_richat1, vec_richat2, "entry: {gen:?}");
+            assert_eq!(vec_richat1, vec_richat2, "entry: {item:?}");
 
             let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Entry(gen.to_prost())),
+                update_oneof: Some(UpdateOneof::Entry(item.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = msg_prost.encode_to_vec();
-            assert_eq!(vec_richat1, vec_prost, "entry: {gen:?}");
+            assert_eq!(vec_richat1, vec_prost, "entry: {item:?}");
         }
     }
 
     #[test]
     pub fn test_encode_slot() {
         let created_at = SystemTime::now();
-        for gen in generate_slots() {
-            let (slot, parent, status) = gen.to_replica();
+        for item in generate_slots() {
+            let (slot, parent, status) = item.to_replica();
             let msg_richat = ProtobufMessage::Slot {
                 slot,
                 parent,
@@ -557,38 +557,38 @@ mod tests {
             };
             let vec_richat1 = msg_richat.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
             let vec_richat2 = msg_richat.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
-            assert_eq!(vec_richat1, vec_richat2, "slot: {gen:?}");
+            assert_eq!(vec_richat1, vec_richat2, "slot: {item:?}");
 
             let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Slot(gen.to_prost())),
+                update_oneof: Some(UpdateOneof::Slot(item.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = msg_prost.encode_to_vec();
-            assert_eq!(vec_richat1, vec_prost, "slot: {gen:?}");
+            assert_eq!(vec_richat1, vec_prost, "slot: {item:?}");
         }
     }
 
     #[test]
     pub fn test_encode_transaction() {
         let created_at = SystemTime::now();
-        for gen in generate_transactions() {
-            let (slot, replica) = gen.to_replica();
+        for item in generate_transactions() {
+            let (slot, replica) = item.to_replica();
             let msg_richat = ProtobufMessage::Transaction {
                 slot,
                 transaction: &replica,
             };
             let vec_richat1 = msg_richat.encode_with_timestamp(ProtobufEncoder::Prost, created_at);
             let vec_richat2 = msg_richat.encode_with_timestamp(ProtobufEncoder::Raw, created_at);
-            assert_eq!(vec_richat1, vec_richat2, "transaction: {gen:?}");
+            assert_eq!(vec_richat1, vec_richat2, "transaction: {item:?}");
 
             let msg_prost = SubscribeUpdate {
                 filters: Vec::new(),
-                update_oneof: Some(UpdateOneof::Transaction(gen.to_prost())),
+                update_oneof: Some(UpdateOneof::Transaction(item.to_prost())),
                 created_at: Some(created_at.into()),
             };
             let vec_prost = msg_prost.encode_to_vec();
-            assert_eq!(vec_richat1, vec_prost, "transaction: {gen:?}");
+            assert_eq!(vec_richat1, vec_prost, "transaction: {item:?}");
 
             // use prost::{bytes::Buf, encoding};
             // fn read(mut buffer: &[u8]) -> &[u8] {

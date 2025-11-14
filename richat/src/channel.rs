@@ -3,7 +3,7 @@ use {
         config::ConfigChannelInner, grpc::server::SubscribeClient, metrics, storage::Storage,
         util::SpawnedThreads,
     },
-    ::metrics::{counter, gauge, Gauge},
+    ::metrics::{Gauge, counter, gauge},
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
     prost::{
@@ -29,15 +29,15 @@ use {
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     std::{
         collections::{
-            btree_map::Entry as BTreeMapEntry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap,
-            HashSet,
+            BTreeMap, HashMap, HashSet, btree_map::Entry as BTreeMapEntry,
+            hash_map::Entry as HashMapEntry,
         },
         fmt,
         hash::{BuildHasher, Hash, Hasher},
         pin::Pin,
         sync::{
-            atomic::{AtomicU64, Ordering},
             Arc, Mutex, MutexGuard,
+            atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
     },
@@ -422,7 +422,7 @@ impl Subscribe for Messages {
                             SubscribeError::SlotNotAvailable { first_available }
                         }
                         None => SubscribeError::NotInitialized,
-                    })
+                    });
                 }
             }
         } else {
@@ -844,7 +844,7 @@ impl ReceiverAsync {
             match item {
                 ParsedMessage::Account(_) if !self.enable_notifications_accounts => continue,
                 ParsedMessage::Transaction(_) if !self.enable_notifications_transactions => {
-                    continue
+                    continue;
                 }
                 ParsedMessage::Entry(_) if !self.enable_notifications_entries => continue,
                 ParsedMessage::Block(_) => continue,

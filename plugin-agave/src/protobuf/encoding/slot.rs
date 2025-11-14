@@ -1,9 +1,9 @@
 use {
     agave_geyser_plugin_interface::geyser_plugin_interface::SlotStatus,
     prost::{
+        DecodeError, Message,
         bytes::{Buf, BufMut},
         encoding::{self, DecodeContext, WireType},
-        DecodeError, Message,
     },
     richat_proto::geyser::CommitmentLevel,
 };

@@ -12,11 +12,11 @@ use {
     },
     richat_proto::{
         geyser::{
-            subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
-            SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
-            SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
-            SubscribeRequestFilterTransactions, SubscribeUpdateBlockMeta, SubscribeUpdateSlot,
-            SubscribeUpdateTransaction, SubscribeUpdateTransactionInfo,
+            CommitmentLevel, SubscribeRequest, SubscribeRequestFilterAccounts,
+            SubscribeRequestFilterBlocksMeta, SubscribeRequestFilterEntry,
+            SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
+            SubscribeUpdateBlockMeta, SubscribeUpdateSlot, SubscribeUpdateTransaction,
+            SubscribeUpdateTransactionInfo, subscribe_update::UpdateOneof,
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },

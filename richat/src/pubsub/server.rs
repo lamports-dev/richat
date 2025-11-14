@@ -4,22 +4,22 @@ use {
         config::ConfigAppsWorkers,
         metrics,
         pubsub::{
+            ClientId, SubscriptionId,
             config::ConfigAppsPubsub,
             notification::{RpcNotification, RpcNotifications},
             solana::{SubscribeConfig, SubscribeMessage, SubscribeMethod},
-            tracker::{subscriptions_worker, ClientRequest},
-            ClientId, SubscriptionId,
+            tracker::{ClientRequest, subscriptions_worker},
         },
         version::VERSION,
     },
     ::metrics::{counter, gauge},
     fastwebsockets::{
-        upgrade::{is_upgrade_request, upgrade, UpgradeFut},
         CloseCode, FragmentCollectorRead, Frame, OpCode, Payload, WebSocketError,
+        upgrade::{UpgradeFut, is_upgrade_request, upgrade},
     },
-    futures::future::{ready, try_join_all, FutureExt, TryFutureExt},
+    futures::future::{FutureExt, TryFutureExt, ready, try_join_all},
     http_body_util::{BodyExt, Empty as BodyEmpty},
-    hyper::{body::Incoming as BodyIncoming, service::service_fn, Request, Response, StatusCode},
+    hyper::{Request, Response, StatusCode, body::Incoming as BodyIncoming, service::service_fn},
     hyper_util::{
         rt::tokio::{TokioExecutor, TokioIo},
         server::conn::auto::Builder as ServerBuilder,
@@ -152,7 +152,9 @@ impl PubSubServer {
                                             )
                                             .await
                                             {
-                                                error!("Error serving WebSocket connection: {error:?}")
+                                                error!(
+                                                    "Error serving WebSocket connection: {error:?}"
+                                                )
                                             }
                                             connections_total.decrement(1);
                                         });

@@ -5,12 +5,12 @@ use {
     },
     richat_metrics::ConfigMetrics,
     richat_shared::{
-        config::{deserialize_humansize_usize, deserialize_num_str, ConfigTokio},
+        config::{ConfigTokio, deserialize_humansize_usize, deserialize_num_str},
         transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     },
     serde::{
-        de::{self, Deserializer},
         Deserialize,
+        de::{self, Deserializer},
     },
     std::{fs, path::Path},
 };

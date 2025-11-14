@@ -3,17 +3,17 @@ use {
         grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub,
         richat::config::ConfigAppsRichat,
     },
-    futures::future::{ready, try_join_all, TryFutureExt},
+    futures::future::{TryFutureExt, ready, try_join_all},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
     richat_metrics::ConfigMetrics,
     richat_shared::config::{
-        deserialize_affinity, deserialize_humansize_usize, deserialize_num_str, ConfigTokio,
+        ConfigTokio, deserialize_affinity, deserialize_humansize_usize, deserialize_num_str,
     },
     rocksdb::DBCompressionType,
     serde::{
-        de::{self, Deserializer},
         Deserialize,
+        de::{self, Deserializer},
     },
     std::{
         collections::HashSet,
@@ -21,7 +21,7 @@ use {
         path::{Path, PathBuf},
         thread::Builder,
     },
-    tokio::time::{sleep, Duration},
+    tokio::time::{Duration, sleep},
     tokio_util::sync::CancellationToken,
 };
 

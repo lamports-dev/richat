@@ -7,12 +7,12 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo,
-            SubscribeUpdateBlock, SubscribeUpdateBlockMeta, SubscribeUpdateEntry,
-            SubscribeUpdateTransactionInfo,
+            SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlock,
+            SubscribeUpdateBlockMeta, SubscribeUpdateEntry, SubscribeUpdateTransactionInfo,
+            subscribe_update::UpdateOneof,
         },
     },
-    serde_json::{json, Value},
+    serde_json::{Value, json},
     solana_sdk::{hash::Hash, pubkey::Pubkey, signature::Signature},
     solana_transaction_status::UiTransactionEncoding,
     std::{

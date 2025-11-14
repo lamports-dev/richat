@@ -3,19 +3,19 @@ use {
         channel::{Messages, ParsedMessage},
         metrics,
         pubsub::{
+            ClientId, SubscriptionId,
             notification::{
                 RpcBlockUpdate, RpcNotification, RpcNotifications, RpcTransactionUpdate,
             },
             solana::{SubscribeConfig, SubscribeConfigHashId, SubscribeMethod},
-            ClientId, SubscriptionId,
         },
     },
     ::metrics::gauge,
     foldhash::quality::RandomState,
     prost_types::Timestamp,
     rayon::{
-        iter::{IntoParallelIterator, ParallelIterator},
         ThreadPoolBuilder,
+        iter::{IntoParallelIterator, ParallelIterator},
     },
     richat_filter::message::{MessageSlot, MessageTransaction},
     richat_proto::{convert_from, geyser::SlotStatus},
@@ -29,7 +29,7 @@ use {
     },
     solana_sdk::{clock::Slot, signature::Signature, transaction::TransactionError},
     std::{
-        collections::{hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
+        collections::{BTreeMap, HashMap, HashSet, hash_map::Entry as HashMapEntry},
         sync::Arc,
         thread,
         time::Duration,

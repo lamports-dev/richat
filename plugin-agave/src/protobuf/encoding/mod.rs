@@ -3,11 +3,11 @@ pub use self::{
 };
 use {
     prost::{
+        DecodeError, Message,
         bytes::{Buf, BufMut},
         encoding::{
-            self, encode_key, encode_varint, encoded_len_varint, key_len, DecodeContext, WireType,
+            self, DecodeContext, WireType, encode_key, encode_varint, encoded_len_varint, key_len,
         },
-        DecodeError, Message,
     },
     solana_transaction_status::{Reward, RewardType},
     std::{marker::PhantomData, ops::Deref},

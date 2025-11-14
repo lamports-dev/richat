@@ -18,8 +18,8 @@ use {
     richat_proto::{
         convert_from,
         geyser::{
-            subscribe_update::UpdateOneof, SlotStatus, SubscribeUpdate, SubscribeUpdateAccount,
-            SubscribeUpdateSlot, SubscribeUpdateTransaction,
+            SlotStatus, SubscribeUpdate, SubscribeUpdateAccount, SubscribeUpdateSlot,
+            SubscribeUpdateTransaction, subscribe_update::UpdateOneof,
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },

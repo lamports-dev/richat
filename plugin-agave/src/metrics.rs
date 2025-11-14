@@ -1,11 +1,11 @@
 use {
     crate::version::VERSION as VERSION_INFO,
     metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle, PrometheusRecorder},
-    richat_metrics::{counter, describe_counter, describe_gauge, ConfigMetrics},
+    richat_metrics::{ConfigMetrics, counter, describe_counter, describe_gauge},
     std::{future::Future, io},
     tokio::{
         task::JoinError,
-        time::{sleep, Duration},
+        time::{Duration, sleep},
     },
 };
 

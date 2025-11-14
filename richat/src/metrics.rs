@@ -8,7 +8,7 @@ use {
     std::{borrow::Cow, future::Future},
     tokio::{
         task::JoinError,
-        time::{sleep, Duration},
+        time::{Duration, sleep},
     },
     tracing::error,
 };

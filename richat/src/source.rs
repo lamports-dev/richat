@@ -7,7 +7,7 @@ use {
     futures::{
         future::try_join_all,
         ready,
-        stream::{try_unfold, BoxStream, Stream, StreamExt},
+        stream::{BoxStream, Stream, StreamExt, try_unfold},
     },
     maplit::hashmap,
     richat_client::{
@@ -32,7 +32,7 @@ use {
         task::{Context, Poll},
     },
     thiserror::Error,
-    tokio::time::{sleep, Duration},
+    tokio::time::{Duration, sleep},
     tracing::{error, info},
 };
 

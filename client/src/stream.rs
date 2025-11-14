@@ -7,7 +7,7 @@ use {
     std::{
         fmt,
         pin::Pin,
-        task::{ready, Context, Poll},
+        task::{Context, Poll, ready},
     },
 };
 

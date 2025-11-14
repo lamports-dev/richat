@@ -1,13 +1,13 @@
 use {
     prost::{
-        bytes::Buf,
-        encoding::{self, check_wire_type, decode_key, decode_varint, DecodeContext, WireType},
         DecodeError,
+        bytes::Buf,
+        encoding::{self, DecodeContext, WireType, check_wire_type, decode_key, decode_varint},
     },
     prost_types::Timestamp,
     solana_sdk::{
         clock::{Epoch, Slot},
-        pubkey::{Pubkey, PUBKEY_BYTES},
+        pubkey::{PUBKEY_BYTES, Pubkey},
         signature::SIGNATURE_BYTES,
     },
     std::{borrow::Cow, ops::Range},

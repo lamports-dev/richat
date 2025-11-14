@@ -1,10 +1,10 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, RewardWrapper},
+    super::{RewardWrapper, bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaBlockInfoV4,
     prost::{
+        DecodeError, Message,
         bytes::{Buf, BufMut},
         encoding::{self, DecodeContext, WireType},
-        DecodeError, Message,
     },
     richat_proto::convert_to,
     solana_transaction_status::RewardsAndNumPartitions,

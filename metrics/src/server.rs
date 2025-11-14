@@ -2,9 +2,9 @@ use {
     crate::config::ConfigMetrics,
     http_body_util::{BodyExt, Full as BodyFull},
     hyper::{
+        Request, Response, StatusCode,
         body::{Bytes, Incoming as BodyIncoming},
         service::service_fn,
-        Request, Response, StatusCode,
     },
     hyper_util::{
         rt::tokio::{TokioExecutor, TokioIo},

@@ -2,9 +2,9 @@ use {
     super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaEntryInfoV2,
     prost::{
+        DecodeError, Message,
         bytes::{Buf, BufMut},
         encoding::{self, DecodeContext, WireType},
-        DecodeError, Message,
     },
 };
 
