@@ -445,7 +445,6 @@ impl GrpcServer {
                         }
                         () = tokio::time::sleep(Duration::from_millis(500)) => {
                             let mut state = client.state_lock();
-                            info!(id, finished = state.finished, "ping and dead check");
                             if state.finished {
                                 break
                             }
@@ -471,7 +470,6 @@ impl GrpcServer {
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
-                            info!(id, "got new message");
                             if let Some(id) = get_ping(&message) {
                                 let message = SubscribeClientState::create_pong(id);
                                 let mut state = client.state_lock();
@@ -480,9 +478,7 @@ impl GrpcServer {
                             }
 
                             let (subscribe_from_slot, new_filter) = get_filter(&limits, message);
-                            info!(id, "filter created");
                             let mut state = client.state_lock();
-                            info!(id, "state locked");
                             if let Err(error) = new_filter.and_then(|filter| {
                                 if filter.contains_blocks() && subscribe_from_slot.is_some() {
                                     return Err(Status::invalid_argument(
@@ -494,14 +490,12 @@ impl GrpcServer {
                                 state.commitment = filter.commitment().into();
                                 if state.filter.is_none() || state.commitment != commitment_prev {
                                     let current_head = state.head;
-                                    info!(id, "attempt to get new head");
                                     state.head = messages
                                         .get_current_tail_with_replay(
                                             state.commitment,
                                             subscribe_from_slot,
                                         )
                                         .map_err(Status::invalid_argument)?;
-                                    info!(id, "got new head");
                                     if !matches!(current_head, IndexLocation::Storage(_))
                                         && matches!(state.head, IndexLocation::Storage(_))
                                     {
