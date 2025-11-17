@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-17
+
+- richat-v7.1.0
+
+### Features
+
+- richat: add block meta to `subscribe_accounts` ([#158](https://github.com/lamports-dev/richat/pull/158))
+
 ## 2025-11-14
 
 - richat-cli-v8.0.0
