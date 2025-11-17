@@ -2,9 +2,9 @@ use {
     super::{bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     prost::{
+        DecodeError, Message,
         bytes::{Buf, BufMut},
         encoding::{self, DecodeContext, WireType},
-        DecodeError, Message,
     },
     solana_sdk::clock::Slot,
     std::ops::Deref,

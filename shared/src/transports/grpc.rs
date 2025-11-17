@@ -5,14 +5,14 @@ use {
         version::Version,
     },
     futures::stream::{Stream, StreamExt},
-    prost::{bytes::BufMut, Message},
+    prost::{Message, bytes::BufMut},
     richat_proto::{
         geyser::{GetVersionRequest, GetVersionResponse},
         richat::GrpcSubscribeRequest,
     },
     serde::{
-        de::{self, Deserializer},
         Deserialize,
+        de::{self, Deserializer},
     },
     std::{
         borrow::Cow,
@@ -23,28 +23,28 @@ use {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         pin::Pin,
         sync::{
-            atomic::{AtomicU64, Ordering},
             Arc,
+            atomic::{AtomicU64, Ordering},
         },
-        task::{ready, Context, Poll},
+        task::{Context, Poll, ready},
         time::Duration,
     },
     thiserror::Error,
     tokio::task::JoinError,
     tokio_util::sync::CancellationToken,
     tonic::{
+        Request, Response, Status, Streaming,
         codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
         service::interceptor::InterceptorLayer,
         transport::{
-            server::{Server, TcpIncoming},
             Identity, ServerTlsConfig,
+            server::{Server, TcpIncoming},
         },
-        Request, Response, Status, Streaming,
     },
     tracing::{error, info},
 };
 
-pub mod gen {
+pub mod geyser_gen {
     #![allow(clippy::clone_on_ref_ptr)]
     #![allow(clippy::missing_const_for_fn)]
 
@@ -232,7 +232,7 @@ where
         let (incoming, server_builder) = config.create_server_builder()?;
         info!("start server at {}", config.endpoint);
 
-        let mut service = gen::geyser_server::GeyserServer::new(Self {
+        let mut service = geyser_gen::geyser_server::GeyserServer::new(Self {
             messages,
             subscribe_id: AtomicU64::new(0),
             on_conn_new_cb,
@@ -275,7 +275,7 @@ where
 }
 
 #[tonic::async_trait]
-impl<S, F1, F2> gen::geyser_server::Geyser for GrpcServer<S, F1, F2>
+impl<S, F1, F2> geyser_gen::geyser_server::Geyser for GrpcServer<S, F1, F2>
 where
     S: Subscribe + Send + Sync + 'static,
     F2: Fn() + Clone + Unpin + Send + Sync + 'static,

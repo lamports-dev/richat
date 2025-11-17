@@ -11,9 +11,9 @@ use {
     pin_project_lite::pin_project,
     prost::Message,
     quinn::{
-        crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
         ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, RecvStream,
         TransportConfig, VarInt,
+        crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
     },
     richat_proto::richat::{QuicSubscribeClose, QuicSubscribeRequest, RichatFilter},
     richat_shared::{
@@ -21,8 +21,8 @@ use {
         transports::quic::ConfigQuicServer,
     },
     rustls::{
-        pki_types::{CertificateDer, ServerName, UnixTime},
         RootCertStore,
+        pki_types::{CertificateDer, ServerName, UnixTime},
     },
     serde::Deserialize,
     solana_sdk::clock::Slot,
@@ -35,14 +35,14 @@ use {
         path::PathBuf,
         pin::Pin,
         sync::Arc,
-        task::{ready, Context, Poll},
+        task::{Context, Poll, ready},
         time::Duration,
     },
     thiserror::Error,
     tokio::{
         fs,
         io::{AsyncReadExt, AsyncWriteExt},
-        net::{lookup_host, ToSocketAddrs},
+        net::{ToSocketAddrs, lookup_host},
     },
 };
 
@@ -600,7 +600,7 @@ impl Stream for QuicClientStreamReader {
                                 Some(Err(error))
                             }
                         }
-                    })
+                    });
                 }
             }
         }

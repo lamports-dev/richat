@@ -1,4 +1,4 @@
-pub mod gen {
+pub mod geyser_gen {
     include!(concat!(env!("OUT_DIR"), "/geyser.Geyser.rs"));
 }
 
@@ -10,7 +10,7 @@ use {
         sink::{Sink, SinkExt},
         stream::{Stream, StreamExt},
     },
-    gen::geyser_client::GeyserClient,
+    geyser_gen::geyser_client::GeyserClient,
     pin_project_lite::pin_project,
     prost::Message,
     richat_proto::{
@@ -40,14 +40,14 @@ use {
     thiserror::Error,
     tokio::fs,
     tonic::{
-        codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
-        metadata::{errors::InvalidMetadataValueBytes, AsciiMetadataKey, AsciiMetadataValue},
-        service::{interceptor::InterceptedService, Interceptor},
-        transport::{
-            channel::{Channel, ClientTlsConfig, Endpoint},
-            Certificate,
-        },
         Request, Response, Status, Streaming,
+        codec::{Codec, CompressionEncoding, DecodeBuf, Decoder, EncodeBuf, Encoder},
+        metadata::{AsciiMetadataKey, AsciiMetadataValue, errors::InvalidMetadataValueBytes},
+        service::{Interceptor, interceptor::InterceptedService},
+        transport::{
+            Certificate,
+            channel::{Channel, ClientTlsConfig, Endpoint},
+        },
     },
 };
 

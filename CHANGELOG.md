@@ -16,13 +16,27 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2025-11-12
+## 2025-11-17
 
-- richat-v6.3.0
+- richat-v7.1.0
 
 ### Features
 
 - richat: add block meta to `subscribe_accounts` ([#158](https://github.com/lamports-dev/richat/pull/158))
+
+## 2025-11-14
+
+- richat-cli-v8.0.0
+- richat-client-v7.0.0
+- richat-filter-v7.0.0
+- richat-plugin-agave-v7.0.0
+- richat-proto-v7.0.0
+- richat-v7.0.0
+- richat-shared-v7.0.0
+
+### Breaking
+
+- richat: upgrade edition to 2024 ([#159](https://github.com/lamports-dev/richat/pull/159))
 
 ## 2025-11-11
 

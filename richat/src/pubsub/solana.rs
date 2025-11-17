@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::ParsedMessage,
-        pubsub::{filter::TransactionFilter, SubscriptionId},
+        pubsub::{SubscriptionId, filter::TransactionFilter},
     },
     arrayvec::ArrayVec,
     jsonrpsee_types::{
@@ -13,7 +13,7 @@ use {
         message::{MessageAccount, MessageBlock, MessageTransaction},
     },
     richat_proto::convert_from,
-    serde::{de, Deserialize},
+    serde::{Deserialize, de},
     serde_json::value::RawValue,
     solana_account::ReadableAccount,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
@@ -33,7 +33,7 @@ use {
     },
     std::{
         borrow::Cow,
-        collections::{hash_map::DefaultHasher, HashSet},
+        collections::{HashSet, hash_map::DefaultHasher},
         hash::{Hash, Hasher},
         str::FromStr,
     },

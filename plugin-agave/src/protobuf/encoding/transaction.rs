@@ -1,20 +1,20 @@
 use {
-    super::{bytes_encode, bytes_encoded_len, RewardWrapper},
+    super::{RewardWrapper, bytes_encode, bytes_encoded_len},
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaTransactionInfoV3,
     prost::{
-        bytes::{Buf, BufMut},
-        encoding::{self, encoded_len_varint, key_len, DecodeContext, WireType},
         DecodeError, Message,
+        bytes::{Buf, BufMut},
+        encoding::{self, DecodeContext, WireType, encoded_len_varint, key_len},
     },
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_sdk::{
         clock::Slot,
         message::{
-            compiled_instruction::CompiledInstruction, v0::MessageAddressTableLookup,
-            MessageHeader, VersionedMessage,
+            MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction,
+            v0::MessageAddressTableLookup,
         },
-        pubkey::{Pubkey, PUBKEY_BYTES},
-        signature::{Signature, SIGNATURE_BYTES},
+        pubkey::{PUBKEY_BYTES, Pubkey},
+        signature::{SIGNATURE_BYTES, Signature},
         transaction::{TransactionError, VersionedTransaction},
     },
     solana_transaction_context::TransactionReturnData,

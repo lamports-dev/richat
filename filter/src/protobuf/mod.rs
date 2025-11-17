@@ -1,6 +1,6 @@
 use prost::{
     bytes::BufMut,
-    encoding::{encode_key, encode_varint, encoded_len_varint, key_len, WireType},
+    encoding::{WireType, encode_key, encode_varint, encoded_len_varint, key_len},
 };
 
 pub mod decode;

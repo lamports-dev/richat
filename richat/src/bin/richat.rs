@@ -2,7 +2,7 @@ use {
     anyhow::Context,
     clap::Parser,
     futures::{
-        future::{ready, try_join_all, FutureExt, TryFutureExt},
+        future::{FutureExt, TryFutureExt, ready, try_join_all},
         stream::StreamExt,
     },
     richat::{

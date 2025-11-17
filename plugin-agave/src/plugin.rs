@@ -13,7 +13,7 @@ use {
     },
     futures::future::BoxFuture,
     log::error,
-    richat_metrics::{gauge, MaybeRecorder},
+    richat_metrics::{MaybeRecorder, gauge},
     richat_shared::transports::{grpc::GrpcServer, quic::QuicServer},
     solana_sdk::clock::Slot,
     std::{fmt, sync::Arc, time::Duration},
@@ -324,7 +324,7 @@ impl GeyserPlugin for Plugin {
 }
 
 #[cfg(feature = "plugin")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 /// # Safety
 ///

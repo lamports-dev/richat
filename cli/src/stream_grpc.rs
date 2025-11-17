@@ -11,9 +11,6 @@ use {
     richat_client::grpc::{GrpcClient, GrpcClientStream},
     richat_proto::{
         geyser::{
-            subscribe_request_filter_accounts_filter::Filter as AccountsFilterOneof,
-            subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
-            subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
             CommitmentLevel, SubscribeRequest, SubscribeRequestAccountsDataSlice,
             SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
             SubscribeRequestFilterAccountsFilterLamports,
@@ -21,6 +18,9 @@ use {
             SubscribeRequestFilterBlocksMeta, SubscribeRequestFilterEntry,
             SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions, SubscribeRequestPing,
             SubscribeUpdate,
+            subscribe_request_filter_accounts_filter::Filter as AccountsFilterOneof,
+            subscribe_request_filter_accounts_filter_lamports::Cmp as AccountsFilterLamports,
+            subscribe_request_filter_accounts_filter_memcmp::Data as AccountsFilterMemcmpOneof,
         },
         richat::SubscribeAccountsRequest,
     },

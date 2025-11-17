@@ -6,7 +6,7 @@ use {
     jsonrpsee_types::{Response, ResponsePayload},
     richat_shared::version::GrpcVersionInfoExtra,
     serde::Deserialize,
-    serde_json::{json, Value},
+    serde_json::{Value, json},
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_client::nonblocking::pubsub_client::PubsubClient,
     solana_commitment_config::CommitmentConfig,
@@ -24,15 +24,14 @@ use {
     std::{collections::HashMap, fmt, str::FromStr},
     tokio::{
         net::TcpStream,
-        signal::unix::{signal, SignalKind},
+        signal::unix::{SignalKind, signal},
     },
     tokio_tungstenite::{
-        connect_async,
+        MaybeTlsStream, WebSocketStream, connect_async,
         tungstenite::protocol::{
-            frame::{coding::CloseCode, Utf8Bytes},
             CloseFrame, Message,
+            frame::{Utf8Bytes, coding::CloseCode},
         },
-        MaybeTlsStream, WebSocketStream,
     },
     tracing::info,
 };

@@ -3,7 +3,7 @@ use {
     prost::Message,
     prost_types::Timestamp,
     richat_plugin_agave::protobuf::{
-        fixtures::generate_transactions, ProtobufEncoder, ProtobufMessage,
+        ProtobufEncoder, ProtobufMessage, fixtures::generate_transactions,
     },
     richat_proto::plugin::{
         filter::message::{FilteredUpdate, FilteredUpdateFilters, FilteredUpdateOneof},
