@@ -22,7 +22,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Fixes
 
-- richat: output source name on error ([#159](https://github.com/lamports-dev/richat/pull/159))
+- richat: output source name on error ([#160](https://github.com/lamports-dev/richat/pull/160))
 
 ## 2025-11-17
 
