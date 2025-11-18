@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-18
+
+- richat-v7.1.1
+
+### Fixes
+
+- richat: output source name on error ([#159](https://github.com/lamports-dev/richat/pull/159))
+
 ## 2025-11-17
 
 - richat-v7.1.0
