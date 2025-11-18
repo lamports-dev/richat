@@ -94,8 +94,10 @@ fn main() -> anyhow::Result<()> {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
-                                Some(Err(error)) => return Err(anyhow::Error::new(error)),
-                                None => anyhow::bail!("source stream finished"),
+                                Some(Err(error)) => return Err(
+                                    anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
+                                ),
+                                None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
                             },
                             () = &mut shutdown => return Ok(()),
                         };

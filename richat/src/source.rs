@@ -207,6 +207,11 @@ impl Subscription {
     }
 }
 
+struct BoxedSubscription {
+    name: &'static str,
+    stream: BoxStream<'static, Result<(usize, &'static str, Message), ReceiveError>>,
+}
+
 #[derive(Debug)]
 struct Backoff {
     current_interval: Duration,
@@ -243,7 +248,7 @@ async fn subscribe(
     replay_for_storage: bool,
     replay_from_slot: Option<Slot>,
     index: usize,
-) -> anyhow::Result<BoxStream<'static, Result<(usize, &'static str, Message), ReceiveError>>> {
+) -> anyhow::Result<BoxedSubscription> {
     let (subscription_config, mut config) = SubscriptionConfig::new(config);
     let name: &'static str = config.name.clone().leak();
 
@@ -257,7 +262,10 @@ async fn subscribe(
             index,
         )
         .await?;
-        return Ok(stream.boxed());
+        return Ok(BoxedSubscription {
+            name,
+            stream: stream.boxed(),
+        });
     };
 
     let backoff = Backoff::new(reconnect);
@@ -328,20 +336,23 @@ async fn subscribe(
             }
         },
     );
-    Ok(stream.boxed())
+    Ok(BoxedSubscription {
+        name,
+        stream: stream.boxed(),
+    })
 }
 
 pub struct Subscriptions {
     #[allow(clippy::type_complexity)]
-    streams: Vec<BoxStream<'static, Result<(usize, &'static str, Message), ReceiveError>>>,
-    next_stream: usize,
+    streams: Vec<BoxedSubscription>,
+    last_polled: usize,
 }
 
 impl fmt::Debug for Subscriptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Subscriptions")
             .field("streams", &self.streams.len())
-            .field("next_stream", &self.next_stream)
+            .field("last_polled", &self.last_polled)
             .finish()
     }
 }
@@ -363,8 +374,12 @@ impl Subscriptions {
 
         Ok(Self {
             streams,
-            next_stream: 0,
+            last_polled: 0,
         })
+    }
+
+    pub fn get_last_polled_name(&self) -> &'static str {
+        self.streams[self.last_polled].name
     }
 }
 
@@ -372,17 +387,17 @@ impl Stream for Subscriptions {
     type Item = Result<(usize, &'static str, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let init_index = self.next_stream;
+        let init_index = self.last_polled;
         loop {
-            let index = self.next_stream;
-            self.next_stream = (self.next_stream + 1) % self.streams.len();
+            self.last_polled = (self.last_polled + 1) % self.streams.len();
+            let index = self.last_polled;
 
-            let result = self.streams[index].poll_next_unpin(cx);
+            let result = self.streams[index].stream.poll_next_unpin(cx);
             if let Poll::Ready(value) = result {
                 return Poll::Ready(value);
             }
 
-            if self.next_stream == init_index {
+            if index == init_index {
                 return Poll::Pending;
             }
         }
