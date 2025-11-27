@@ -76,14 +76,13 @@ fn main() -> anyhow::Result<()> {
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let (mut messages, replay_for_storage, replay_from_slot) = messages.to_sender()?;
+            let (mut messages, replay_from_slot) = messages.to_sender()?;
             move || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let streams_total = config.channel.sources.len();
                     let mut stream = Subscriptions::new(
                         config.channel.sources,
-                        replay_for_storage,
                         replay_from_slot,
                     )
                     .await?;

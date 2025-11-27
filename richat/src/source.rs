@@ -1,7 +1,10 @@
 use {
-    crate::config::{
-        ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
-        ConfigGrpcClientSource,
+    crate::{
+        channel::GlobalReplayFromSlot,
+        config::{
+            ConfigChannelSource, ConfigChannelSourceGeneral, ConfigChannelSourceReconnect,
+            ConfigGrpcClientSource,
+        },
     },
     anyhow::Context as _,
     futures::{
@@ -17,7 +20,7 @@ use {
     richat_filter::message::{Message, MessageParseError, MessageParserEncoding},
     richat_proto::{
         geyser::{
-            CommitmentLevel as CommitmentLevelProto, SlotStatus, SubscribeRequest,
+            CommitmentLevel as CommitmentLevelProto, SubscribeRequest,
             SubscribeRequestFilterAccounts, SubscribeRequestFilterBlocksMeta,
             SubscribeRequestFilterEntry, SubscribeRequestFilterSlots,
             SubscribeRequestFilterTransactions,
@@ -245,8 +248,7 @@ impl Backoff {
 
 async fn subscribe(
     config: ConfigChannelSource,
-    replay_for_storage: bool,
-    replay_from_slot: Option<Slot>,
+    global_replay_from_slot: GlobalReplayFromSlot,
     index: usize,
 ) -> anyhow::Result<BoxedSubscription> {
     let (subscription_config, mut config) = SubscriptionConfig::new(config);
@@ -258,7 +260,7 @@ async fn subscribe(
             subscription_config,
             config.disable_accounts,
             config.parser,
-            replay_from_slot,
+            global_replay_from_slot.load(),
             index,
         )
         .await?;
@@ -273,34 +275,21 @@ async fn subscribe(
         (
             backoff,
             subscription_config,
-            name,
             config,
+            global_replay_from_slot,
             None,
-            replay_from_slot,
         ),
         move |mut state: (
             Backoff,
             SubscriptionConfig,
-            &'static str,
             ConfigChannelSourceGeneral,
+            GlobalReplayFromSlot,
             Option<Subscription>,
-            Option<Slot>,
         )| async move {
             loop {
                 if let Some(stream) = state.4.as_mut() {
                     match stream.next().await {
                         Some(Ok((index, name, message))) => {
-                            if replay_for_storage {
-                                if let Message::Slot(msg) = &message {
-                                    if msg.status() == SlotStatus::SlotFinalized {
-                                        state.5 = Some(match state.5 {
-                                            Some(slot) => slot.max(msg.slot() + 1),
-                                            None => msg.slot() + 1,
-                                        });
-                                    }
-                                }
-                            }
-
                             return Ok(Some(((index, name, message), state)));
                         }
                         Some(Err(error)) => {
@@ -316,9 +305,9 @@ async fn subscribe(
                     match Subscription::new(
                         name,
                         state.1.clone(),
-                        state.3.disable_accounts,
-                        state.3.parser,
-                        state.5,
+                        state.2.disable_accounts,
+                        state.2.parser,
+                        state.3.load(),
                         index,
                     )
                     .await
@@ -360,16 +349,16 @@ impl fmt::Debug for Subscriptions {
 impl Subscriptions {
     pub async fn new(
         sources: Vec<ConfigChannelSource>,
-        replay_for_storage: bool,
-        replay_from_slot: Option<Slot>,
+        global_replay_from_slot: GlobalReplayFromSlot,
     ) -> anyhow::Result<Self> {
-        let streams = try_join_all(sources.into_iter().enumerate().map(
-            |(index, config)| async move {
-                subscribe(config, replay_for_storage, replay_from_slot, index)
+        let streams = try_join_all(sources.into_iter().enumerate().map(|(index, config)| {
+            let global_replay_from_slot = global_replay_from_slot.clone();
+            async move {
+                subscribe(config, global_replay_from_slot, index)
                     .await
                     .context("failed to subscribe")
-            },
-        ))
+            }
+        }))
         .await?;
 
         Ok(Self {
