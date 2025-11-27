@@ -680,7 +680,7 @@ impl Sender {
                     if msg.status() == SlotStatus::SlotFinalized {
                         clean_after_finalized = true;
                         self.slot_finalized = slot;
-                        self.global_replay_from_slot.store(slot);
+                        self.global_replay_from_slot.store(slot + 1);
                         if let Some(shared) = self.finalized.as_mut() {
                             if let Some(mut slot_info) = self.slots.remove(&slot) {
                                 for message in slot_info.get_messages_owned() {
