@@ -67,6 +67,11 @@ tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json
 
 [dev-dependencies]
 const-hex = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "channel_ring"
+harness = false
 
 [build-dependencies]
 anyhow = { workspace = true }

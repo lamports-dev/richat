@@ -764,7 +764,7 @@ impl Sender {
 }
 
 #[derive(Debug)]
-struct SenderShared {
+pub struct SenderShared {
     shared: Arc<SharedChannel>,
     head: u64,
     tail: u64,
@@ -773,7 +773,7 @@ struct SenderShared {
 }
 
 impl SenderShared {
-    fn new(shared: &Arc<SharedChannel>, max_messages: usize, max_bytes: usize) -> Self {
+    pub fn new(shared: &Arc<SharedChannel>, max_messages: usize, max_bytes: usize) -> Self {
         Self {
             shared: Arc::clone(shared),
             head: max_messages as u64 + 1,
@@ -783,7 +783,7 @@ impl SenderShared {
         }
     }
 
-    fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
+    pub fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
         let mut removed_max_slot = None;
 
         let mut slots_lock = self.shared.slots_lock();
@@ -826,9 +826,9 @@ impl SenderShared {
         self.shared.tail.store(self.tail, Ordering::Relaxed);
 
         // update slot head info
-        slots_lock
-            .entry(slot)
-            .or_insert_with(|| SlotHead { head: self.tail });
+            slots_lock
+                .entry(slot)
+                .or_insert_with(|| SlotHead { head: self.tail });
 
         // remove not-complete slots
         if let Some(remove_upto) = removed_max_slot {
@@ -963,7 +963,7 @@ impl fmt::Debug for SharedChannel {
 }
 
 impl SharedChannel {
-    fn new(max_messages: usize, richat: bool) -> Self {
+    pub fn new(max_messages: usize, richat: bool) -> Self {
         let mut buffer = Vec::with_capacity(max_messages);
         for i in 0..max_messages {
             buffer.push(Mutex::new(Item {
@@ -981,6 +981,11 @@ impl SharedChannel {
             slots: Mutex::default(),
             wakers: richat.then_some(Mutex::default()),
         }
+    }
+
+    #[inline]
+    pub fn tail(&self) -> u64 {
+        self.tail.load(Ordering::Relaxed)
     }
 
     pub fn get_head_by_replay_index(&self, replay_index: u64) -> Option<u64> {
