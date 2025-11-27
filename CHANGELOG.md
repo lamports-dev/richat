@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-11-27
+
+- richat-v7.1.2
+
+### Fixes
+
+- richat: use global from_slot in sources ([#162](https://github.com/lamports-dev/richat/pull/162))
+
 ## 2025-11-18
 
 - richat-v7.1.1

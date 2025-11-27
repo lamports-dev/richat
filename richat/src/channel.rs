@@ -46,6 +46,31 @@ use {
 };
 
 #[derive(Debug, Clone)]
+pub struct GlobalReplayFromSlot {
+    value: Arc<Mutex<Option<Slot>>>,
+}
+
+impl GlobalReplayFromSlot {
+    fn new(value: Option<Slot>) -> Self {
+        Self {
+            value: Arc::new(Mutex::new(value)),
+        }
+    }
+
+    pub fn load(&self) -> Option<Slot> {
+        *mutex_lock(&self.value)
+    }
+
+    pub fn store(&self, slot: Slot) {
+        let mut locked = mutex_lock(&self.value);
+        *locked = Some(match *locked {
+            Some(value) => value.max(slot),
+            None => slot,
+        });
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ParsedMessage {
     Slot(Arc<MessageSlot>),
     Account(Arc<MessageAccount>),
@@ -240,16 +265,13 @@ impl Messages {
         Ok((messages, threads))
     }
 
-    pub fn to_sender(&mut self) -> anyhow::Result<(Sender, bool, Option<Slot>)> {
+    pub fn to_sender(&mut self) -> anyhow::Result<(Sender, GlobalReplayFromSlot)> {
         let mut slot_finalized = 0;
         let hasher = RandomState::default();
-        let mut replay_for_storage = false;
         let mut replay_from_slot = None;
         let mut replay = BTreeMap::new();
         let mut index = 0;
         if let Some(storage) = &self.storage {
-            replay_for_storage = true;
-
             let slots = storage.read_slots()?;
 
             for (slot, item) in slots.iter() {
@@ -293,6 +315,7 @@ impl Messages {
         let replay = Arc::new(Mutex::new(replay));
         self.replay_info = Some(Arc::clone(&replay));
 
+        let global_replay_from_slot = GlobalReplayFromSlot::new(replay_from_slot);
         let sender = Sender {
             slots: BTreeMap::new(),
             dedup: BTreeMap::new(),
@@ -307,13 +330,14 @@ impl Messages {
                 .map(|shared| SenderShared::new(shared, self.max_messages, self.max_bytes)),
             slot_confirmed: 0,
             slot_finalized,
+            global_replay_from_slot: global_replay_from_slot.clone(),
             storage: self.storage.clone(),
             storage_max_slots: self.storage_max_slots,
             hasher,
             replay,
             index,
         };
-        Ok((sender, replay_for_storage, replay_from_slot))
+        Ok((sender, global_replay_from_slot))
     }
 
     pub fn to_receiver(&self) -> ReceiverSync {
@@ -452,6 +476,7 @@ pub struct Sender {
     finalized: Option<SenderShared>,
     slot_confirmed: Slot,
     slot_finalized: Slot,
+    global_replay_from_slot: GlobalReplayFromSlot,
     storage: Option<Storage>,
     storage_max_slots: usize,
     index: u64,
@@ -655,6 +680,7 @@ impl Sender {
                     if msg.status() == SlotStatus::SlotFinalized {
                         clean_after_finalized = true;
                         self.slot_finalized = slot;
+                        self.global_replay_from_slot.store(slot);
                         if let Some(shared) = self.finalized.as_mut() {
                             if let Some(mut slot_info) = self.slots.remove(&slot) {
                                 for message in slot_info.get_messages_owned() {
