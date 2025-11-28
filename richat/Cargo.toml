@@ -64,9 +64,15 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
+parking_lot = { workspace = true }
 
 [dev-dependencies]
 const-hex = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "channel_ring"
+harness = false
 
 [build-dependencies]
 anyhow = { workspace = true }
