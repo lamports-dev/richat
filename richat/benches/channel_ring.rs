@@ -1,5 +1,5 @@
 use {
-    criterion::{criterion_group, criterion_main, BatchSize, Criterion},
+    criterion::{BatchSize, Criterion, criterion_group, criterion_main},
     prost_types::Timestamp,
     richat::channel::{ParsedMessage, SenderShared, SharedChannel},
     richat_filter::message::MessageSlot,

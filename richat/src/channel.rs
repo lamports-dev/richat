@@ -826,9 +826,9 @@ impl SenderShared {
         self.shared.tail.store(self.tail, Ordering::Relaxed);
 
         // update slot head info
-            slots_lock
-                .entry(slot)
-                .or_insert_with(|| SlotHead { head: self.tail });
+        slots_lock
+            .entry(slot)
+            .or_insert_with(|| SlotHead { head: self.tail });
 
         // remove not-complete slots
         if let Some(remove_upto) = removed_max_slot {
