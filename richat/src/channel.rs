@@ -6,6 +6,7 @@ use {
     ::metrics::{Gauge, counter, gauge},
     foldhash::quality::RandomState,
     futures::stream::{Stream, StreamExt},
+    parking_lot::{Mutex, MutexGuard},
     prost::{
         bytes::Buf,
         encoding::{decode_varint, encode_varint, encoded_len_varint},
@@ -36,7 +37,8 @@ use {
         hash::{BuildHasher, Hash, Hasher},
         pin::Pin,
         sync::{
-            Arc, Mutex, MutexGuard,
+            Arc,
+            Mutex as StdMutex,
             atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
@@ -47,13 +49,13 @@ use {
 
 #[derive(Debug, Clone)]
 pub struct GlobalReplayFromSlot {
-    value: Arc<Mutex<Option<Slot>>>,
+    value: Arc<StdMutex<Option<Slot>>>,
 }
 
 impl GlobalReplayFromSlot {
     fn new(value: Option<Slot>) -> Self {
         Self {
-            value: Arc::new(Mutex::new(value)),
+            value: Arc::new(StdMutex::new(value)),
         }
     }
 
@@ -222,7 +224,7 @@ pub struct Messages {
     parser: MessageParserEncoding,
     storage: Option<Storage>,
     storage_max_slots: usize,
-    replay_info: Option<Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>>,
+    replay_info: Option<Arc<StdMutex<BTreeMap<Slot, ReplayInfo>>>>,
 }
 
 impl Messages {
@@ -312,7 +314,7 @@ impl Messages {
             }
         }
 
-        let replay = Arc::new(Mutex::new(replay));
+        let replay = Arc::new(StdMutex::new(replay));
         self.replay_info = Some(Arc::clone(&replay));
 
         let global_replay_from_slot = GlobalReplayFromSlot::new(replay_from_slot);
@@ -481,7 +483,7 @@ pub struct Sender {
     storage_max_slots: usize,
     index: u64,
     hasher: RandomState,
-    replay: Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>,
+    replay: Arc<StdMutex<BTreeMap<Slot, ReplayInfo>>>,
 }
 
 impl Sender {
@@ -786,8 +788,6 @@ impl SenderShared {
     pub fn push(&mut self, slot: Slot, message: ParsedMessage, replay_index: Option<u64>) {
         let mut removed_max_slot = None;
 
-        let mut slots_lock = self.shared.slots_lock();
-
         // bump current tail
         self.tail = self.tail.wrapping_add(1);
 
@@ -824,6 +824,8 @@ impl SenderShared {
 
         // store new position for receivers
         self.shared.tail.store(self.tail, Ordering::Relaxed);
+
+        let mut slots_lock = self.shared.slots_lock();
 
         // update slot head info
         slots_lock
@@ -1043,17 +1045,17 @@ impl SharedChannel {
 
     #[inline]
     fn buffer_idx(&self, idx: usize) -> MutexGuard<'_, Item> {
-        mutex_lock(&self.buffer[idx])
+        self.buffer[idx].lock()
     }
 
     #[inline]
     fn slots_lock(&self) -> MutexGuard<'_, BTreeMap<Slot, SlotHead>> {
-        mutex_lock(&self.slots)
+        self.slots.lock()
     }
 
     #[inline]
     fn wakers_lock(&self) -> Option<MutexGuard<'_, Vec<Waker>>> {
-        self.wakers.as_ref().map(mutex_lock)
+        self.wakers.as_ref().map(|wakers| wakers.lock())
     }
 }
 
