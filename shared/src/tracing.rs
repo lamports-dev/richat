@@ -1,16 +1,32 @@
 use {
+    serde::Deserialize,
     std::io::{self, IsTerminal},
+    thiserror::Error,
     tracing::Subscriber,
     tracing_subscriber::{
-        filter::{EnvFilter, LevelFilter},
+        filter::{EnvFilter, FromEnvError, LevelFilter},
         fmt::layer,
         layer::{Layer, SubscriberExt},
         registry::LookupSpan,
-        util::SubscriberInitExt,
+        util::{SubscriberInitExt, TryInitError},
     },
 };
 
-pub fn setup(json: bool) -> anyhow::Result<()> {
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigTracing {
+    pub json: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum TracingSetupError {
+    #[error(transparent)]
+    FromEnv(#[from] FromEnvError),
+    #[error(transparent)]
+    Init(#[from] TryInitError),
+}
+
+pub fn setup(json: bool) -> Result<(), TracingSetupError> {
     let env = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env()?;

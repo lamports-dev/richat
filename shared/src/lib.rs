@@ -4,6 +4,8 @@ pub mod config;
 pub mod five8;
 #[cfg(feature = "jsonrpc")]
 pub mod jsonrpc;
+#[cfg(feature = "tracing")]
+pub mod tracing;
 #[cfg(feature = "transports")]
 pub mod transports;
 #[cfg(feature = "version")]

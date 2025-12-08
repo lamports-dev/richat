@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-12-08
+
+- richat-shared-v7.1.0
+
+### Features
+
+- shared: add tracing feature ([#166](https://github.com/lamports-dev/richat/pull/166))
+
 ## 2025-11-27
 
 - richat-v7.1.2

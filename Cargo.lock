@@ -3797,7 +3797,6 @@ dependencies = [
  "tonic-build 0.14.2",
  "tonic-prost",
  "tracing",
- "tracing-subscriber",
  "vergen",
 ]
 
@@ -3833,7 +3832,6 @@ dependencies = [
  "tokio-tungstenite 0.28.0",
  "tonic",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -3948,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "7.0.0"
+version = "7.1.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
@@ -3986,6 +3984,7 @@ dependencies = [
  "tonic-build 0.14.2",
  "tonic-prost",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
