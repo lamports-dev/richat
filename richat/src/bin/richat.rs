@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Setup logs
-    richat::log::setup(config.logs.json)?;
+    richat_shared::tracing::setup(config.logs.json)?;
     info!("version: {} / {}", VERSION.version, VERSION.git);
 
     // Shutdown channel/flag

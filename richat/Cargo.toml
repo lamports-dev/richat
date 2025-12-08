@@ -38,7 +38,7 @@ richat-client = { workspace = true }
 richat-filter = { workspace = true }
 richat-metrics = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true, features = ["jsonrpc"] }
+richat-shared = { workspace = true, features = ["jsonrpc", "tracing"] }
 rocksdb = { workspace = true }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
@@ -63,7 +63,6 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"] }
 
 [dev-dependencies]
 const-hex = { workspace = true }

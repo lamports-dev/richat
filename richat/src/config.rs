@@ -7,8 +7,11 @@ use {
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
     richat_filter::message::MessageParserEncoding,
     richat_metrics::ConfigMetrics,
-    richat_shared::config::{
-        ConfigTokio, deserialize_affinity, deserialize_humansize_usize, deserialize_num_str,
+    richat_shared::{
+        config::{
+            ConfigTokio, deserialize_affinity, deserialize_humansize_usize, deserialize_num_str,
+        },
+        tracing::ConfigTracing,
     },
     rocksdb::DBCompressionType,
     serde::{
@@ -29,7 +32,7 @@ use {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
-    pub logs: ConfigLogs,
+    pub logs: ConfigTracing,
     #[serde(default)]
     pub metrics: Option<ConfigMetrics>,
     pub channel: ConfigChannel,
@@ -49,12 +52,6 @@ impl Config {
             json5::from_str(&config).map_err(Into::into)
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct ConfigLogs {
-    pub json: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

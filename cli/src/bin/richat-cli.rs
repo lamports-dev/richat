@@ -4,16 +4,7 @@ use {
         pubsub::ArgsAppPubSub, stream_grpc::ArgsAppStreamGrpc, stream_richat::ArgsAppStreamRichat,
         track::ArgsAppTrack,
     },
-    std::{
-        io::{self, IsTerminal},
-        sync::atomic::{AtomicU64, Ordering},
-    },
-    tracing_subscriber::{
-        filter::{EnvFilter, LevelFilter},
-        fmt::layer,
-        layer::SubscriberExt,
-        util::SubscriberInitExt,
-    },
+    std::sync::atomic::{AtomicU64, Ordering},
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -42,21 +33,6 @@ enum ArgsAppSelect {
     Track(ArgsAppTrack),
 }
 
-fn setup_logs() -> anyhow::Result<()> {
-    let env = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env()?;
-
-    let is_atty = io::stdout().is_terminal() && io::stderr().is_terminal();
-    let io_layer = layer().with_ansi(is_atty).with_line_number(true);
-
-    tracing_subscriber::registry()
-        .with(env)
-        .with(io_layer)
-        .try_init()
-        .map_err(Into::into)
-}
-
 async fn main2() -> anyhow::Result<()> {
     anyhow::ensure!(
         rustls::crypto::aws_lc_rs::default_provider()
@@ -65,7 +41,7 @@ async fn main2() -> anyhow::Result<()> {
         "failed to call CryptoProvider::install_default()"
     );
 
-    setup_logs()?;
+    richat_shared::tracing::setup(false)?;
 
     let args = Args::parse();
     match args.action {
