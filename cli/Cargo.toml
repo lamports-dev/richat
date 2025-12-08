@@ -23,7 +23,7 @@ prost = { workspace = true }
 richat-client = { workspace = true }
 richat-plugin-agave = { workspace = true }
 richat-proto = { workspace = true }
-richat-shared = { workspace = true }
+richat-shared = { workspace = true, features = ["tracing"] }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
