@@ -26,13 +26,10 @@ where
     C: DeserializeOwned,
 {
     let config = fs::read_to_string(&file)?;
-    if matches!(
-        file.as_ref().extension().and_then(|e| e.to_str()),
-        Some("yml") | Some("yaml")
-    ) {
-        serde_yaml::from_str(&config).map_err(Into::into)
-    } else {
-        json5::from_str(&config).map_err(Into::into)
+    match file.as_ref().extension().and_then(|e| e.to_str()) {
+        Some("yml") | Some("yaml") => serde_yaml::from_str(&config).map_err(Into::into),
+        Some("toml") => toml::from_str(&config).map_err(Into::into),
+        _ => json5::from_str(&config).map_err(Into::into),
     }
 }
 
