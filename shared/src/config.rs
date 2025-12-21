@@ -6,19 +6,35 @@ use {
     rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     serde::{
         Deserialize,
-        de::{self, Deserializer},
+        de::{self, DeserializeOwned, Deserializer},
     },
     solana_sdk::{pubkey::Pubkey, signature::Signature},
     std::{
         collections::HashSet,
         fmt::Display,
         fs, io,
-        path::PathBuf,
+        path::{Path, PathBuf},
         str::FromStr,
         sync::atomic::{AtomicU64, Ordering},
     },
     thiserror::Error,
 };
+
+pub fn load_from_file<P, C>(file: P) -> anyhow::Result<C>
+where
+    P: AsRef<Path>,
+    C: DeserializeOwned,
+{
+    let config = fs::read_to_string(&file)?;
+    if matches!(
+        file.as_ref().extension().and_then(|e| e.to_str()),
+        Some("yml") | Some("yaml")
+    ) {
+        serde_yaml::from_str(&config).map_err(Into::into)
+    } else {
+        json5::from_str(&config).map_err(Into::into)
+    }
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]

@@ -22,6 +22,7 @@ http-body-util = { workspace = true, optional = true }
 human-size = { workspace = true, optional = true }
 humantime-serde = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
+json5 = { workspace = true, optional = true }
 jsonrpc-core = { workspace = true, optional = true }
 jsonrpsee-types = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
@@ -36,6 +37,7 @@ rustls = { workspace = true, features = ["std", "tls12"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-sdk = { workspace = true, optional = true }
@@ -66,11 +68,13 @@ config = [
     "dep:base64",
     "dep:bs58",
     "dep:human-size",
+    "dep:json5",
     "dep:rcgen",
     "dep:regex",
     "dep:rustls",
     "dep:rustls-pemfile",
     "dep:serde",
+    "dep:serde_yaml",
     "dep:solana-sdk",
     "dep:thiserror",
     "dep:tokio",
