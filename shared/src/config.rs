@@ -20,7 +20,19 @@ use {
     thiserror::Error,
 };
 
-pub fn load_from_file<P, C>(file: P) -> anyhow::Result<C>
+#[derive(Debug, Error)]
+pub enum ConfigLoadError {
+    #[error("failed to read config: {0}")]
+    Read(#[from] io::Error),
+    #[error("failed to parse YAML: {0}")]
+    Yaml(#[from] serde_yaml::Error),
+    #[error("failed to parse TOML: {0}")]
+    Toml(#[from] toml::de::Error),
+    #[error("failed to parse JSON: {0}")]
+    Json(#[from] json5::Error),
+}
+
+pub fn load_from_file<P, C>(file: P) -> Result<C, ConfigLoadError>
 where
     P: AsRef<Path>,
     C: DeserializeOwned,
