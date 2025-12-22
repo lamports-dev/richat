@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     );
 
     let args = Args::parse();
-    let config = Config::load_from_file(&args.config)
+    let config: Config = richat_shared::config::load_from_file(&args.config)
         .with_context(|| format!("failed to load config from {}", args.config))?;
     if args.check {
         info!("Config is OK!");

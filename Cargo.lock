@@ -3757,7 +3757,6 @@ dependencies = [
  "humantime-serde",
  "hyper",
  "hyper-util",
- "json5",
  "jsonrpsee-types",
  "maplit",
  "metrics",
@@ -3776,7 +3775,6 @@ dependencies = [
  "rustls 0.23.32",
  "serde",
  "serde_json",
- "serde_yaml",
  "signal-hook",
  "smallvec",
  "solana-account",
@@ -3946,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "7.1.0"
+version = "7.2.0"
 dependencies = [
  "affinity-linux",
  "anyhow",
@@ -3959,6 +3957,7 @@ dependencies = [
  "human-size",
  "humantime-serde",
  "hyper",
+ "json5",
  "jsonrpc-core",
  "jsonrpsee-types",
  "metrics",
@@ -3974,12 +3973,14 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "serde_yaml",
  "socket2",
  "solana-rpc-client-api",
  "solana-sdk",
  "thiserror 2.0.16",
  "tokio",
  "tokio-util",
+ "toml",
  "tonic",
  "tonic-build 0.14.2",
  "tonic-prost",
@@ -6887,9 +6888,9 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
-version = "0.7.2"
+version = "0.7.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32f1085dec27c2b6632b04c80b3bb1b4300d6495d1e129693bdda7d91e72eec1"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
 dependencies = [
  "serde_core",
 ]
@@ -6915,16 +6916,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3effe7c0e86fdff4f69cdd2ccc1b96f933e24811c5441d44904e8683e27184b"
 dependencies = [
  "indexmap",
- "toml_datetime 0.7.2",
+ "toml_datetime 0.7.5+spec-1.1.0",
  "toml_parser",
  "winnow",
 ]
 
 [[package]]
 name = "toml_parser"
-version = "1.0.3"
+version = "1.0.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cf893c33be71572e0e9aa6dd15e6677937abd686b066eac3f8cd3531688a627"
+checksum = "a3198b4b0a8e11f09dd03e133c0280504d0801269e9afa46362ffde1cbeebf44"
 dependencies = [
  "winnow",
 ]
