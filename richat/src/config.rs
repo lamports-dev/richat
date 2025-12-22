@@ -18,12 +18,7 @@ use {
         Deserialize,
         de::{self, Deserializer},
     },
-    std::{
-        collections::HashSet,
-        fs,
-        path::{Path, PathBuf},
-        thread::Builder,
-    },
+    std::{collections::HashSet, path::PathBuf, thread::Builder},
     tokio::time::{Duration, sleep},
     tokio_util::sync::CancellationToken,
 };
@@ -38,20 +33,6 @@ pub struct Config {
     pub channel: ConfigChannel,
     #[serde(default)]
     pub apps: ConfigApps,
-}
-
-impl Config {
-    pub fn load_from_file<P: AsRef<Path>>(file: P) -> anyhow::Result<Self> {
-        let config = fs::read_to_string(&file)?;
-        if matches!(
-            file.as_ref().extension().and_then(|e| e.to_str()),
-            Some("yml") | Some("yaml")
-        ) {
-            serde_yaml::from_str(&config).map_err(Into::into)
-        } else {
-            json5::from_str(&config).map_err(Into::into)
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

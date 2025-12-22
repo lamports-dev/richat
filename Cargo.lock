@@ -3757,7 +3757,6 @@ dependencies = [
  "humantime-serde",
  "hyper",
  "hyper-util",
- "json5",
  "jsonrpsee-types",
  "maplit",
  "metrics",
@@ -3776,7 +3775,6 @@ dependencies = [
  "rustls 0.23.32",
  "serde",
  "serde_json",
- "serde_yaml",
  "signal-hook",
  "smallvec",
  "solana-account",
@@ -3946,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "7.1.0"
+version = "7.2.0"
 dependencies = [
  "affinity-linux",
  "anyhow",

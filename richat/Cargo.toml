@@ -24,7 +24,6 @@ http-body-util = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-json5 = { workspace = true }
 jsonrpsee-types = { workspace = true }
 maplit = { workspace = true }
 metrics = { workspace = true }
@@ -43,7 +42,6 @@ rocksdb = { workspace = true }
 rustls = { workspace = true, features = ["aws_lc_rs"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
-serde_yaml = { workspace = true }
 signal-hook = { workspace = true }
 smallvec = { workspace = true }
 solana-account = { workspace = true }

@@ -84,9 +84,9 @@ impl ProtobufMessage<'_> {
             update_oneof: Some(match self {
                 Self::Account { slot, account } => UpdateOneof::Account(SubscribeUpdateAccount {
                     account: Some(SubscribeUpdateAccountInfo {
-                        pubkey: account.pubkey.as_ref().to_vec(),
+                        pubkey: account.pubkey.to_vec(),
                         lamports: account.lamports,
-                        owner: account.owner.as_ref().to_vec(),
+                        owner: account.owner.to_vec(),
                         executable: account.executable,
                         rent_epoch: account.rent_epoch,
                         data: account.data.to_vec(),
@@ -155,7 +155,7 @@ impl ProtobufMessage<'_> {
                     slot: entry.slot,
                     index: entry.index as u64,
                     num_hashes: entry.num_hashes,
-                    hash: entry.hash.as_ref().to_vec(),
+                    hash: entry.hash.to_vec(),
                     executed_transaction_count: entry.executed_transaction_count,
                     starting_transaction_index: entry.starting_transaction_index as u64,
                 }),
