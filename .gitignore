@@ -3,6 +3,7 @@ db
 plugin-agave/config.dev.json
 plugin-agave/fixtures/blocks
 richat/config.dev.yml
+.local
 
 # Solana
 test-ledger
