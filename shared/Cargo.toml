@@ -39,8 +39,10 @@ serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
+solana-clock = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
-solana-sdk = { workspace = true, optional = true }
+solana-signature = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
 tokio-util = { workspace = true }
@@ -76,13 +78,19 @@ config = [
     "dep:rustls-pemfile",
     "dep:serde",
     "dep:serde_yaml",
-    "dep:solana-sdk",
+    "dep:solana-clock",
+    "dep:solana-pubkey",
+    "dep:solana-signature",
     "dep:thiserror",
     "dep:tokio",
     "dep:toml",
     "five8",
 ]
-five8 = ["dep:five8", "dep:solana-sdk"]
+five8 = [
+    "dep:five8",
+    "dep:solana-pubkey",
+    "dep:solana-signature",
+]
 jsonrpc = [
     "dep:anyhow",
     "dep:futures",

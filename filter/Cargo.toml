@@ -21,8 +21,10 @@ richat-shared = { workspace = true, features = ["config", "five8"] }
 serde = { workspace = true, features = ["derive"] }
 smallvec = { workspace = true }
 solana-account = { workspace = true }
+solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
-solana-sdk = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
 solana-transaction-status = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }

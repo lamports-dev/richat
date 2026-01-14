@@ -10,7 +10,8 @@ use {
     },
     prost_types::Timestamp,
     richat_proto::{geyser::subscribe_update::UpdateOneof, solana::storage::confirmed_block},
-    solana_sdk::{clock::Slot, pubkey::Pubkey},
+    solana_clock::Slot,
+    solana_pubkey::Pubkey,
     std::borrow::Cow,
 };
 

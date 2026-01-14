@@ -22,7 +22,7 @@ use {
     },
     richat_shared::config::deserialize_humansize_usize,
     serde::Deserialize,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{
         collections::{BTreeMap, HashMap},
         sync::Arc,

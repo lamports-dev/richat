@@ -7,17 +7,16 @@ use {
         encoding::{self, DecodeContext, WireType, encoded_len_varint, key_len},
     },
     solana_account_decoder::parse_token::UiTokenAmount,
-    solana_sdk::{
-        clock::Slot,
-        message::{
-            MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction,
-            v0::MessageAddressTableLookup,
-        },
-        pubkey::{PUBKEY_BYTES, Pubkey},
-        signature::{SIGNATURE_BYTES, Signature},
-        transaction::{TransactionError, VersionedTransaction},
+    solana_clock::Slot,
+    solana_message::{
+        MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction,
+        v0::MessageAddressTableLookup,
     },
+    solana_pubkey::{PUBKEY_BYTES, Pubkey},
+    solana_signature::{SIGNATURE_BYTES, Signature},
+    solana_transaction::versioned::VersionedTransaction,
     solana_transaction_context::TransactionReturnData,
+    solana_transaction_error::TransactionError,
     solana_transaction_status::{
         InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
     },

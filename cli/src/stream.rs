@@ -13,7 +13,9 @@ use {
         },
     },
     serde_json::{Value, json},
-    solana_sdk::{hash::Hash, pubkey::Pubkey, signature::Signature},
+    solana_hash::Hash,
+    solana_pubkey::Pubkey,
+    solana_signature::Signature,
     solana_transaction_status::UiTransactionEncoding,
     std::{
         sync::Arc,

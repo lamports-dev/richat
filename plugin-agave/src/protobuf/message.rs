@@ -6,7 +6,7 @@ use {
     },
     prost::encoding::message,
     prost_types::Timestamp,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::time::SystemTime,
 };
 

@@ -36,11 +36,9 @@ use {
     },
     richat_shared::{jsonrpc::helpers::X_SUBSCRIPTION_ID, mutex_lock, transports::RecvError},
     smallvec::SmallVec,
+    solana_clock::{MAX_PROCESSING_AGE, Slot},
     solana_commitment_config::CommitmentLevel,
-    solana_sdk::{
-        clock::{MAX_PROCESSING_AGE, Slot},
-        pubkey::Pubkey,
-    },
+    solana_pubkey::Pubkey,
     std::{
         borrow::Cow,
         collections::{HashSet, LinkedList},

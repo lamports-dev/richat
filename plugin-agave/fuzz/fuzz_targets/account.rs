@@ -4,12 +4,10 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     arbitrary::Arbitrary,
     richat_plugin_agave::protobuf::ProtobufMessage,
-    solana_sdk::{
-        message::{LegacyMessage, Message, SanitizedMessage},
-        pubkey::PUBKEY_BYTES,
-        signature::SIGNATURE_BYTES,
-        transaction::SanitizedTransaction,
-    },
+    solana_message::{LegacyMessage, Message, SanitizedMessage},
+    solana_pubkey::PUBKEY_BYTES,
+    solana_signature::SIGNATURE_BYTES,
+    solana_transaction::sanitized::SanitizedTransaction,
     std::{collections::HashSet, time::SystemTime},
 };
 

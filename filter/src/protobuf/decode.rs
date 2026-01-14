@@ -5,11 +5,9 @@ use {
         encoding::{self, DecodeContext, WireType, check_wire_type, decode_key, decode_varint},
     },
     prost_types::Timestamp,
-    solana_sdk::{
-        clock::{Epoch, Slot},
-        pubkey::{PUBKEY_BYTES, Pubkey},
-        signature::SIGNATURE_BYTES,
-    },
+    solana_clock::{Epoch, Slot},
+    solana_pubkey::{PUBKEY_BYTES, Pubkey},
+    solana_signature::SIGNATURE_BYTES,
     std::{borrow::Cow, ops::Range},
 };
 

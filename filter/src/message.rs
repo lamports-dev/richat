@@ -16,11 +16,9 @@ use {
     },
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
-    solana_sdk::{
-        clock::{Epoch, Slot},
-        pubkey::{PUBKEY_BYTES, Pubkey},
-        signature::{SIGNATURE_BYTES, Signature},
-    },
+    solana_clock::{Epoch, Slot},
+    solana_pubkey::{PUBKEY_BYTES, Pubkey},
+    solana_signature::{SIGNATURE_BYTES, Signature},
     solana_transaction_status::{
         ConfirmedBlock, TransactionWithStatusMeta, VersionedTransactionWithStatusMeta,
     },

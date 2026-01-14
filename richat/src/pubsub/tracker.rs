@@ -21,13 +21,15 @@ use {
     richat_proto::{convert_from, geyser::SlotStatus},
     richat_shared::five8::{pubkey_encode, signature_encode},
     solana_account_decoder::encode_ui_account,
+    solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntMap,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
     },
-    solana_sdk::{clock::Slot, signature::Signature, transaction::TransactionError},
+    solana_signature::Signature,
+    solana_transaction_error::TransactionError,
     std::{
         collections::{BTreeMap, HashMap, HashSet, hash_map::Entry as HashMapEntry},
         sync::Arc,

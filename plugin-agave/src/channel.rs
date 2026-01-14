@@ -17,7 +17,7 @@ use {
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     },
     smallvec::SmallVec,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{
         collections::BTreeMap,
         fmt,

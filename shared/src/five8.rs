@@ -1,9 +1,7 @@
 use {
     five8::DecodeError,
-    solana_sdk::{
-        pubkey::{ParsePubkeyError, Pubkey},
-        signature::{ParseSignatureError, Signature},
-    },
+    solana_pubkey::{ParsePubkeyError, Pubkey},
+    solana_signature::{ParseSignatureError, Signature},
 };
 
 pub fn pubkey_decode<I: AsRef<[u8]>>(encoded: I) -> Result<Pubkey, ParsePubkeyError> {
