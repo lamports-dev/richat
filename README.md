@@ -35,11 +35,7 @@ Then create a config with your details following the example [config.yml](./roch
 ./target/release/richat --config path/to/your/config.yml
 ```
 
-
 ## Sponsored by
-
-
-
 
 ## Blueprint
 
@@ -177,6 +173,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `Allnodes` — https://www.allnodes.com/
 - `Blockdaemon` - https://blockdaemon.com/
 - `Chainstack` — https://chainstack.com/
+- `Corvus Labs` — https://corvus-labs.io/
 - `ERPC` — https://erpc.global/en/
 - `Gadfly Node` — https://gadflynode.com/
 - `Geeks Labs` — https://discord.gg/geekslabs
