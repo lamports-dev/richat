@@ -30,14 +30,14 @@ const fn slot_status_as_dead_error(status: &SlotStatus) -> Option<&String> {
 
 #[derive(Debug)]
 pub struct Slot<'a> {
-    slot: solana_sdk::clock::Slot,
+    slot: solana_clock::Slot,
     parent: Option<u64>,
     status: &'a SlotStatus,
 }
 
 impl<'a> Slot<'a> {
     pub const fn new(
-        slot: solana_sdk::clock::Slot,
+        slot: solana_clock::Slot,
         parent: Option<u64>,
         status: &'a SlotStatus,
     ) -> Self {

@@ -9,12 +9,10 @@ use {
     richat_filter::message::{MessageBlock, MessageTransaction},
     richat_shared::five8::signature_encode,
     serde::Serialize,
+    solana_clock::Slot,
+    solana_message::{VersionedMessage, v0::LoadedMessage},
     solana_rpc_client_api::response::{Response as RpcResponse, RpcResponseContext},
-    solana_sdk::{
-        clock::Slot,
-        message::{VersionedMessage, v0::LoadedMessage},
-        transaction::TransactionVersion,
-    },
+    solana_transaction::versioned::TransactionVersion,
     solana_transaction_status::{
         BlockEncodingOptions, EncodeError, EncodedTransaction, EncodedTransactionWithStatusMeta,
         TransactionDetails, TransactionStatusMeta, UiAccountsList, UiConfirmedBlock,

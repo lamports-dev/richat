@@ -18,6 +18,7 @@ use {
     solana_account::ReadableAccount,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
     solana_commitment_config::{CommitmentConfig, CommitmentLevel},
+    solana_pubkey::Pubkey,
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
@@ -26,7 +27,8 @@ use {
         },
         filter::RpcFilterType,
     },
-    solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::TransactionError},
+    solana_signature::Signature,
+    solana_transaction_error::TransactionError,
     solana_transaction_status::{BlockEncodingOptions, TransactionDetails, UiTransactionEncoding},
     spl_token_2022_interface::{
         generic_token_account::GenericTokenAccount, state::Account as SplToken2022Account,

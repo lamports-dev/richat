@@ -6,7 +6,7 @@ use {
         bytes::{Buf, BufMut},
         encoding::{self, DecodeContext, WireType},
     },
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::ops::Deref,
 };
 

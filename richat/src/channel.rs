@@ -24,9 +24,11 @@ use {
     },
     smallvec::SmallVec,
     solana_account::ReadableAccount,
+    solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntSet,
-    solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
+    solana_pubkey::Pubkey,
+    solana_signature::Signature,
     std::{
         collections::{
             BTreeMap, HashMap, HashSet, btree_map::Entry as BTreeMapEntry,

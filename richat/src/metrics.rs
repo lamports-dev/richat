@@ -4,7 +4,7 @@ use {
     metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle},
     richat_filter::filter::FilteredUpdateType,
     richat_metrics::ConfigMetrics,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{borrow::Cow, future::Future},
     tokio::{
         task::JoinError,

@@ -1,6 +1,7 @@
 use {
     richat_filter::message::MessageTransaction,
-    solana_sdk::{pubkey::Pubkey, signature::Signature},
+    solana_pubkey::Pubkey,
+    solana_signature::Signature,
     std::{
         collections::HashSet,
         hash::{Hash, Hasher},

@@ -25,7 +25,7 @@ use {
         pki_types::{CertificateDer, ServerName, UnixTime},
     },
     serde::Deserialize,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{
         collections::HashMap,
         fmt,

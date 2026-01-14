@@ -15,7 +15,7 @@ use {
     log::error,
     richat_metrics::{MaybeRecorder, gauge},
     richat_shared::transports::{grpc::GrpcServer, quic::QuicServer},
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{fmt, sync::Arc, time::Duration},
     tokio::{runtime::Runtime, task::JoinError},
     tokio_util::sync::CancellationToken,

@@ -4,7 +4,7 @@ pub mod quic;
 use {
     futures::stream::BoxStream,
     richat_proto::richat::RichatFilter,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{
         future::Future,
         io::{self, IoSlice},

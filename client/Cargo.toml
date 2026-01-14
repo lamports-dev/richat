@@ -24,7 +24,7 @@ rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }
-solana-sdk = { workspace = true }
+solana-clock = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }

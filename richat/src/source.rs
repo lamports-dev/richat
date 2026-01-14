@@ -27,7 +27,7 @@ use {
         },
         richat::{GrpcSubscribeRequest, RichatFilter},
     },
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
     std::{
         collections::HashMap,
         fmt,

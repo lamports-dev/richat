@@ -22,10 +22,8 @@ use {
         de::{self, Deserializer},
     },
     solana_commitment_config::CommitmentLevel,
-    solana_sdk::{
-        pubkey::{ParsePubkeyError, Pubkey},
-        signature::{ParseSignatureError, Signature},
-    },
+    solana_pubkey::{ParsePubkeyError, Pubkey},
+    solana_signature::{ParseSignatureError, Signature},
     std::collections::{HashMap, HashSet},
     thiserror::Error,
 };

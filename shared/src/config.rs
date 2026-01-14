@@ -8,7 +8,8 @@ use {
         Deserialize,
         de::{self, DeserializeOwned, Deserializer},
     },
-    solana_sdk::{pubkey::Pubkey, signature::Signature},
+    solana_pubkey::Pubkey,
+    solana_signature::Signature,
     std::{
         collections::HashSet,
         fmt::Display,

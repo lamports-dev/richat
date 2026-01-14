@@ -14,6 +14,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+- richat: rm `solana-sdk` ([#174](https://github.com/lamports-dev/richat/pull/174))
+
 ### Breaking
 
 ## 2025-12-22

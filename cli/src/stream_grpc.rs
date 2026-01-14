@@ -24,7 +24,7 @@ use {
         },
         richat::SubscribeAccountsRequest,
     },
-    solana_sdk::pubkey::Pubkey,
+    solana_pubkey::Pubkey,
     std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, sync::Arc, time::Duration},
     tonic::service::Interceptor,
     tracing::info,
