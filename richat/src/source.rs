@@ -224,9 +224,10 @@ impl Subscription {
                 index,
             )
             .await?;
-            futures::stream::unfold(rx, |rx| async move {
-                rx.recv().await.ok().map(|msg| (msg, rx))
-            })
+            futures::stream::unfold(
+                rx,
+                |rx| async move { rx.recv().await.ok().map(|msg| (msg, rx)) },
+            )
             .boxed()
         };
 
