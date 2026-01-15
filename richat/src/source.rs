@@ -31,6 +31,7 @@ use {
         collections::HashMap,
         fmt,
         pin::Pin,
+        sync::{LazyLock, Mutex},
         task::{Context, Poll},
     },
     thiserror::Error,
@@ -145,7 +146,18 @@ impl Subscription {
         index: usize,
     ) -> anyhow::Result<Self> {
         let (subscription_config, mut config) = SubscriptionConfig::new(config);
-        let name: &'static str = config.name.clone().leak();
+        let name: &'static str = {
+            static NAMES: LazyLock<Mutex<HashMap<String, &'static str>>> =
+                LazyLock::new(|| Mutex::new(HashMap::new()));
+            let mut map = NAMES.lock().expect("poisoned");
+            if let Some(name) = map.get(&config.name) {
+                name
+            } else {
+                let name: &'static str = config.name.clone().leak();
+                map.insert(config.name.clone(), name);
+                name
+            }
+        };
 
         let stream = if let Some(reconnect) = config.reconnect.take() {
             let backoff = Backoff::new(reconnect);

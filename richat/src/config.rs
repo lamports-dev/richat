@@ -132,7 +132,7 @@ pub struct ConfigChannelSourceGeneral {
 }
 
 impl ConfigChannelSourceGeneral {
-    fn default_channel_size() -> usize {
+    const fn default_channel_size() -> usize {
         16_384
     }
 }
