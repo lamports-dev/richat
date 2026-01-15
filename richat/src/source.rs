@@ -28,7 +28,7 @@ use {
     },
     solana_clock::Slot,
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         fmt,
         pin::Pin,
         sync::{LazyLock, Mutex},
@@ -143,14 +143,14 @@ impl Subscription {
     ) -> anyhow::Result<Self> {
         let (subscription_config, mut config) = SubscriptionConfig::new(config);
         let name: &'static str = {
-            static NAMES: LazyLock<Mutex<HashMap<String, &'static str>>> =
-                LazyLock::new(|| Mutex::new(HashMap::new()));
-            let mut map = NAMES.lock().expect("poisoned");
-            if let Some(name) = map.get(&config.name) {
+            static NAMES: LazyLock<Mutex<HashSet<&'static str>>> =
+                LazyLock::new(|| Mutex::new(HashSet::new()));
+            let mut set = NAMES.lock().expect("poisoned");
+            if let Some(&name) = set.get(config.name.as_str()) {
                 name
             } else {
                 let name: &'static str = config.name.clone().leak();
-                map.insert(config.name.clone(), name);
+                set.insert(name);
                 name
             }
         };
