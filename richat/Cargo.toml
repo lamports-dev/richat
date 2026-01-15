@@ -25,6 +25,7 @@ humantime-serde = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 jsonrpsee-types = { workspace = true }
+kanal = { workspace = true }
 maplit = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }

@@ -9,7 +9,6 @@ use {
     anyhow::Context as _,
     futures::{
         future::try_join_all,
-        ready,
         stream::{BoxStream, Stream, StreamExt, try_unfold},
     },
     maplit::hashmap,
@@ -29,9 +28,10 @@ use {
     },
     solana_clock::Slot,
     std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         fmt,
         pin::Pin,
+        sync::{LazyLock, Mutex},
         task::{Context, Poll},
     },
     thiserror::Error,
@@ -89,48 +89,161 @@ impl SubscriptionConfig {
     }
 }
 
+#[derive(Debug)]
+struct Backoff {
+    current_interval: Duration,
+    initial_interval: Duration,
+    max_interval: Duration,
+    multiplier: f64,
+}
+
+impl Backoff {
+    const fn new(config: ConfigChannelSourceReconnect) -> Self {
+        Self {
+            current_interval: config.initial_interval,
+            initial_interval: config.initial_interval,
+            max_interval: config.max_interval,
+            multiplier: config.multiplier,
+        }
+    }
+
+    async fn sleep(&mut self) {
+        sleep(self.current_interval).await;
+        self.current_interval = self
+            .current_interval
+            .mul_f64(self.multiplier)
+            .min(self.max_interval);
+    }
+
+    const fn reset(&mut self) {
+        self.current_interval = self.initial_interval;
+    }
+}
+
+type SubscriptionMessage = Result<(usize, &'static str, Message), ReceiveError>;
+
 struct Subscription {
-    index: usize,
     name: &'static str,
-    parser: MessageParserEncoding,
-    stream: BoxStream<'static, Result<Vec<u8>, richat_client::error::ReceiveError>>,
+    stream: BoxStream<'static, SubscriptionMessage>,
 }
 
 impl fmt::Debug for Subscription {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Subscription").finish()
-    }
-}
-
-impl Stream for Subscription {
-    type Item = Result<(usize, &'static str, Message), ReceiveError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        loop {
-            let value = ready!(self.stream.poll_next_unpin(cx));
-            return Poll::Ready(match value {
-                Some(Ok(data)) => match Message::parse(data.into(), self.parser) {
-                    Ok(message) => Some(Ok((self.index, self.name, message))),
-                    Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
-                    Err(error) => Some(Err(error.into())),
-                },
-                Some(Err(error)) => Some(Err(error.into())),
-                None => None,
-            });
-        }
+        f.debug_struct("Subscription")
+            .field("name", &self.name)
+            .finish()
     }
 }
 
 impl Subscription {
     async fn new(
+        config: ConfigChannelSource,
+        global_replay_from_slot: GlobalReplayFromSlot,
+        index: usize,
+    ) -> anyhow::Result<Self> {
+        let (subscription_config, mut config) = SubscriptionConfig::new(config);
+        let name: &'static str = {
+            static NAMES: LazyLock<Mutex<HashSet<&'static str>>> =
+                LazyLock::new(|| Mutex::new(HashSet::new()));
+            let mut set = NAMES.lock().expect("poisoned");
+            if let Some(&name) = set.get(config.name.as_str()) {
+                name
+            } else {
+                let name: &'static str = config.name.clone().leak();
+                set.insert(name);
+                name
+            }
+        };
+
+        let stream = if let Some(reconnect) = config.reconnect.take() {
+            let backoff = Backoff::new(reconnect);
+            try_unfold(
+                (
+                    backoff,
+                    subscription_config,
+                    config,
+                    global_replay_from_slot,
+                    None,
+                ),
+                move |mut state: (
+                    Backoff,
+                    SubscriptionConfig,
+                    ConfigChannelSourceGeneral,
+                    GlobalReplayFromSlot,
+                    Option<kanal::AsyncReceiver<SubscriptionMessage>>,
+                )| async move {
+                    loop {
+                        if let Some(stream) = state.4.as_mut() {
+                            match stream.recv().await {
+                                Ok(Ok((index, name, message))) => {
+                                    return Ok(Some(((index, name, message), state)));
+                                }
+                                Ok(Err(error)) => {
+                                    error!(name, ?error, "failed to receive")
+                                }
+                                Err(_) => {
+                                    error!(name, "stream is finished")
+                                }
+                            }
+                            state.4 = None;
+                            state.0.sleep().await;
+                        } else {
+                            match Subscription::subscribe(
+                                name,
+                                state.1.clone(),
+                                state.2.disable_accounts,
+                                state.2.parser,
+                                state.2.channel_size,
+                                state.3.load(),
+                                index,
+                            )
+                            .await
+                            {
+                                Ok(stream) => {
+                                    state.4 = Some(stream);
+                                    state.0.reset();
+                                }
+                                Err(error) => {
+                                    error!(name, ?error, "failed to connect");
+                                    state.0.sleep().await;
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+            .boxed()
+        } else {
+            let rx = Self::subscribe(
+                name,
+                subscription_config,
+                config.disable_accounts,
+                config.parser,
+                config.channel_size,
+                global_replay_from_slot.load(),
+                index,
+            )
+            .await?;
+            futures::stream::unfold(
+                rx,
+                |rx| async move { rx.recv().await.ok().map(|msg| (msg, rx)) },
+            )
+            .boxed()
+        };
+
+        Ok(Self { name, stream })
+    }
+
+    async fn subscribe(
         name: &'static str,
         config: SubscriptionConfig,
         disable_accounts: bool,
         parser: MessageParserEncoding,
+        channel_size: usize,
         replay_from_slot: Option<Slot>,
         index: usize,
-    ) -> Result<Self, SubscribeError> {
-        let stream = match config {
+    ) -> Result<kanal::AsyncReceiver<SubscriptionMessage>, SubscribeError> {
+        let mut stream = match config {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
                 let filter = Self::create_richat_filter(disable_accounts);
@@ -167,12 +280,25 @@ impl Subscription {
         };
         info!(name, "subscribed");
 
-        Ok(Self {
-            index,
-            name,
-            parser,
-            stream,
-        })
+        let (tx, rx) = kanal::bounded_async(channel_size);
+        tokio::spawn(async move {
+            loop {
+                let message = match stream.next().await {
+                    Some(Ok(data)) => match Message::parse(data.into(), parser) {
+                        Ok(message) => Ok((index, name, message)),
+                        Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
+                        Err(error) => Err(error.into()),
+                    },
+                    Some(Err(error)) => Err(error.into()),
+                    None => break,
+                };
+
+                if tx.send(message).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(rx)
     }
 
     const fn create_richat_filter(disable_accounts: bool) -> Option<RichatFilter> {
@@ -210,130 +336,9 @@ impl Subscription {
     }
 }
 
-struct BoxedSubscription {
-    name: &'static str,
-    stream: BoxStream<'static, Result<(usize, &'static str, Message), ReceiveError>>,
-}
-
-#[derive(Debug)]
-struct Backoff {
-    current_interval: Duration,
-    initial_interval: Duration,
-    max_interval: Duration,
-    multiplier: f64,
-}
-
-impl Backoff {
-    const fn new(config: ConfigChannelSourceReconnect) -> Self {
-        Self {
-            current_interval: config.initial_interval,
-            initial_interval: config.initial_interval,
-            max_interval: config.max_interval,
-            multiplier: config.multiplier,
-        }
-    }
-
-    async fn sleep(&mut self) {
-        sleep(self.current_interval).await;
-        self.current_interval = self
-            .current_interval
-            .mul_f64(self.multiplier)
-            .min(self.max_interval);
-    }
-
-    const fn reset(&mut self) {
-        self.current_interval = self.initial_interval;
-    }
-}
-
-async fn subscribe(
-    config: ConfigChannelSource,
-    global_replay_from_slot: GlobalReplayFromSlot,
-    index: usize,
-) -> anyhow::Result<BoxedSubscription> {
-    let (subscription_config, mut config) = SubscriptionConfig::new(config);
-    let name: &'static str = config.name.clone().leak();
-
-    let Some(reconnect) = config.reconnect.take() else {
-        let stream = Subscription::new(
-            name,
-            subscription_config,
-            config.disable_accounts,
-            config.parser,
-            global_replay_from_slot.load(),
-            index,
-        )
-        .await?;
-        return Ok(BoxedSubscription {
-            name,
-            stream: stream.boxed(),
-        });
-    };
-
-    let backoff = Backoff::new(reconnect);
-    let stream = try_unfold(
-        (
-            backoff,
-            subscription_config,
-            config,
-            global_replay_from_slot,
-            None,
-        ),
-        move |mut state: (
-            Backoff,
-            SubscriptionConfig,
-            ConfigChannelSourceGeneral,
-            GlobalReplayFromSlot,
-            Option<Subscription>,
-        )| async move {
-            loop {
-                if let Some(stream) = state.4.as_mut() {
-                    match stream.next().await {
-                        Some(Ok((index, name, message))) => {
-                            return Ok(Some(((index, name, message), state)));
-                        }
-                        Some(Err(error)) => {
-                            error!(name, ?error, "failed to receive")
-                        }
-                        None => {
-                            error!(name, "stream is finished")
-                        }
-                    }
-                    state.4 = None;
-                    state.0.sleep().await;
-                } else {
-                    match Subscription::new(
-                        name,
-                        state.1.clone(),
-                        state.2.disable_accounts,
-                        state.2.parser,
-                        state.3.load(),
-                        index,
-                    )
-                    .await
-                    {
-                        Ok(stream) => {
-                            state.4 = Some(stream);
-                            state.0.reset();
-                        }
-                        Err(error) => {
-                            error!(name, ?error, "failed to connect");
-                            state.0.sleep().await;
-                        }
-                    }
-                }
-            }
-        },
-    );
-    Ok(BoxedSubscription {
-        name,
-        stream: stream.boxed(),
-    })
-}
-
 pub struct Subscriptions {
     #[allow(clippy::type_complexity)]
-    streams: Vec<BoxedSubscription>,
+    streams: Vec<Subscription>,
     last_polled: usize,
 }
 
@@ -354,7 +359,7 @@ impl Subscriptions {
         let streams = try_join_all(sources.into_iter().enumerate().map(|(index, config)| {
             let global_replay_from_slot = global_replay_from_slot.clone();
             async move {
-                subscribe(config, global_replay_from_slot, index)
+                Subscription::new(config, global_replay_from_slot, index)
                     .await
                     .context("failed to subscribe")
             }
@@ -373,7 +378,7 @@ impl Subscriptions {
 }
 
 impl Stream for Subscriptions {
-    type Item = Result<(usize, &'static str, Message), ReceiveError>;
+    type Item = SubscriptionMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let init_index = self.last_polled;

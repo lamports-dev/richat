@@ -12,6 +12,7 @@ channel:
       parser: prost # valid: prost, limited
       disable_accounts: false
       reconnect: null
+      channel_size: 16384
       source: richat # valid: richat, dragons_mouth
       transport: grpc
       endpoint: http://127.0.0.1:10100
@@ -39,6 +40,7 @@ channel:
     #     initial_interval: 1s
     #     max_interval: 30s
     #     multiplier: 2
+    #   channel_size: 16384
     #   transport: quic
     #   source: richat # valid: richat, dragons_mouth
     #   endpoint: 127.0.0.1:10101
