@@ -127,6 +127,14 @@ pub struct ConfigChannelSourceGeneral {
     pub disable_accounts: bool,
     #[serde(default)]
     pub reconnect: Option<ConfigChannelSourceReconnect>,
+    #[serde(default = "ConfigChannelSourceGeneral::default_channel_size")]
+    pub channel_size: usize,
+}
+
+impl ConfigChannelSourceGeneral {
+    fn default_channel_size() -> usize {
+        16_384
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

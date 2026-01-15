@@ -9,7 +9,6 @@ use {
     anyhow::Context as _,
     futures::{
         future::try_join_all,
-        ready,
         stream::{BoxStream, Stream, StreamExt, try_unfold},
     },
     maplit::hashmap,
@@ -35,7 +34,10 @@ use {
         task::{Context, Poll},
     },
     thiserror::Error,
-    tokio::time::{Duration, sleep},
+    tokio::{
+        sync::mpsc,
+        time::{Duration, sleep},
+    },
     tracing::{error, info},
 };
 
@@ -90,10 +92,7 @@ impl SubscriptionConfig {
 }
 
 struct Subscription {
-    index: usize,
-    name: &'static str,
-    parser: MessageParserEncoding,
-    stream: BoxStream<'static, Result<Vec<u8>, richat_client::error::ReceiveError>>,
+    rx: mpsc::Receiver<Result<(usize, &'static str, Message), ReceiveError>>,
 }
 
 impl fmt::Debug for Subscription {
@@ -106,18 +105,7 @@ impl Stream for Subscription {
     type Item = Result<(usize, &'static str, Message), ReceiveError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        loop {
-            let value = ready!(self.stream.poll_next_unpin(cx));
-            return Poll::Ready(match value {
-                Some(Ok(data)) => match Message::parse(data.into(), self.parser) {
-                    Ok(message) => Some(Ok((self.index, self.name, message))),
-                    Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
-                    Err(error) => Some(Err(error.into())),
-                },
-                Some(Err(error)) => Some(Err(error.into())),
-                None => None,
-            });
-        }
+        self.rx.poll_recv(cx)
     }
 }
 
@@ -127,10 +115,11 @@ impl Subscription {
         config: SubscriptionConfig,
         disable_accounts: bool,
         parser: MessageParserEncoding,
+        channel_size: usize,
         replay_from_slot: Option<Slot>,
         index: usize,
     ) -> Result<Self, SubscribeError> {
-        let stream = match config {
+        let mut stream = match config {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
                 let filter = Self::create_richat_filter(disable_accounts);
@@ -167,12 +156,26 @@ impl Subscription {
         };
         info!(name, "subscribed");
 
-        Ok(Self {
-            index,
-            name,
-            parser,
-            stream,
-        })
+        let (tx, rx) = mpsc::channel(channel_size);
+        tokio::spawn(async move {
+            loop {
+                let message = match stream.next().await {
+                    Some(Ok(data)) => match Message::parse(data.into(), parser) {
+                        Ok(message) => Ok((index, name, message)),
+                        Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
+                        Err(error) => Err(error.into()),
+                    },
+                    Some(Err(error)) => Err(error.into()),
+                    None => break,
+                };
+
+                if tx.send(message).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Self { rx })
     }
 
     const fn create_richat_filter(disable_accounts: bool) -> Option<RichatFilter> {
@@ -260,6 +263,7 @@ async fn subscribe(
             subscription_config,
             config.disable_accounts,
             config.parser,
+            config.channel_size,
             global_replay_from_slot.load(),
             index,
         )
@@ -307,6 +311,7 @@ async fn subscribe(
                         state.1.clone(),
                         state.2.disable_accounts,
                         state.2.parser,
+                        state.2.channel_size,
                         state.3.load(),
                         index,
                     )
