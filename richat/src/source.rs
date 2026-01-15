@@ -35,11 +35,7 @@ use {
         task::{Context, Poll},
     },
     thiserror::Error,
-    tokio::{
-        sync::mpsc,
-        time::{Duration, sleep},
-    },
-    tokio_stream::wrappers::ReceiverStream,
+    tokio::time::{Duration, sleep},
     tracing::{error, info},
 };
 
@@ -174,18 +170,18 @@ impl Subscription {
                     SubscriptionConfig,
                     ConfigChannelSourceGeneral,
                     GlobalReplayFromSlot,
-                    Option<mpsc::Receiver<SubscriptionMessage>>,
+                    Option<kanal::AsyncReceiver<SubscriptionMessage>>,
                 )| async move {
                     loop {
                         if let Some(stream) = state.4.as_mut() {
                             match stream.recv().await {
-                                Some(Ok((index, name, message))) => {
+                                Ok(Ok((index, name, message))) => {
                                     return Ok(Some(((index, name, message), state)));
                                 }
-                                Some(Err(error)) => {
+                                Ok(Err(error)) => {
                                     error!(name, ?error, "failed to receive")
                                 }
-                                None => {
+                                Err(_) => {
                                     error!(name, "stream is finished")
                                 }
                             }
@@ -228,7 +224,10 @@ impl Subscription {
                 index,
             )
             .await?;
-            ReceiverStream::new(rx).boxed()
+            futures::stream::unfold(rx, |rx| async move {
+                rx.recv().await.ok().map(|msg| (msg, rx))
+            })
+            .boxed()
         };
 
         Ok(Self { name, stream })
@@ -242,7 +241,7 @@ impl Subscription {
         channel_size: usize,
         replay_from_slot: Option<Slot>,
         index: usize,
-    ) -> Result<mpsc::Receiver<SubscriptionMessage>, SubscribeError> {
+    ) -> Result<kanal::AsyncReceiver<SubscriptionMessage>, SubscribeError> {
         let mut stream = match config {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
@@ -280,7 +279,7 @@ impl Subscription {
         };
         info!(name, "subscribed");
 
-        let (tx, rx) = mpsc::channel(channel_size);
+        let (tx, rx) = kanal::bounded_async(channel_size);
         tokio::spawn(async move {
             loop {
                 let message = match stream.next().await {

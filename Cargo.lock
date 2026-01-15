@@ -2308,6 +2308,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanal"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e3953adf0cd667798b396c2fa13552d6d9b3269d7dd1154c4c416442d1ff574"
+dependencies = [
+ "futures-core",
+ "lock_api",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3637,6 +3647,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonrpsee-types",
+ "kanal",
  "maplit",
  "metrics",
  "metrics-exporter-prometheus",
@@ -3674,7 +3685,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-rustls 0.26.4",
- "tokio-stream",
  "tokio-util",
  "tonic",
  "tonic-build 0.14.2",
