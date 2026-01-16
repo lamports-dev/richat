@@ -336,12 +336,12 @@ impl Storage {
                 }
             }
 
-            if !tx.is_full() {
-                if tx.send((gindex, batch)).is_err() {
-                    return;
-                }
-                batch = WriteBatch::new();
-            }
+            let mut opt = Some((gindex, batch));
+            batch = match tx.try_send_option(&mut opt) {
+                Ok(true) => WriteBatch::new(),
+                Ok(false) => opt.map_or_else(WriteBatch::new, |(_, b)| b),
+                Err(_) => return,
+            };
         }
         if !batch.is_empty() {
             let _ = tx.send((gindex, batch));
