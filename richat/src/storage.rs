@@ -33,7 +33,7 @@ use {
     std::{
         borrow::Cow,
         collections::{BTreeMap, VecDeque},
-        sync::{Arc, Mutex, mpsc},
+        sync::{Arc, Mutex},
         thread,
         time::Duration,
     },
@@ -130,7 +130,7 @@ impl SlotIndexValue {
 #[derive(Debug, Clone)]
 pub struct Storage {
     db: Arc<DB>,
-    write_tx: mpsc::Sender<WriteRequest>,
+    write_tx: kanal::Sender<WriteRequest>,
     replay_queue: Arc<Mutex<ReplayQueue>>,
 }
 
@@ -148,8 +148,8 @@ impl Storage {
                 .with_context(|| format!("failed to open rocksdb with path: {:?}", config.path))?,
         );
 
-        let (ser_tx, ser_rx) = mpsc::channel();
-        let (write_tx, write_rx) = mpsc::sync_channel(1);
+        let (ser_tx, ser_rx) = kanal::unbounded();
+        let (write_tx, write_rx) = kanal::bounded(1);
         let replay_queue = Arc::new(Mutex::new(ReplayQueue::new(config.replay_inflight_max)));
 
         let storage = Self {
@@ -266,8 +266,8 @@ impl Storage {
 
     fn spawn_ser(
         db: Arc<DB>,
-        rx: mpsc::Receiver<WriteRequest>,
-        tx: mpsc::SyncSender<(u64, WriteBatch)>,
+        rx: kanal::Receiver<WriteRequest>,
+        tx: kanal::Sender<(u64, WriteBatch)>,
     ) {
         let mut gindex = 0;
         let mut buf = Vec::with_capacity(16 * 1024 * 1024);
@@ -336,10 +336,11 @@ impl Storage {
                 }
             }
 
-            batch = match tx.try_send((gindex, batch)) {
-                Ok(()) => WriteBatch::new(),
-                Err(mpsc::TrySendError::Full((_index, value))) => value,
-                Err(mpsc::TrySendError::Disconnected((_index, value))) => value,
+            let mut opt = Some((gindex, batch));
+            batch = match tx.try_send_option(&mut opt) {
+                Ok(true) => WriteBatch::new(),
+                Ok(false) => opt.map_or_else(WriteBatch::new, |(_, b)| b),
+                Err(_) => return,
             };
         }
         if !batch.is_empty() {
@@ -347,7 +348,7 @@ impl Storage {
         }
     }
 
-    fn spawn_write(db: Arc<DB>, rx: mpsc::Receiver<(u64, WriteBatch)>) -> anyhow::Result<()> {
+    fn spawn_write(db: Arc<DB>, rx: kanal::Receiver<(u64, WriteBatch)>) -> anyhow::Result<()> {
         while let Ok((index, batch)) = rx.recv() {
             db.write(batch)?;
             counter!(CHANNEL_STORAGE_WRITE_INDEX).absolute(index);

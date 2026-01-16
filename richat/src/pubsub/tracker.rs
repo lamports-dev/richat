@@ -36,7 +36,7 @@ use {
         thread,
         time::Duration,
     },
-    tokio::sync::{mpsc, oneshot},
+    tokio::sync::oneshot,
 };
 
 #[allow(clippy::large_enum_variant)]
@@ -282,7 +282,7 @@ impl Subscriptions {
 #[allow(clippy::too_many_arguments)]
 pub fn subscriptions_worker(
     messages: Messages,
-    mut clients_rx: mpsc::Receiver<ClientRequest>,
+    clients_rx: kanal::AsyncReceiver<ClientRequest>,
     workers_count: usize,
     workers_affinity: Option<Vec<usize>>,
     max_clients_request_per_tick: usize,
@@ -331,9 +331,11 @@ pub fn subscriptions_worker(
         // Update subscriptions from clients
         for _ in 0..max_clients_request_per_tick {
             match clients_rx.try_recv() {
-                Ok(request) => subscriptions.update(request, &mut signatures, &mut notifications),
-                Err(mpsc::error::TryRecvError::Empty) => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => return Ok(()), // means shutdown
+                Ok(Some(request)) => {
+                    subscriptions.update(request, &mut signatures, &mut notifications)
+                }
+                Ok(None) => break,
+                Err(_) => return Ok(()), // means shutdown
             };
         }
 
