@@ -6,7 +6,7 @@ use {
     richat_proto::geyser::{CommitmentLevel as CommitmentLevelProto, SlotStatus},
     solana_clock::{MAX_PROCESSING_AGE, Slot},
     std::{collections::HashMap, future::Future, sync::Arc},
-    tokio::sync::{mpsc, oneshot},
+    tokio::sync::oneshot,
     tonic::Status,
 };
 
@@ -32,14 +32,14 @@ struct BlockStatus {
 
 #[derive(Debug, Clone)]
 pub struct BlockMetaStorage {
-    messages_tx: mpsc::UnboundedSender<ParsedMessage>,
-    requests_tx: mpsc::Sender<Request>,
+    messages_tx: kanal::AsyncSender<ParsedMessage>,
+    requests_tx: kanal::AsyncSender<Request>,
 }
 
 impl BlockMetaStorage {
     pub fn new(request_queue_size: usize) -> (Self, impl Future<Output = anyhow::Result<()>>) {
-        let (messages_tx, messages_rx) = mpsc::unbounded_channel();
-        let (requests_tx, requests_rx) = mpsc::channel(request_queue_size);
+        let (messages_tx, messages_rx) = kanal::unbounded_async();
+        let (requests_tx, requests_rx) = kanal::bounded_async(request_queue_size);
 
         let me = Self {
             messages_tx,
@@ -51,8 +51,8 @@ impl BlockMetaStorage {
     }
 
     async fn work(
-        mut messages_rx: mpsc::UnboundedReceiver<ParsedMessage>,
-        mut requests_rx: mpsc::Receiver<Request>,
+        messages_rx: kanal::AsyncReceiver<ParsedMessage>,
+        requests_rx: kanal::AsyncReceiver<Request>,
     ) {
         let mut blocks = HashMap::<Slot, BlockMeta, RandomState>::default();
         let mut blockhashes = HashMap::<Arc<String>, BlockStatus, RandomState>::default();
@@ -64,7 +64,7 @@ impl BlockMetaStorage {
             tokio::select! {
                 biased;
                 message = messages_rx.recv() => match message {
-                    Some(ParsedMessage::Slot(msg)) => {
+                    Ok(ParsedMessage::Slot(msg)) => {
                         let slot = msg.slot();
                         let status = msg.status();
                         if status == SlotStatus::SlotConfirmed {
@@ -85,7 +85,7 @@ impl BlockMetaStorage {
                             blocks.retain(|bslot, _block| *bslot >= slot);
                         }
                     }
-                    Some(ParsedMessage::BlockMeta(msg)) => {
+                    Ok(ParsedMessage::BlockMeta(msg)) => {
                         let slot = msg.slot();
                         let entry = blocks.entry(slot).or_default();
                         entry.slot = slot;
@@ -98,13 +98,13 @@ impl BlockMetaStorage {
                         processed = processed.max(slot);
                         gauge!(metrics::GRPC_BLOCK_META_SLOT, "commitment" => "processed").set(slot as f64);
                     }
-                    Some(_) => {}
-                    None => break,
+                    Ok(_) => {}
+                    Err(_) => break,
                 },
                 request = requests_rx.recv() => {
                     gauge!(metrics::GRPC_BLOCK_META_QUEUE_SIZE).decrement(1);
                     match request {
-                        Some(Request::GetBlock(tx, commitment)) => {
+                        Ok(Request::GetBlock(tx, commitment)) => {
                             let slot = match commitment {
                                 CommitmentLevelProto::Processed => processed,
                                 CommitmentLevelProto::Confirmed => confirmed,
@@ -113,7 +113,7 @@ impl BlockMetaStorage {
                             let block = blocks.get(&slot).cloned();
                             let _ = tx.send(block);
                         }
-                        Some(Request::IsBlockhashValid(tx, blockhash, commitment)) => {
+                        Ok(Request::IsBlockhashValid(tx, blockhash, commitment)) => {
                             let slot = match commitment {
                                 CommitmentLevelProto::Processed => processed,
                                 CommitmentLevelProto::Confirmed => confirmed,
@@ -128,7 +128,7 @@ impl BlockMetaStorage {
                             };
                             let _ = tx.send(value);
                         }
-                        None => break,
+                        Err(_) => break,
                     }
                 }
             };
@@ -136,7 +136,7 @@ impl BlockMetaStorage {
     }
 
     pub fn push(&self, message: ParsedMessage) {
-        let _ = self.messages_tx.send(message);
+        let _ = self.messages_tx.try_send(message);
     }
 
     async fn send_request<T>(
