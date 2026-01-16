@@ -31,7 +31,7 @@ use {
     std::{future::Future, net::TcpListener as StdTcpListener, sync::Arc},
     tokio::{
         net::TcpListener,
-        sync::{broadcast, mpsc, oneshot},
+        sync::{broadcast, oneshot},
     },
     tokio_rustls::TlsAcceptor,
     tokio_util::sync::CancellationToken,
@@ -60,7 +60,7 @@ impl PubSubServer {
         info!("start server at {}", config.endpoint);
 
         // Clients requests channel
-        let (clients_tx, clients_rx) = mpsc::channel(config.clients_requests_channel_size);
+        let (clients_tx, clients_rx) = kanal::bounded_async(config.clients_requests_channel_size);
 
         // Spawn subscription channel
         let (notifications, _) = broadcast::channel(config.notifications_messages_max_count);
@@ -219,7 +219,7 @@ impl PubSubServer {
         recv_max_message_size: usize,
         enable_block_subscription: bool,
         enable_transaction_subscription: bool,
-        clients_tx: mpsc::Sender<ClientRequest>,
+        clients_tx: kanal::AsyncSender<ClientRequest>,
         mut notifications: broadcast::Receiver<RpcNotification>,
         shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
@@ -230,7 +230,7 @@ impl PubSubServer {
         let (ws_rx, mut ws_tx) = ws.split(tokio::io::split);
         let mut ws_rx = FragmentCollectorRead::new(ws_rx);
 
-        let (read_tx, mut read_rx) = mpsc::channel::<WriteRequest>(1);
+        let (read_tx, read_rx) = kanal::bounded_async::<WriteRequest>(1);
         let read_fut = tokio::spawn(async move {
             let mut send_frame = None;
             let mut last_frame = false;
@@ -299,11 +299,11 @@ impl PubSubServer {
             let maybe_close_reason = loop {
                 tokio::select! {
                     message = read_rx.recv() => match message {
-                        Some(WriteRequest::Frame { frame, tx }) => {
+                        Ok(WriteRequest::Frame { frame, tx }) => {
                             ws_tx.write_frame(frame).await?;
                             let _ = tx.send(());
                         },
-                        Some(WriteRequest::Message { message, tx }) => {
+                        Ok(WriteRequest::Message { message, tx }) => {
                             let result = match message.config {
                                 SubscribeConfig::GetVersion => {
                                     let version = solana_version::Version::default();
@@ -367,7 +367,7 @@ impl PubSubServer {
                             ws_tx.write_frame(frame).await?;
                             let _ = tx.send(());
                         },
-                        None => break None, // means shutdown
+                        Err(_) => break None, // means shutdown
                     },
                     message = notifications.recv() => match message {
                         Ok(notification) if subscriptions.contains_key(&notification.subscription_id) => {
