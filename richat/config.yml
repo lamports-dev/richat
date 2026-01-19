@@ -59,6 +59,7 @@ channel:
     max_bytes: 16GiB
     # storage:
     #   path: ./db
+    #   remove_if_no_source: false
     #   max_slots: 1024
     #   serialize_affinity: null # taskset syntax
     #   write_affinity: null

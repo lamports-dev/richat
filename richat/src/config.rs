@@ -199,6 +199,8 @@ impl Default for ConfigChannelInner {
 #[serde(deny_unknown_fields)]
 pub struct ConfigStorage {
     pub path: PathBuf,
+    #[serde(default)]
+    pub remove_if_no_source: bool,
     #[serde(
         default = "ConfigStorage::default_max_slots",
         deserialize_with = "deserialize_num_str"
