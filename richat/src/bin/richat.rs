@@ -109,10 +109,6 @@ fn main() -> anyhow::Result<()> {
                                 Some(Err(ReceiveError::AllSourcesReplayFailed)) => {
                                     if let Some(path) = &remove_if_no_source {
                                         info!("no source has requested slot, removing storage: {path:?}");
-
-                                        let _ = messages.drop_storage();
-                                        let storage = sender.take_storage();
-
                                         tokio::fs::remove_dir_all(path).await.context("failed to remove storage")?;
                                     }
                                     anyhow::bail!("no source has requested slot for replay");
