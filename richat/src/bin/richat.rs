@@ -69,13 +69,6 @@ fn main() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
 
     // Create channel runtime (receive messages from solana node / richat)
-    let remove_if_no_source = config
-        .channel
-        .config
-        .storage
-        .as_ref()
-        .filter(|s| s.remove_if_no_source)
-        .map(|s| s.path.clone());
     let (messages, mut threads) = Messages::new(
         config.channel.get_messages_parser(),
         config.channel.config,
@@ -107,10 +100,6 @@ fn main() -> anyhow::Result<()> {
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
                                 Some(Err(ReceiveError::AllSourcesReplayFailed)) => {
-                                    if let Some(path) = &remove_if_no_source {
-                                        info!("no source has requested slot, removing storage: {path:?}");
-                                        tokio::fs::remove_dir_all(path).await.context("failed to remove storage")?;
-                                    }
                                     anyhow::bail!("no source has requested slot for replay");
                                 }
                                 Some(Err(error)) => return Err(
