@@ -64,10 +64,8 @@ pub enum ReceiveError {
     Receive(#[from] richat_client::error::ReceiveError),
     #[error(transparent)]
     Parse(#[from] MessageParseError),
-    #[error("failed to replay")]
-    ReplayFailed,
     #[error("no source has requested slot for replay")]
-    AllSourcesReplayFailed,
+    ReplayFailed,
 }
 
 #[derive(Debug, Clone)]
@@ -185,7 +183,7 @@ impl Subscription {
                                 }
                                 Ok(Err(ReceiveError::ReplayFailed)) => {
                                     if state.3.report_replay_failed(index) {
-                                        return Err(ReceiveError::AllSourcesReplayFailed);
+                                        return Err(ReceiveError::ReplayFailed);
                                     }
                                     error!(name, "failed to replay, waiting for other sources");
                                 }
