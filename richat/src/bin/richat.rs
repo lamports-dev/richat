@@ -6,11 +6,20 @@ use {
         stream::StreamExt,
     },
     richat::{
-        channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
-        richat::server::RichatServer, source::Subscriptions, version::VERSION,
+        channel::Messages,
+        config::Config,
+        grpc::server::GrpcServer,
+        pubsub::server::PubSubServer,
+        richat::server::RichatServer,
+        source::{ReceiveError, Subscriptions},
+        version::VERSION,
     },
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         thread::{self, sleep},
         time::Duration,
     },
@@ -62,9 +71,10 @@ fn main() -> anyhow::Result<()> {
 
     // Shutdown channel/flag
     let shutdown = CancellationToken::new();
+    let is_ready = Arc::new(AtomicBool::new(false));
 
     // Create channel runtime (receive messages from solana node / richat)
-    let (mut messages, mut threads) = Messages::new(
+    let (messages, mut threads) = Messages::new(
         config.channel.get_messages_parser(),
         config.channel.config,
         config.apps.richat.is_some(),
@@ -76,8 +86,10 @@ fn main() -> anyhow::Result<()> {
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let (mut messages, replay_from_slot) = messages.to_sender()?;
+            let mut messages = messages.clone();
+            let is_ready = Arc::clone(&is_ready);
             move || {
+                let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let streams_total = config.channel.sources.len();
@@ -86,6 +98,7 @@ fn main() -> anyhow::Result<()> {
                         replay_from_slot,
                     )
                     .await?;
+                    is_ready.store(true, Ordering::Relaxed);
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
@@ -93,6 +106,10 @@ fn main() -> anyhow::Result<()> {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
+                                Some(Err(error @ ReceiveError::ReplayFailed)) => {
+                                    eprintln!("Error: {error:?}");
+                                    std::process::exit(2);
+                                }
                                 Some(Err(error)) => return Err(
                                     anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
                                 ),
@@ -106,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             Some((index, streams_total))
                         };
-                        messages.push(index_info, source_name, message);
+                        sender.push(index_info, source_name, message);
                     }
                 })
             }
@@ -145,6 +162,7 @@ fn main() -> anyhow::Result<()> {
                     richat::metrics::spawn_server(
                         config,
                         metrics_handle,
+                        is_ready,
                         shutdown.cancelled_owned(),
                     )
                     .await?
@@ -181,7 +199,8 @@ fn main() -> anyhow::Result<()> {
         for (name, tjh) in threads.iter_mut() {
             if let Some(jh) = tjh.take() {
                 if jh.is_finished() {
-                    jh.join()
+                    let _: () = jh
+                        .join()
                         .unwrap_or_else(|_| panic!("{name} thread join failed"))?;
                     info!("thread {name} finished");
                 } else {

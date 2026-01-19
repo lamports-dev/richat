@@ -36,6 +36,7 @@ use {
     },
     thiserror::Error,
     tokio::time::{Duration, sleep},
+    tonic::Code,
     tracing::{error, info},
 };
 
@@ -63,6 +64,8 @@ pub enum ReceiveError {
     Receive(#[from] richat_client::error::ReceiveError),
     #[error(transparent)]
     Parse(#[from] MessageParseError),
+    #[error("replay from the requested slot is not available from any source")]
+    ReplayFailed,
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +181,12 @@ impl Subscription {
                                 Ok(Ok((index, name, message))) => {
                                     return Ok(Some(((index, name, message), state)));
                                 }
+                                Ok(Err(ReceiveError::ReplayFailed)) => {
+                                    if state.3.report_replay_failed(index) {
+                                        return Err(ReceiveError::ReplayFailed);
+                                    }
+                                    error!(name, "failed to replay, waiting for other sources");
+                                }
                                 Ok(Err(error)) => {
                                     error!(name, ?error, "failed to receive")
                                 }
@@ -243,13 +252,23 @@ impl Subscription {
         replay_from_slot: Option<Slot>,
         index: usize,
     ) -> Result<kanal::AsyncReceiver<SubscriptionMessage>, SubscribeError> {
+        let (tx, rx) = kanal::bounded_async(channel_size);
+
         let mut stream = match config {
             SubscriptionConfig::Quic { config } => {
                 let connection = config.connect().await.map_err(ConnectError::Quic)?;
                 let filter = Self::create_richat_filter(disable_accounts);
-                let stream = connection.subscribe(replay_from_slot, filter).await?;
-                info!(name, version = stream.get_version(), "connected");
-                stream.boxed()
+                match connection.subscribe(replay_from_slot, filter).await {
+                    Ok(stream) => {
+                        info!(name, version = stream.get_version(), "connected");
+                        stream.boxed()
+                    }
+                    Err(richat_client::error::SubscribeError::ReplayFromSlotNotAvailable(_)) => {
+                        let _ = tx.send(Err(ReceiveError::ReplayFailed)).await;
+                        return Ok(rx);
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             }
             SubscriptionConfig::Grpc { source, config } => {
                 let mut connection = config.connect().await.map_err(ConnectError::Grpc)?;
@@ -280,7 +299,6 @@ impl Subscription {
         };
         info!(name, "subscribed");
 
-        let (tx, rx) = kanal::bounded_async(channel_size);
         tokio::spawn(async move {
             loop {
                 let message = match stream.next().await {
@@ -289,7 +307,17 @@ impl Subscription {
                         Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
                         Err(error) => Err(error.into()),
                     },
-                    Some(Err(error)) => Err(error.into()),
+                    Some(Err(error)) => {
+                        if matches!(
+                            &error,
+                            richat_client::error::ReceiveError::Status(status)
+                                if (status.code() == Code::InvalidArgument && status.message().contains("replay")) || status.code() == Code::DataLoss
+                        ) {
+                            Err(ReceiveError::ReplayFailed)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
                     None => break,
                 };
 
@@ -298,6 +326,7 @@ impl Subscription {
                 }
             }
         });
+
         Ok(rx)
     }
 

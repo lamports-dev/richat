@@ -49,26 +49,39 @@ use {
 
 #[derive(Debug, Clone)]
 pub struct GlobalReplayFromSlot {
-    value: Arc<Mutex<Option<Slot>>>,
+    inner: Arc<Mutex<GlobalReplayFromSlotInner>>,
+}
+
+#[derive(Debug)]
+struct GlobalReplayFromSlotInner {
+    value: Option<Slot>,
+    sources_replay_failed: Vec<bool>,
 }
 
 impl GlobalReplayFromSlot {
-    fn new(value: Option<Slot>) -> Self {
+    fn new(value: Option<Slot>, sources_total: usize) -> Self {
         Self {
-            value: Arc::new(Mutex::new(value)),
+            inner: Arc::new(Mutex::new(GlobalReplayFromSlotInner {
+                value,
+                sources_replay_failed: vec![false; sources_total],
+            })),
         }
     }
 
     pub fn load(&self) -> Option<Slot> {
-        *mutex_lock(&self.value)
+        mutex_lock(&self.inner).value
     }
 
     pub fn store(&self, slot: Slot) {
-        let mut locked = mutex_lock(&self.value);
-        *locked = Some(match *locked {
-            Some(value) => value.max(slot),
-            None => slot,
-        });
+        let mut locked = mutex_lock(&self.inner);
+        locked.value = Some(locked.value.unwrap_or(slot).max(slot));
+    }
+
+    /// Reports that a source failed to replay. Returns true if all sources have failed.
+    pub fn report_replay_failed(&self, source_index: usize) -> bool {
+        let mut locked = mutex_lock(&self.inner);
+        locked.sources_replay_failed[source_index] = true;
+        locked.sources_replay_failed.iter().all(|&failed| failed)
     }
 }
 
@@ -267,7 +280,10 @@ impl Messages {
         Ok((messages, threads))
     }
 
-    pub fn to_sender(&mut self) -> anyhow::Result<(Sender, GlobalReplayFromSlot)> {
+    pub fn to_sender(
+        &mut self,
+        sources_total: usize,
+    ) -> anyhow::Result<(Sender, GlobalReplayFromSlot)> {
         let mut slot_finalized = 0;
         let hasher = RandomState::default();
         let mut replay_from_slot = None;
@@ -317,7 +333,7 @@ impl Messages {
         let replay = Arc::new(Mutex::new(replay));
         self.replay_info = Some(Arc::clone(&replay));
 
-        let global_replay_from_slot = GlobalReplayFromSlot::new(replay_from_slot);
+        let global_replay_from_slot = GlobalReplayFromSlot::new(replay_from_slot, sources_total);
         let sender = Sender {
             slots: BTreeMap::new(),
             dedup: BTreeMap::new(),

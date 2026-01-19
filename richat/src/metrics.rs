@@ -5,7 +5,14 @@ use {
     richat_filter::filter::FilteredUpdateType,
     richat_metrics::ConfigMetrics,
     solana_clock::Slot,
-    std::{borrow::Cow, future::Future},
+    std::{
+        borrow::Cow,
+        future::Future,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    },
     tokio::{
         task::JoinError,
         time::{Duration, sleep},
@@ -97,6 +104,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
 pub async fn spawn_server(
     config: ConfigMetrics,
     handle: PrometheusHandle,
+    is_ready: Arc<AtomicBool>,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<impl Future<Output = Result<(), JoinError>>> {
     let recorder_handle = handle.clone();
@@ -109,9 +117,9 @@ pub async fn spawn_server(
 
     richat_metrics::spawn_server(
         config,
-        move || handle.render().into_bytes(), // metrics
-        || true,                              // health
-        || true,                              // ready
+        move || handle.render().into_bytes(),     // metrics
+        || true,                                  // health
+        move || is_ready.load(Ordering::Relaxed), // ready
         shutdown,
     )
     .await
