@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
                         replay_from_slot,
                     )
                     .await?;
-                    is_ready.store(true, Ordering::Release);
+                    is_ready.store(true, Ordering::Relaxed);
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
