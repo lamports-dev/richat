@@ -16,6 +16,10 @@ use {
     },
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         thread::{self, sleep},
         time::Duration,
     },
@@ -67,6 +71,7 @@ fn main() -> anyhow::Result<()> {
 
     // Shutdown channel/flag
     let shutdown = CancellationToken::new();
+    let is_ready = Arc::new(AtomicBool::new(false));
 
     // Create channel runtime (receive messages from solana node / richat)
     let (messages, mut threads) = Messages::new(
@@ -82,6 +87,7 @@ fn main() -> anyhow::Result<()> {
         .spawn({
             let shutdown = shutdown.clone();
             let mut messages = messages.clone();
+            let is_ready = Arc::clone(&is_ready);
             move || {
                 let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
@@ -92,6 +98,7 @@ fn main() -> anyhow::Result<()> {
                         replay_from_slot,
                     )
                     .await?;
+                    is_ready.store(true, Ordering::Release);
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
@@ -155,6 +162,7 @@ fn main() -> anyhow::Result<()> {
                     richat::metrics::spawn_server(
                         config,
                         metrics_handle,
+                        is_ready,
                         shutdown.cancelled_owned(),
                     )
                     .await?
