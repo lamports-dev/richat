@@ -313,8 +313,7 @@ impl Subscription {
                         if matches!(
                             &error,
                             richat_client::error::ReceiveError::Status(status)
-                                if status.code() == Code::InvalidArgument
-                                    && status.message().contains("replay")
+                                if (status.code() == Code::InvalidArgument && status.message().contains("replay")) || status.code() == Code::DataLoss
                         ) {
                             Err(ReceiveError::ReplayFailed)
                         } else {
