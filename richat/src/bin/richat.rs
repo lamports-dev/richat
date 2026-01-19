@@ -106,8 +106,8 @@ fn main() -> anyhow::Result<()> {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
-                                Some(Err(ReceiveError::ReplayFailed)) => {
-                                    eprintln!("no source has requested slot for replay");
+                                Some(Err(error @ ReceiveError::ReplayFailed)) => {
+                                    eprintln!("Error: {error:?}");
                                     std::process::exit(2);
                                 }
                                 Some(Err(error)) => return Err(

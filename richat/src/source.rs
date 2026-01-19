@@ -64,7 +64,7 @@ pub enum ReceiveError {
     Receive(#[from] richat_client::error::ReceiveError),
     #[error(transparent)]
     Parse(#[from] MessageParseError),
-    #[error("no source has requested slot for replay")]
+    #[error("replay from the requested slot is not available from any source")]
     ReplayFailed,
 }
 
