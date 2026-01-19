@@ -235,7 +235,7 @@ pub struct Messages {
     max_messages: usize,
     max_bytes: usize,
     parser: MessageParserEncoding,
-    storage: Option<Storage>,
+    storage: Arc<Mutex<Option<Storage>>>,
     storage_max_slots: usize,
     replay_info: Option<Arc<Mutex<BTreeMap<Slot, ReplayInfo>>>>,
 }
@@ -273,20 +273,24 @@ impl Messages {
             max_messages,
             max_bytes: config.max_bytes,
             parser,
-            storage,
+            storage: Arc::new(Mutex::new(storage)),
             storage_max_slots,
             replay_info: None,
         };
         Ok((messages, threads))
     }
 
-    pub fn to_sender(&mut self, sources_total: usize) -> anyhow::Result<(Sender, GlobalReplayFromSlot)> {
+    pub fn to_sender(
+        &mut self,
+        sources_total: usize,
+    ) -> anyhow::Result<(Sender, GlobalReplayFromSlot)> {
         let mut slot_finalized = 0;
         let hasher = RandomState::default();
         let mut replay_from_slot = None;
         let mut replay = BTreeMap::new();
         let mut index = 0;
-        if let Some(storage) = &self.storage {
+        let storage = mutex_lock(&self.storage).clone();
+        if let Some(storage) = &storage {
             let slots = storage.read_slots()?;
 
             for (slot, item) in slots.iter() {
@@ -346,7 +350,7 @@ impl Messages {
             slot_confirmed: 0,
             slot_finalized,
             global_replay_from_slot: global_replay_from_slot.clone(),
-            storage: self.storage.clone(),
+            storage,
             storage_max_slots: self.storage_max_slots,
             hasher,
             replay,
@@ -438,10 +442,16 @@ impl Messages {
         client: SubscribeClient,
         metric_cpu_usage: Gauge,
     ) -> Result<(), &'static str> {
-        self.storage
+        let locked = mutex_lock(&self.storage);
+        locked
             .as_ref()
             .ok_or("storage should exists to replay messages")?
             .replay(client, Arc::clone(&self.shared_processed), metric_cpu_usage)
+    }
+
+    pub fn drop_storage(&self) {
+        let mut locked = mutex_lock(&self.storage);
+        *locked = None;
     }
 }
 
@@ -775,6 +785,10 @@ impl Sender {
                 waker.wake();
             }
         }
+    }
+
+    pub fn take_storage(&mut self) -> Option<Storage> {
+        self.storage.take()
     }
 }
 

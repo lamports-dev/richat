@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         .as_ref()
         .filter(|s| s.remove_if_no_source)
         .map(|s| s.path.clone());
-    let (mut messages, mut threads) = Messages::new(
+    let (messages, mut threads) = Messages::new(
         config.channel.get_messages_parser(),
         config.channel.config,
         config.apps.richat.is_some(),
@@ -88,8 +88,9 @@ fn main() -> anyhow::Result<()> {
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let (mut messages, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
+            let mut messages = messages.clone();
             move || {
+                let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let streams_total = config.channel.sources.len();
@@ -108,6 +109,10 @@ fn main() -> anyhow::Result<()> {
                                 Some(Err(ReceiveError::AllSourcesReplayFailed)) => {
                                     if let Some(path) = &remove_if_no_source {
                                         info!("no source has requested slot, removing storage: {path:?}");
+
+                                        let _ = messages.drop_storage();
+                                        let storage = sender.take_storage();
+
                                         tokio::fs::remove_dir_all(path).await.context("failed to remove storage")?;
                                     }
                                     anyhow::bail!("no source has requested slot for replay");
@@ -125,7 +130,7 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             Some((index, streams_total))
                         };
-                        messages.push(index_info, source_name, message);
+                        sender.push(index_info, source_name, message);
                     }
                 })
             }
@@ -200,7 +205,7 @@ fn main() -> anyhow::Result<()> {
         for (name, tjh) in threads.iter_mut() {
             if let Some(jh) = tjh.take() {
                 if jh.is_finished() {
-                    jh.join()
+                    let _: () = jh.join()
                         .unwrap_or_else(|_| panic!("{name} thread join failed"))?;
                     info!("thread {name} finished");
                 } else {
