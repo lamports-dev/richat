@@ -66,6 +66,8 @@ pub enum ReceiveError {
     Parse(#[from] MessageParseError),
     #[error("failed to replay")]
     ReplayFailed,
+    #[error("no source has requested slot for replay")]
+    AllSourcesReplayFailed,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +182,12 @@ impl Subscription {
                             match stream.recv().await {
                                 Ok(Ok((index, name, message))) => {
                                     return Ok(Some(((index, name, message), state)));
+                                }
+                                Ok(Err(ReceiveError::ReplayFailed)) => {
+                                    if state.3.report_replay_failed(index) {
+                                        return Err(ReceiveError::AllSourcesReplayFailed);
+                                    }
+                                    error!(name, "failed to replay, waiting for other sources");
                                 }
                                 Ok(Err(error)) => {
                                     error!(name, ?error, "failed to receive")

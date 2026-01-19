@@ -6,8 +6,13 @@ use {
         stream::StreamExt,
     },
     richat::{
-        channel::Messages, config::Config, grpc::server::GrpcServer, pubsub::server::PubSubServer,
-        richat::server::RichatServer, source::Subscriptions, version::VERSION,
+        channel::Messages,
+        config::Config,
+        grpc::server::GrpcServer,
+        pubsub::server::PubSubServer,
+        richat::server::RichatServer,
+        source::{ReceiveError, Subscriptions},
+        version::VERSION,
     },
     signal_hook::{consts::SIGINT, iterator::Signals},
     std::{
@@ -64,6 +69,13 @@ fn main() -> anyhow::Result<()> {
     let shutdown = CancellationToken::new();
 
     // Create channel runtime (receive messages from solana node / richat)
+    let remove_if_no_source = config
+        .channel
+        .config
+        .storage
+        .as_ref()
+        .filter(|s| s.remove_if_no_source)
+        .map(|s| s.path.clone());
     let (mut messages, mut threads) = Messages::new(
         config.channel.get_messages_parser(),
         config.channel.config,
@@ -76,7 +88,7 @@ fn main() -> anyhow::Result<()> {
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let (mut messages, replay_from_slot) = messages.to_sender()?;
+            let (mut messages, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
             move || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
@@ -93,6 +105,13 @@ fn main() -> anyhow::Result<()> {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
+                                Some(Err(ReceiveError::AllSourcesReplayFailed)) => {
+                                    if let Some(path) = &remove_if_no_source {
+                                        info!("no source has requested slot, removing storage: {path:?}");
+                                        tokio::fs::remove_dir_all(path).await.context("failed to remove storage")?;
+                                    }
+                                    anyhow::bail!("no source has requested slot for replay");
+                                }
                                 Some(Err(error)) => return Err(
                                     anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
                                 ),
