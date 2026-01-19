@@ -100,7 +100,8 @@ fn main() -> anyhow::Result<()> {
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
                                 Some(Err(ReceiveError::AllSourcesReplayFailed)) => {
-                                    anyhow::bail!("no source has requested slot for replay");
+                                    eprintln!("no source has requested slot for replay");
+                                    std::process::exit(2);
                                 }
                                 Some(Err(error)) => return Err(
                                     anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
@@ -190,7 +191,8 @@ fn main() -> anyhow::Result<()> {
         for (name, tjh) in threads.iter_mut() {
             if let Some(jh) = tjh.take() {
                 if jh.is_finished() {
-                    let _: () = jh.join()
+                    let _: () = jh
+                        .join()
                         .unwrap_or_else(|_| panic!("{name} thread join failed"))?;
                     info!("thread {name} finished");
                 } else {
