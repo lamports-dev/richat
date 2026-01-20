@@ -16,7 +16,7 @@ use {
             SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
             SubscribeUpdateEntry, SubscribeUpdateTransactionInfo, subscribe_update::UpdateOneof,
         },
-        solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
+        solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -30,7 +30,7 @@ use {
         borrow::Cow,
         collections::HashSet,
         ops::{Deref, Range},
-        sync::Arc,
+        sync::{Arc, OnceLock},
     },
     thiserror::Error,
 };
@@ -279,8 +279,10 @@ impl MessageParserLimited {
                             .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
                         account_keys,
+                        is_vote: transaction.is_vote,
+                        index: transaction.index,
                         transaction_range,
-                        transaction,
+                        transaction: OnceLock::from(Some(transaction)),
                         slot: message.slot,
                         created_at,
                         buffer: data,
@@ -852,8 +854,10 @@ pub enum MessageTransaction {
         signature: Signature,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
+        is_vote: bool,
+        index: u64,
         transaction_range: Range<usize>,
-        transaction: SubscribeUpdateTransactionInfo,
+        transaction: OnceLock<Option<SubscribeUpdateTransactionInfo>>,
         slot: Slot,
         created_at: Timestamp,
         buffer: Vec<u8>,
@@ -951,14 +955,14 @@ impl MessageTransaction {
 
     pub const fn vote(&self) -> bool {
         match self {
-            Self::Limited { transaction, .. } => transaction.is_vote,
+            Self::Limited { is_vote, .. } => *is_vote,
             Self::Prost { transaction, .. } => transaction.is_vote,
         }
     }
 
     pub const fn index(&self) -> u64 {
         match self {
-            Self::Limited { transaction, .. } => transaction.index,
+            Self::Limited { index, .. } => *index,
             Self::Prost { transaction, .. } => transaction.index,
         }
     }
@@ -977,29 +981,41 @@ impl MessageTransaction {
         }
     }
 
-    pub fn transaction(&self) -> Result<&Transaction, &'static str> {
+    fn transaction(&self) -> Result<&SubscribeUpdateTransactionInfo, &'static str> {
         match self {
-            Self::Limited { transaction, .. } => {
-                transaction.transaction.as_ref().ok_or("FieldNotDefined")
-            }
-            Self::Prost { transaction, .. } => {
-                transaction.transaction.as_ref().ok_or("FieldNotDefined")
-            }
+            Self::Limited {
+                transaction,
+                transaction_range,
+                buffer,
+                ..
+            } => transaction
+                .get_or_init(|| {
+                    SubscribeUpdateTransactionInfo::decode(
+                        &buffer.as_slice()[transaction_range.clone()],
+                    )
+                    .ok()
+                })
+                .as_ref()
+                .ok_or("FailedToDecode"),
+            Self::Prost { transaction, .. } => Ok(transaction),
         }
     }
 
     pub fn transaction_meta(&self) -> Result<&TransactionStatusMeta, &'static str> {
-        match self {
-            Self::Limited { transaction, .. } => transaction.meta.as_ref().ok_or("FieldNotDefined"),
-            Self::Prost { transaction, .. } => transaction.meta.as_ref().ok_or("FieldNotDefined"),
-        }
+        self.transaction()
+            .and_then(|tx| tx.meta.as_ref().ok_or("FieldNotDefined"))
     }
 
     pub fn as_versioned_transaction_with_status_meta(
         &self,
     ) -> Result<VersionedTransactionWithStatusMeta, &'static str> {
         Ok(VersionedTransactionWithStatusMeta {
-            transaction: convert_from::create_tx_versioned(self.transaction()?.clone())?,
+            transaction: convert_from::create_tx_versioned(
+                self.transaction()?
+                    .transaction
+                    .clone()
+                    .ok_or("FieldNotDefined")?,
+            )?,
             meta: convert_from::create_tx_meta(self.transaction_meta()?.clone())?,
         })
     }

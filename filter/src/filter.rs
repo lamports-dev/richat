@@ -898,7 +898,8 @@ impl FilteredUpdate<'_> {
                 MessageTransaction::Limited {
                     signature,
                     error,
-                    transaction,
+                    is_vote,
+                    index,
                     slot,
                     created_at,
                     ..
@@ -908,8 +909,8 @@ impl FilteredUpdate<'_> {
                         UpdateOneofLimitedEncodeTransactionStatus {
                             slot: *slot,
                             signature: signature.as_ref(),
-                            is_vote: transaction.is_vote,
-                            index: transaction.index,
+                            is_vote: *is_vote,
+                            index: *index,
                             err: error.clone(),
                         },
                     ),
