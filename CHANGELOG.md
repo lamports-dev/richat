@@ -18,6 +18,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: use channel per source ([#175](https://github.com/lamports-dev/richat/pull/175))
 - richat: use `kanal` instead of `tokio::sync::mpsc` ([#176](https://github.com/lamports-dev/richat/pull/176))
 - richat: exit code 2 if replay is not available ([#177](https://github.com/lamports-dev/richat/pull/177))
+- filter: move fn update_write_version ([#178](https://github.com/lamports-dev/richat/pull/178))
 
 ### Breaking
 

@@ -398,7 +398,7 @@ impl SubscribeConfig {
             | "slotUnsubscribe"
             | "slotsUpdatesUnsubscribe"
             | "blockUnsubscribe"
-            | "voteUnsubscribe"
+            // | "voteUnsubscribe"
             | "rootUnsubscribe"
             | "transactionUnsubscribe" => {
                 if (method == "blockUnsubscribe" && !enable_block_subscription)
