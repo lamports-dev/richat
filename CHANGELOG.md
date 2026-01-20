@@ -22,6 +22,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2025-12-23
+
+- richat-plugin-agave-v7.1.0
+
+### Features
+
+- plugin-agave: add option to disable/enable account/transaction updates + filter account data size ([#171](https://github.com/lamports-dev/richat/pull/171))
+
 ## 2025-12-22
 
 - richat-shared-v7.2.0

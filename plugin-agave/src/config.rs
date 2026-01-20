@@ -23,6 +23,7 @@ pub struct Config {
     pub metrics: Option<ConfigMetrics>,
     pub tokio: ConfigTokio,
     pub channel: ConfigChannel,
+    pub filters: ConfigFilters,
     pub quic: Option<ConfigQuicServer>,
     pub grpc: Option<ConfigGrpcServer>,
 }
@@ -87,6 +88,27 @@ impl ConfigChannel {
             value => Err(de::Error::custom(format!(
                 "failed to decode encoder: {value}"
             ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConfigFilters {
+    /// Enable/disable account update notifications
+    pub enable_account_update: bool,
+    /// Enable/disable transaction update notifications
+    pub enable_transaction_update: bool,
+    /// Maximum account data size to send, if None no limit
+    pub max_account_data_size: Option<usize>,
+}
+
+impl Default for ConfigFilters {
+    fn default() -> Self {
+        Self {
+            enable_account_update: true,
+            enable_transaction_update: true,
+            max_account_data_size: None,
         }
     }
 }

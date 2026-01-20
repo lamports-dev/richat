@@ -1,7 +1,7 @@
 use {
     crate::{
         channel::Sender,
-        config::Config,
+        config::{Config, ConfigFilters},
         metrics,
         protobuf::{ProtobufEncoder, ProtobufMessage},
         version::VERSION,
@@ -59,6 +59,7 @@ pub struct PluginInner {
     encoder: ProtobufEncoder,
     shutdown: CancellationToken,
     tasks: Vec<(&'static str, PluginTask)>,
+    filters: ConfigFilters,
 }
 
 impl PluginInner {
@@ -146,6 +147,7 @@ impl PluginInner {
             encoder: config.channel.encoder,
             shutdown,
             tasks,
+            filters: config.filters,
         })
     }
 }
@@ -212,6 +214,14 @@ impl GeyserPlugin for Plugin {
             };
 
             let inner = self.inner.as_ref().expect("initialized");
+
+            // Filter by account data size
+            if let Some(max_size) = inner.filters.max_account_data_size {
+                if account.data.len() > max_size {
+                    return Ok(());
+                }
+            }
+
             inner
                 .messages
                 .push(ProtobufMessage::Account { slot, account }, inner.encoder);
@@ -307,7 +317,11 @@ impl GeyserPlugin for Plugin {
     }
 
     fn account_data_notifications_enabled(&self) -> bool {
-        true
+        self.inner
+            .as_ref()
+            .expect("initialized")
+            .filters
+            .enable_account_update
     }
 
     fn account_data_snapshot_notifications_enabled(&self) -> bool {
@@ -315,7 +329,11 @@ impl GeyserPlugin for Plugin {
     }
 
     fn transaction_notifications_enabled(&self) -> bool {
-        true
+        self.inner
+            .as_ref()
+            .expect("initialized")
+            .filters
+            .enable_transaction_update
     }
 
     fn entry_notifications_enabled(&self) -> bool {
