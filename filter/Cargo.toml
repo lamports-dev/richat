@@ -29,5 +29,9 @@ solana-transaction-status = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+const-hex = { workspace = true }
+maplit = { workspace = true }
+
 [lints]
 workspace = true
