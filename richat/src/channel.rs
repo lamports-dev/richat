@@ -498,7 +498,7 @@ pub struct Sender {
 impl Sender {
     pub fn push(
         &mut self,
-        index_info: Option<(usize, usize)>,
+        source_index: Option<usize>,
         source_name: &'static str,
         message: Message,
     ) {
@@ -511,12 +511,9 @@ impl Sender {
 
         // get or create slot info
         let mut messages = SmallVec::<[ParsedMessage; 4]>::new();
-        let mut dedup_info = if let Some((index, streams_total)) = index_info {
+        let mut dedup_info = if let Some(index) = source_index {
             // dedup info
-            let dedup = self
-                .dedup
-                .entry(slot)
-                .or_insert_with(|| DedupInfo::new(streams_total));
+            let dedup = self.dedup.entry(slot).or_default();
 
             match message {
                 Message::Slot(msg) => {
@@ -527,9 +524,10 @@ impl Sender {
                     }
                 }
                 Message::Account(mut msg) => {
-                    if let Some(key) = DedupInfoAccountTransactionKey::try_create(&msg) {
-                        if dedup.accounts_transactions.insert(key) {
-                            match dedup.transactions.entry(key.signature) {
+                    let key = DedupInfoAccountTransactionKey::from(&msg);
+                    if dedup.accounts_updates.insert(key) {
+                        if let Some(signature) = key.signature {
+                            match dedup.transactions.entry(signature) {
                                 HashMapEntry::Occupied(mut entry) => match entry.get_mut() {
                                     DedupInfoTransactionIndex::Index(index) => {
                                         msg.update_write_version(*index as u64);
@@ -543,18 +541,17 @@ impl Sender {
                                     entry.insert(DedupInfoTransactionIndex::Accounts(vec![msg]));
                                 }
                             }
-                        }
-                    } else {
-                        let msg = ParsedMessage::Account(Arc::new(msg));
-                        if dedup.block_index == Some(index) {
-                            messages.push(msg); // send to SlotInfo to generate error
                         } else {
-                            dedup.accounts_phantom[index].push(msg);
+                            let index = dedup.accounts_updates_phantom_index;
+                            dedup.accounts_updates_phantom_index += 1;
+                            msg.update_write_version(index);
+                            messages.push(ParsedMessage::Account(Arc::new(msg)));
                         }
                     }
                 }
                 Message::Transaction(msg) => {
-                    let index = msg.index() as usize;
+                    // we keep some space for account updates without signature
+                    let index = msg.index() as usize + 1_000;
                     match dedup.transactions.entry(msg.signature()) {
                         HashMapEntry::Occupied(mut entry) => {
                             let entry = entry.get_mut();
@@ -623,17 +620,12 @@ impl Sender {
                 SlotInfo::new(slot, self.index)
             });
             let slot_index_head = slot_info.index;
-            let messages_with_block = slot_info.get_messages_with_block(
-                &message,
-                dedup_info
-                    .as_mut()
-                    .map(|(index, dedup)| &mut dedup.accounts_phantom[*index]),
-            );
-            if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &messages_with_block) {
+            let block_message = slot_info.get_block_message(&message);
+            if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &block_message) {
                 dedup.block_index = Some(*index);
             }
 
-            for message in MessagesWithBlockIter::new(message, messages_with_block) {
+            for message in [Some(message), block_message].into_iter().flatten() {
                 if let Some(messages) = &mut replay.messages {
                     if !messages.insert(message.get_id(self.hasher.build_hasher())) {
                         continue;
@@ -1134,11 +1126,7 @@ impl SlotInfo {
         }
     }
 
-    fn get_messages_with_block(
-        &mut self,
-        message: &ParsedMessage,
-        deduped_accounts: Option<&mut SmallVec<[ParsedMessage; 8]>>,
-    ) -> Option<MessagesWithBlock> {
+    fn get_block_message(&mut self, message: &ParsedMessage) -> Option<ParsedMessage> {
         // mark as landed
         if let ParsedMessage::Slot(message) = message {
             if matches!(
@@ -1220,12 +1208,6 @@ impl SlotInfo {
             {
                 self.block_created = true;
 
-                if let Some(messages) = &deduped_accounts {
-                    for message in messages.iter() {
-                        self.messages.push(Some(message.clone()));
-                    }
-                }
-
                 let accounts = self
                     .messages
                     .iter()
@@ -1250,10 +1232,7 @@ impl SlotInfo {
                 )));
                 self.messages.push(Some(block.clone()));
 
-                return Some(MessagesWithBlock {
-                    accounts: deduped_accounts.map(std::mem::take).unwrap_or_default(),
-                    block,
-                });
+                return Some(block);
             }
         }
 
@@ -1287,67 +1266,22 @@ impl ReplayInfo {
 }
 
 #[derive(Debug)]
-struct MessagesWithBlock {
-    accounts: SmallVec<[ParsedMessage; 8]>,
-    block: ParsedMessage,
-}
-
-#[derive(Debug)]
-struct MessagesWithBlockIter {
-    accounts: Option<smallvec::IntoIter<[ParsedMessage; 8]>>,
-    message: Option<ParsedMessage>,
-    block: Option<ParsedMessage>,
-}
-
-impl Iterator for MessagesWithBlockIter {
-    type Item = ParsedMessage;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(accounts) = self.accounts.as_mut() {
-            if let Some(message) = accounts.next() {
-                return Some(message);
-            }
-        }
-        self.message.take().or_else(|| self.block.take())
-    }
-}
-
-impl MessagesWithBlockIter {
-    fn new(message: ParsedMessage, messages: Option<MessagesWithBlock>) -> Self {
-        let (accounts, block) = match messages {
-            Some(MessagesWithBlock { accounts, block }) => {
-                (Some(accounts.into_iter()), Some(block))
-            }
-            None => (None, None),
-        };
-
-        Self {
-            accounts,
-            message: Some(message),
-            block,
-        }
-    }
-}
-
-#[derive(Debug)]
 struct DedupInfo {
     slots: [bool; 7],
-    accounts_phantom: Vec<SmallVec<[ParsedMessage; 8]>>,
-    accounts_transactions: HashSet<DedupInfoAccountTransactionKey, RandomState>,
+    accounts_updates: HashSet<DedupInfoAccountTransactionKey, RandomState>,
+    accounts_updates_phantom_index: u64,
     transactions: HashMap<Signature, DedupInfoTransactionIndex, RandomState>,
     entries: Vec<bool>,
     block_meta: bool,
     block_index: Option<usize>,
 }
 
-impl DedupInfo {
-    fn new(streams_total: usize) -> Self {
+impl Default for DedupInfo {
+    fn default() -> Self {
         Self {
             slots: [false; 7],
-            accounts_phantom: std::iter::repeat_with(SmallVec::new)
-                .take(streams_total)
-                .collect(),
-            accounts_transactions: HashSet::with_capacity_and_hasher(8_192, RandomState::default()),
+            accounts_updates: HashSet::with_capacity_and_hasher(8_192, RandomState::default()),
+            accounts_updates_phantom_index: 0,
             transactions: HashMap::with_capacity_and_hasher(8_192, RandomState::default()),
             entries: std::iter::repeat_n(false, 256).collect(),
             block_meta: false,
@@ -1358,16 +1292,18 @@ impl DedupInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct DedupInfoAccountTransactionKey {
-    signature: Signature,
+    signature: Option<Signature>,
     pubkey: Pubkey,
 }
 
-impl DedupInfoAccountTransactionKey {
-    fn try_create(msg: &MessageAccount) -> Option<Self> {
-        msg.txn_signature().map(|signature| Self {
-            signature: signature.try_into().expect("valid signature"),
-            pubkey: *msg.pubkey(),
-        })
+impl From<&MessageAccount> for DedupInfoAccountTransactionKey {
+    fn from(value: &MessageAccount) -> Self {
+        Self {
+            signature: value
+                .txn_signature()
+                .map(|sig| sig.try_into().expect("valid signature")),
+            pubkey: *value.pubkey(),
+        }
     }
 }
 
