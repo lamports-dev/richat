@@ -117,7 +117,7 @@ fn main() -> anyhow::Result<()> {
                             },
                             () = &mut shutdown => return Ok(()),
                         };
-                        let source_index = (streams_total == 1).then_some(source_index);
+                        let source_index = (streams_total > 1).then_some(source_index);
                         sender.push(source_index, source_name, message);
                     }
                 })
