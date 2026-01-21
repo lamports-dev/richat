@@ -19,7 +19,6 @@ use {
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError},
     },
     smallvec::SmallVec,
-    solana_account::ReadableAccount,
     solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntSet,
@@ -186,11 +185,9 @@ impl ParsedMessage {
                 state.write_u8(1);
                 state.write_u64(msg.slot());
                 state.write(msg.pubkey().as_ref());
+                // signature doesn't exist for block reward and system account updates
                 if let Some(signature) = msg.txn_signature() {
                     state.write(signature);
-                } else {
-                    // uniq runtime update: validator block reward + epoch reward
-                    state.write_u64(msg.lamports());
                 }
             }
             ParsedMessage::Transaction(msg) => {
@@ -513,7 +510,7 @@ impl Sender {
         }
 
         // get or create slot info
-        let mut messages = SmallVec::<[ParsedMessage; 16]>::new();
+        let mut messages = SmallVec::<[ParsedMessage; 4]>::new();
         let mut dedup_info = if let Some((index, streams_total)) = index_info {
             // dedup info
             let dedup = self
