@@ -41,6 +41,8 @@ pub struct ConfigChannel {
     /// Runtime for receiving plugin messages
     #[serde(default)]
     pub tokio: ConfigTokio,
+    #[serde(default)]
+    pub sources_sigusr1_reload: bool,
     #[serde(deserialize_with = "ConfigChannel::deserialize_sources")]
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]

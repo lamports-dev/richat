@@ -92,6 +92,7 @@ fn main() -> anyhow::Result<()> {
                 let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
+                    let sigusr1_reload = config.channel.sources_sigusr1_reload;
                     let streams_total = config.channel.sources.len();
                     let mut stream = Subscriptions::new(
                         config.channel.sources,
@@ -117,7 +118,7 @@ fn main() -> anyhow::Result<()> {
                             },
                             () = &mut shutdown => return Ok(()),
                         };
-                        let source_index = (streams_total > 1).then_some(source_index);
+                        let source_index = (sigusr1_reload || streams_total > 1).then_some(source_index);
                         sender.push(source_index, source_name, message);
                     }
                 })
