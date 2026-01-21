@@ -21,6 +21,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - filter: move fn update_write_version ([#178](https://github.com/lamports-dev/richat/pull/178))
 - filter: account keys limited parser ([#179](https://github.com/lamports-dev/richat/pull/179))
 - filter: add parse benchmark ([#180](https://github.com/lamports-dev/richat/pull/180))
+- richat: handle phantom account updates with normal updates ([#181](https://github.com/lamports-dev/richat/pull/181))
 
 ### Breaking
 
