@@ -942,7 +942,6 @@ impl MessageTransaction {
     }
 
     pub fn signature_ref(&self) -> &[u8] {
-        const ZEROED: [u8; SIGNATURE_BYTES] = [0; SIGNATURE_BYTES];
         match self {
             Self::Limited {
                 signature_offset,
@@ -950,7 +949,7 @@ impl MessageTransaction {
                 ..
             } => match signature_offset {
                 Some(offset) => &buffer[*offset..*offset + SIGNATURE_BYTES],
-                None => &ZEROED,
+                None => panic!("transaction should have valid signature"),
             },
             Self::Prost { transaction, .. } => &transaction.signature,
         }
