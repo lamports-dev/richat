@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
-                        let (index, source_name, message) = tokio::select! {
+                        let (source_index, source_name, message) = tokio::select! {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
@@ -117,13 +117,8 @@ fn main() -> anyhow::Result<()> {
                             },
                             () = &mut shutdown => return Ok(()),
                         };
-
-                        let index_info = if streams_total == 1 {
-                            None
-                        } else {
-                            Some((index, streams_total))
-                        };
-                        sender.push(index_info, source_name, message);
+                        let source_index = (streams_total == 1).then_some(source_index);
+                        sender.push(source_index, source_name, message);
                     }
                 })
             }
