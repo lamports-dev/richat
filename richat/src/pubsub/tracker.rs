@@ -739,7 +739,7 @@ impl CachedSignatures {
             }
 
             self.signatures.insert(
-                *message.signature(),
+                message.signature(),
                 CachedSignature {
                     slot: message.slot(),
                     err,
@@ -748,7 +748,7 @@ impl CachedSignatures {
             self.slots
                 .entry(message.slot())
                 .or_default()
-                .push(*message.signature());
+                .push(message.signature());
 
             gauge!(metrics::PUBSUB_CACHED_SIGNATURES_TOTAL).set(self.signatures.len() as f64);
         }

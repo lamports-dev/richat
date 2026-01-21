@@ -50,7 +50,7 @@ impl TransactionFilter {
         }
 
         if let Some(filter_signature) = &self.signature {
-            if filter_signature != message.signature() {
+            if filter_signature.as_ref() != message.signature_ref() {
                 return false;
             }
         }

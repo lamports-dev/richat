@@ -531,7 +531,7 @@ impl SubscribeConfig {
         message: &MessageTransaction,
     ) -> Option<Option<TransactionError>> {
         match self {
-            Self::Signature { signature, .. } if signature == message.signature() => {
+            Self::Signature { signature, .. } if signature.as_ref() == message.signature_ref() => {
                 convert_from::create_tx_error(message.error().as_ref()).ok()
             }
             _ => None,

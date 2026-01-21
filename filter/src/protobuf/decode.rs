@@ -34,7 +34,10 @@ fn decode_pubkey(
         return Err(decode_error("buffer underflow", &[(struct_name, field)]));
     }
     if len != PUBKEY_BYTES {
-        return Err(decode_error("invalid pubkey length", &[(struct_name, field)]));
+        return Err(decode_error(
+            "invalid pubkey length",
+            &[(struct_name, field)],
+        ));
     }
     let mut pubkey = MaybeUninit::<[u8; PUBKEY_BYTES]>::uninit();
     buf.copy_to_slice(unsafe { &mut *pubkey.as_mut_ptr() });
@@ -506,25 +509,13 @@ impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct UpdateOneofLimitedDecodeTransactionInfo {
-    pub signature: [u8; SIGNATURE_BYTES],
+    pub signature_offset: Option<usize>,
     pub is_vote: bool,
     pub index: u64,
     pub account_keys: HashSet<Pubkey>,
     pub err: Option<Range<usize>>,
-}
-
-impl Default for UpdateOneofLimitedDecodeTransactionInfo {
-    fn default() -> Self {
-        Self {
-            signature: [0; SIGNATURE_BYTES],
-            is_vote: false,
-            index: 0,
-            account_keys: HashSet::default(),
-            err: None,
-        }
-    }
 }
 
 impl LimitedDecode for UpdateOneofLimitedDecodeTransactionInfo {
@@ -554,7 +545,8 @@ impl LimitedDecode for UpdateOneofLimitedDecodeTransactionInfo {
                         &[(STRUCT_NAME, "signature")],
                     ));
                 }
-                buf.copy_to_slice(&mut self.signature);
+                self.signature_offset = Some(buf_len - buf.remaining());
+                buf.advance(len);
                 Ok(())
             }
             2u32 => {
@@ -633,8 +625,12 @@ impl UpdateOneofLimitedDecodeTransactionInfo {
             let (tag, wire_type) = decode_key(buf)?;
             // Message: account_keys = 2
             if tag == 2 {
-                self.account_keys
-                    .insert(decode_pubkey(buf, wire_type, STRUCT_NAME, "account_keys")?);
+                self.account_keys.insert(decode_pubkey(
+                    buf,
+                    wire_type,
+                    STRUCT_NAME,
+                    "account_keys",
+                )?);
             } else {
                 encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
             }

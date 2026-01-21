@@ -46,8 +46,6 @@ pub enum MessageParseError {
     InvalidEnumValue(i32),
     #[error("Invalid pubkey length")]
     InvalidPubkey,
-    #[error("Invalid signature length")]
-    InvalidSignature,
     #[error("Invalid update: {0}")]
     InvalidUpdateMessage(&'static str),
     #[error("Incompatible encoding")]
@@ -275,7 +273,9 @@ impl MessageParserLimited {
                         .transpose()?;
 
                     Message::Transaction(MessageTransaction::Limited {
-                        signature: tx_info.signature.into(),
+                        signature_offset: tx_info
+                            .signature_offset
+                            .map(|offset| transaction_range.start + offset),
                         error,
                         account_keys: tx_info.account_keys,
                         is_vote: tx_info.is_vote,
@@ -397,11 +397,6 @@ impl MessageParserProst {
                     let account_keys_capacity = account_keys.capacity();
 
                     Message::Transaction(MessageTransaction::Prost {
-                        signature: transaction
-                            .signature
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
                         account_keys,
                         transaction,
@@ -470,11 +465,6 @@ impl MessageParserProst {
                             let account_keys_capacity = account_keys.capacity();
 
                             Ok(Arc::new(MessageTransaction::Prost {
-                                signature: transaction
-                                    .signature
-                                    .as_slice()
-                                    .try_into()
-                                    .map_err(|_| MessageParseError::InvalidSignature)?,
                                 error: meta.err.clone(),
                                 account_keys,
                                 transaction,
@@ -850,7 +840,7 @@ impl ReadableAccount for MessageAccount {
 #[derive(Debug, Clone)]
 pub enum MessageTransaction {
     Limited {
-        signature: Signature,
+        signature_offset: Option<usize>,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
         is_vote: bool,
@@ -863,7 +853,6 @@ pub enum MessageTransaction {
         range: Range<usize>,
     },
     Prost {
-        signature: Signature,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
         transaction: SubscribeUpdateTransactionInfo,
@@ -945,10 +934,25 @@ impl MessageTransaction {
         Ok(account_keys)
     }
 
-    pub const fn signature(&self) -> &Signature {
+    pub fn signature(&self) -> Signature {
+        Signature::from(
+            <[u8; SIGNATURE_BYTES]>::try_from(self.signature_ref())
+                .expect("signature must be 64 bytes"),
+        )
+    }
+
+    pub fn signature_ref(&self) -> &[u8] {
+        const ZEROED: [u8; SIGNATURE_BYTES] = [0; SIGNATURE_BYTES];
         match self {
-            Self::Limited { signature, .. } => signature,
-            Self::Prost { signature, .. } => signature,
+            Self::Limited {
+                signature_offset,
+                buffer,
+                ..
+            } => match signature_offset {
+                Some(offset) => &buffer[*offset..*offset + SIGNATURE_BYTES],
+                None => &ZEROED,
+            },
+            Self::Prost { transaction, .. } => &transaction.signature,
         }
     }
 
