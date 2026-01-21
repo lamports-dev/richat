@@ -39,7 +39,7 @@ pub mod fixtures {
     };
 
     pub fn load_predefined_blocks() -> Vec<(Slot, ConfirmedBlock)> {
-        fs::read_dir("./fixtures/blocks")
+        fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/blocks"))
             .expect("failed to read `fixtures` directory")
             .map(|entry| {
                 let entry = entry.expect("failed to read entry directory");
