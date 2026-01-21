@@ -94,6 +94,7 @@ fn main() -> anyhow::Result<()> {
                 runtime.block_on(async move {
                     let sigusr1_reload = config.channel.sources_sigusr1_reload;
                     let streams_total = config.channel.sources.len();
+                    let dedup_required = sigusr1_reload || streams_total > 1;
                     let mut stream = Subscriptions::new(
                         config.channel.sources,
                         replay_from_slot,
@@ -103,7 +104,7 @@ fn main() -> anyhow::Result<()> {
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
                     loop {
-                        let (source_index, source_name, message) = tokio::select! {
+                        let (source_name, message) = tokio::select! {
                             biased;
                             message = stream.next() => match message {
                                 Some(Ok(value)) => value,
@@ -118,8 +119,7 @@ fn main() -> anyhow::Result<()> {
                             },
                             () = &mut shutdown => return Ok(()),
                         };
-                        let source_index = (sigusr1_reload || streams_total > 1).then_some(source_index);
-                        sender.push(source_index, source_name, message);
+                        sender.push(dedup_required, source_name, message);
                     }
                 })
             }

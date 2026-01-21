@@ -123,7 +123,7 @@ impl Backoff {
     }
 }
 
-type SubscriptionMessage = Result<(usize, &'static str, Message), ReceiveError>;
+type SubscriptionMessage = Result<(&'static str, Message), ReceiveError>;
 
 struct Subscription {
     name: &'static str,
@@ -178,8 +178,8 @@ impl Subscription {
                     loop {
                         if let Some(stream) = state.4.as_mut() {
                             match stream.recv().await {
-                                Ok(Ok((index, name, message))) => {
-                                    return Ok(Some(((index, name, message), state)));
+                                Ok(Ok((name, message))) => {
+                                    return Ok(Some(((name, message), state)));
                                 }
                                 Ok(Err(ReceiveError::ReplayFailed)) => {
                                     if state.3.report_replay_failed(index) {
@@ -204,7 +204,6 @@ impl Subscription {
                                 state.2.parser,
                                 state.2.channel_size,
                                 state.3.load(),
-                                index,
                             )
                             .await
                             {
@@ -230,7 +229,6 @@ impl Subscription {
                 config.parser,
                 config.channel_size,
                 global_replay_from_slot.load(),
-                index,
             )
             .await?;
             futures::stream::unfold(
@@ -250,7 +248,6 @@ impl Subscription {
         parser: MessageParserEncoding,
         channel_size: usize,
         replay_from_slot: Option<Slot>,
-        index: usize,
     ) -> Result<kanal::AsyncReceiver<SubscriptionMessage>, SubscribeError> {
         let (tx, rx) = kanal::bounded_async(channel_size);
 
@@ -303,7 +300,7 @@ impl Subscription {
             loop {
                 let message = match stream.next().await {
                     Some(Ok(data)) => match Message::parse(data.into(), parser) {
-                        Ok(message) => Ok((index, name, message)),
+                        Ok(message) => Ok((name, message)),
                         Err(MessageParseError::InvalidUpdateMessage("Ping")) => continue,
                         Err(error) => Err(error.into()),
                     },
