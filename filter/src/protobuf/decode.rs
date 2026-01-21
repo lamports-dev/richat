@@ -8,7 +8,7 @@ use {
     solana_clock::{Epoch, Slot},
     solana_pubkey::{PUBKEY_BYTES, Pubkey},
     solana_signature::SIGNATURE_BYTES,
-    std::{borrow::Cow, ops::Range},
+    std::{borrow::Cow, collections::HashSet, mem::MaybeUninit, ops::Range},
 };
 
 fn decode_error(
@@ -20,6 +20,28 @@ fn decode_error(
         error.push(message, field);
     }
     error
+}
+
+fn decode_pubkey(
+    buf: &mut impl Buf,
+    wire_type: WireType,
+    struct_name: &'static str,
+    field: &'static str,
+) -> Result<Pubkey, DecodeError> {
+    check_wire_type(WireType::LengthDelimited, wire_type)?;
+    let len = decode_varint(buf)? as usize;
+    if len > buf.remaining() {
+        return Err(decode_error("buffer underflow", &[(struct_name, field)]));
+    }
+    if len != PUBKEY_BYTES {
+        return Err(decode_error(
+            "invalid pubkey length",
+            &[(struct_name, field)],
+        ));
+    }
+    let mut pubkey = MaybeUninit::<[u8; PUBKEY_BYTES]>::uninit();
+    buf.copy_to_slice(unsafe { &mut *pubkey.as_mut_ptr() });
+    Ok(unsafe { pubkey.assume_init() }.into())
 }
 
 pub trait LimitedDecode: Default {
@@ -302,20 +324,7 @@ impl UpdateOneofLimitedDecodeAccount {
         let ctx = DecodeContext::default();
         match tag {
             1u32 => {
-                check_wire_type(WireType::LengthDelimited, wire_type)?;
-                let len = decode_varint(buf)? as usize;
-                if len > buf.remaining() {
-                    return Err(decode_error("buffer underflow", &[(STRUCT_NAME, "pubkey")]));
-                }
-                if len != PUBKEY_BYTES {
-                    return Err(decode_error(
-                        "invalid pubkey length",
-                        &[(STRUCT_NAME, "pubkey")],
-                    ));
-                }
-                let mut pubkey = [0; PUBKEY_BYTES];
-                buf.copy_to_slice(&mut pubkey);
-                self.pubkey = pubkey.into();
+                self.pubkey = decode_pubkey(buf, wire_type, STRUCT_NAME, "pubkey")?;
                 Ok(())
             }
             2u32 => {
@@ -326,20 +335,7 @@ impl UpdateOneofLimitedDecodeAccount {
                 })
             }
             3u32 => {
-                check_wire_type(WireType::LengthDelimited, wire_type)?;
-                let len = decode_varint(buf)? as usize;
-                if len > buf.remaining() {
-                    return Err(decode_error("buffer underflow", &[(STRUCT_NAME, "pubkey")]));
-                }
-                if len != PUBKEY_BYTES {
-                    return Err(decode_error(
-                        "invalid pubkey length",
-                        &[(STRUCT_NAME, "pubkey")],
-                    ));
-                }
-                let mut owner = [0; PUBKEY_BYTES];
-                buf.copy_to_slice(&mut owner);
-                self.owner = owner.into();
+                self.owner = decode_pubkey(buf, wire_type, STRUCT_NAME, "owner")?;
                 Ok(())
             }
             4u32 => {
@@ -510,6 +506,186 @@ impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
             }
             _ => encoding::skip_field(wire_type, tag, buf, ctx),
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UpdateOneofLimitedDecodeTransactionInfo {
+    pub signature_offset: Option<usize>,
+    pub is_vote: bool,
+    pub index: u64,
+    pub account_keys: HashSet<Pubkey>,
+    pub err: Option<Range<usize>>,
+}
+
+impl LimitedDecode for UpdateOneofLimitedDecodeTransactionInfo {
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeTransactionInfo";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                // signature
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error(
+                        "buffer underflow",
+                        &[(STRUCT_NAME, "signature")],
+                    ));
+                }
+                if len != SIGNATURE_BYTES {
+                    return Err(decode_error(
+                        "invalid signature length",
+                        &[(STRUCT_NAME, "signature")],
+                    ));
+                }
+                self.signature_offset = Some(buf_len - buf.remaining());
+                buf.advance(len);
+                Ok(())
+            }
+            2u32 => {
+                // is_vote
+                let value = &mut self.is_vote;
+                encoding::bool::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "is_vote");
+                    error
+                })
+            }
+            3u32 => {
+                // transaction (nested message containing account_keys)
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_transaction(buf, buf_len).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "transaction");
+                    error
+                })
+            }
+            4u32 => {
+                // meta (nested message containing loaded addresses and err)
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_meta(buf, buf_len).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "meta");
+                    error
+                })
+            }
+            5u32 => {
+                // index
+                let value = &mut self.index;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "index");
+                    error
+                })
+            }
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}
+
+impl UpdateOneofLimitedDecodeTransactionInfo {
+    fn merge_transaction(&mut self, buf: &mut impl Buf, buf_len: usize) -> Result<(), DecodeError> {
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            // Transaction: message = 2
+            if tag == 2 {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_transaction_message(buf, buf_len)?;
+            } else {
+                encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn merge_transaction_message(
+        &mut self,
+        buf: &mut impl Buf,
+        _buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeTransactionInfo";
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            // Message: account_keys = 2
+            if tag == 2 {
+                self.account_keys.insert(decode_pubkey(
+                    buf,
+                    wire_type,
+                    STRUCT_NAME,
+                    "account_keys",
+                )?);
+            } else {
+                encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn merge_meta(&mut self, buf: &mut impl Buf, buf_len: usize) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeTransactionInfo";
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            match tag {
+                1u32 => {
+                    // err
+                    check_wire_type(WireType::LengthDelimited, wire_type)?;
+                    let len = decode_varint(buf)? as usize;
+                    if len > buf.remaining() {
+                        return Err(DecodeError::new("buffer underflow"));
+                    }
+                    let start = buf_len - buf.remaining();
+                    buf.advance(len);
+                    let end = buf_len - buf.remaining();
+                    self.err = Some(Range { start, end });
+                }
+                12u32 => {
+                    // loaded_writable_addresses
+                    self.account_keys.insert(decode_pubkey(
+                        buf,
+                        wire_type,
+                        STRUCT_NAME,
+                        "loaded_writable_addresses",
+                    )?);
+                }
+                13u32 => {
+                    // loaded_readonly_addresses
+                    self.account_keys.insert(decode_pubkey(
+                        buf,
+                        wire_type,
+                        STRUCT_NAME,
+                        "loaded_readonly_addresses",
+                    )?);
+                }
+                _ => {
+                    encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

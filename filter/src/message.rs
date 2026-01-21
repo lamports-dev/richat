@@ -3,6 +3,7 @@ use {
         LimitedDecode, SubscribeUpdateLimitedDecode, UpdateOneofLimitedDecode,
         UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
         UpdateOneofLimitedDecodeSlot, UpdateOneofLimitedDecodeTransaction,
+        UpdateOneofLimitedDecodeTransactionInfo,
     },
     prost::{
         Message as _,
@@ -16,7 +17,7 @@ use {
             SlotStatus, SubscribeUpdate, SubscribeUpdateAccountInfo, SubscribeUpdateBlockMeta,
             SubscribeUpdateEntry, SubscribeUpdateTransactionInfo, subscribe_update::UpdateOneof,
         },
-        solana::storage::confirmed_block::{Transaction, TransactionError, TransactionStatusMeta},
+        solana::storage::confirmed_block::{TransactionError, TransactionStatusMeta},
     },
     serde::{Deserialize, Serialize},
     solana_account::ReadableAccount,
@@ -30,7 +31,7 @@ use {
         borrow::Cow,
         collections::HashSet,
         ops::{Deref, Range},
-        sync::Arc,
+        sync::{Arc, OnceLock},
     },
     thiserror::Error,
 };
@@ -45,8 +46,6 @@ pub enum MessageParseError {
     InvalidEnumValue(i32),
     #[error("Invalid pubkey length")]
     InvalidPubkey,
-    #[error("Invalid signature length")]
-    InvalidSignature,
     #[error("Invalid update: {0}")]
     InvalidUpdateMessage(&'static str),
     #[error("Incompatible encoding")]
@@ -259,28 +258,30 @@ impl MessageParserLimited {
                     transaction_range.start += range.start;
                     transaction_range.end += range.start;
 
-                    let transaction = SubscribeUpdateTransactionInfo::decode(
+                    let tx_info = UpdateOneofLimitedDecodeTransactionInfo::decode(
                         &data.as_slice()[transaction_range.start..transaction_range.end],
                     )?;
 
-                    let meta = transaction
-                        .meta
-                        .as_ref()
-                        .ok_or(MessageParseError::FieldNotDefined("meta"))?;
-
-                    let account_keys =
-                        MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
+                    let error = tx_info
+                        .err
+                        .map(|err_range| {
+                            TransactionError::decode(
+                                &data.as_slice()[transaction_range.start + err_range.start
+                                    ..transaction_range.start + err_range.end],
+                            )
+                        })
+                        .transpose()?;
 
                     Message::Transaction(MessageTransaction::Limited {
-                        signature: transaction
-                            .signature
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidSignature)?,
-                        error: meta.err.clone(),
-                        account_keys,
+                        signature_offset: tx_info
+                            .signature_offset
+                            .map(|offset| transaction_range.start + offset),
+                        error,
+                        account_keys: tx_info.account_keys,
+                        is_vote: tx_info.is_vote,
+                        index: tx_info.index,
                         transaction_range,
-                        transaction,
+                        transaction: OnceLock::new(),
                         slot: message.slot,
                         created_at,
                         buffer: data,
@@ -396,11 +397,6 @@ impl MessageParserProst {
                     let account_keys_capacity = account_keys.capacity();
 
                     Message::Transaction(MessageTransaction::Prost {
-                        signature: transaction
-                            .signature
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidSignature)?,
                         error: meta.err.clone(),
                         account_keys,
                         transaction,
@@ -469,11 +465,6 @@ impl MessageParserProst {
                             let account_keys_capacity = account_keys.capacity();
 
                             Ok(Arc::new(MessageTransaction::Prost {
-                                signature: transaction
-                                    .signature
-                                    .as_slice()
-                                    .try_into()
-                                    .map_err(|_| MessageParseError::InvalidSignature)?,
                                 error: meta.err.clone(),
                                 account_keys,
                                 transaction,
@@ -849,18 +840,19 @@ impl ReadableAccount for MessageAccount {
 #[derive(Debug, Clone)]
 pub enum MessageTransaction {
     Limited {
-        signature: Signature,
+        signature_offset: Option<usize>,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
+        is_vote: bool,
+        index: u64,
         transaction_range: Range<usize>,
-        transaction: SubscribeUpdateTransactionInfo,
+        transaction: OnceLock<Option<SubscribeUpdateTransactionInfo>>,
         slot: Slot,
         created_at: Timestamp,
         buffer: Vec<u8>,
         range: Range<usize>,
     },
     Prost {
-        signature: Signature,
         error: Option<TransactionError>,
         account_keys: HashSet<Pubkey>,
         transaction: SubscribeUpdateTransactionInfo,
@@ -942,23 +934,37 @@ impl MessageTransaction {
         Ok(account_keys)
     }
 
-    pub const fn signature(&self) -> &Signature {
+    pub fn signature(&self) -> Signature {
+        Signature::from(
+            <[u8; SIGNATURE_BYTES]>::try_from(self.signature_ref())
+                .expect("signature must be 64 bytes"),
+        )
+    }
+
+    pub fn signature_ref(&self) -> &[u8] {
         match self {
-            Self::Limited { signature, .. } => signature,
-            Self::Prost { signature, .. } => signature,
+            Self::Limited {
+                signature_offset,
+                buffer,
+                ..
+            } => match signature_offset {
+                Some(offset) => &buffer[*offset..*offset + SIGNATURE_BYTES],
+                None => panic!("transaction should have valid signature"),
+            },
+            Self::Prost { transaction, .. } => &transaction.signature,
         }
     }
 
     pub const fn vote(&self) -> bool {
         match self {
-            Self::Limited { transaction, .. } => transaction.is_vote,
+            Self::Limited { is_vote, .. } => *is_vote,
             Self::Prost { transaction, .. } => transaction.is_vote,
         }
     }
 
     pub const fn index(&self) -> u64 {
         match self {
-            Self::Limited { transaction, .. } => transaction.index,
+            Self::Limited { index, .. } => *index,
             Self::Prost { transaction, .. } => transaction.index,
         }
     }
@@ -977,29 +983,41 @@ impl MessageTransaction {
         }
     }
 
-    pub fn transaction(&self) -> Result<&Transaction, &'static str> {
+    fn transaction(&self) -> Result<&SubscribeUpdateTransactionInfo, &'static str> {
         match self {
-            Self::Limited { transaction, .. } => {
-                transaction.transaction.as_ref().ok_or("FieldNotDefined")
-            }
-            Self::Prost { transaction, .. } => {
-                transaction.transaction.as_ref().ok_or("FieldNotDefined")
-            }
+            Self::Limited {
+                transaction,
+                transaction_range,
+                buffer,
+                ..
+            } => transaction
+                .get_or_init(|| {
+                    SubscribeUpdateTransactionInfo::decode(
+                        &buffer.as_slice()[transaction_range.clone()],
+                    )
+                    .ok()
+                })
+                .as_ref()
+                .ok_or("FailedToDecode"),
+            Self::Prost { transaction, .. } => Ok(transaction),
         }
     }
 
     pub fn transaction_meta(&self) -> Result<&TransactionStatusMeta, &'static str> {
-        match self {
-            Self::Limited { transaction, .. } => transaction.meta.as_ref().ok_or("FieldNotDefined"),
-            Self::Prost { transaction, .. } => transaction.meta.as_ref().ok_or("FieldNotDefined"),
-        }
+        self.transaction()
+            .and_then(|tx| tx.meta.as_ref().ok_or("FieldNotDefined"))
     }
 
     pub fn as_versioned_transaction_with_status_meta(
         &self,
     ) -> Result<VersionedTransactionWithStatusMeta, &'static str> {
         Ok(VersionedTransactionWithStatusMeta {
-            transaction: convert_from::create_tx_versioned(self.transaction()?.clone())?,
+            transaction: convert_from::create_tx_versioned(
+                self.transaction()?
+                    .transaction
+                    .clone()
+                    .ok_or("FieldNotDefined")?,
+            )?,
             meta: convert_from::create_tx_meta(self.transaction_meta()?.clone())?,
         })
     }

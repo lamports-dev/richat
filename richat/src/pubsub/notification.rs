@@ -157,7 +157,7 @@ impl RpcTransactionUpdate {
                 )),
             ),
             TransactionDetails::Signatures => {
-                (Some(signature_encode(&(*message.signature()).into())), None)
+                (Some(signature_encode(message.signature().as_array())), None)
             }
             TransactionDetails::None => (None, None),
             TransactionDetails::Accounts => (

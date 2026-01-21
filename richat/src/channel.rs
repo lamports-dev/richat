@@ -196,7 +196,7 @@ impl ParsedMessage {
             ParsedMessage::Transaction(msg) => {
                 state.write_u8(2);
                 state.write_u64(msg.slot());
-                state.write(msg.signature().as_ref());
+                state.write(msg.signature_ref());
             }
             ParsedMessage::Entry(msg) => {
                 state.write_u8(3);
@@ -558,7 +558,7 @@ impl Sender {
                 }
                 Message::Transaction(msg) => {
                     let index = msg.index() as usize;
-                    match dedup.transactions.entry(*msg.signature()) {
+                    match dedup.transactions.entry(msg.signature()) {
                         HashMapEntry::Occupied(mut entry) => {
                             let entry = entry.get_mut();
                             if let DedupInfoTransactionIndex::Accounts(vec) = entry {

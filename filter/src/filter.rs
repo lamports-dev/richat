@@ -531,7 +531,7 @@ impl FilterTransactions {
     fn get_update<'a>(&'a self, message: &'a MessageTransaction) -> Option<FilteredUpdate<'a>> {
         let msg_vote = message.vote();
         let msg_failed = message.failed();
-        let msg_signature = message.signature();
+        let msg_signature = message.signature_ref();
         let msg_account_keys = message.account_keys();
 
         let filters = self
@@ -551,7 +551,7 @@ impl FilterTransactions {
                 }
 
                 if let Some(signature) = &filter.signature {
-                    if signature != msg_signature {
+                    if signature.as_ref() != msg_signature {
                         return None;
                     }
                 }
@@ -896,9 +896,9 @@ impl FilteredUpdate<'_> {
             },
             FilteredUpdateType::TransactionStatus { message } => match message {
                 MessageTransaction::Limited {
-                    signature,
                     error,
-                    transaction,
+                    is_vote,
+                    index,
                     slot,
                     created_at,
                     ..
@@ -907,9 +907,9 @@ impl FilteredUpdate<'_> {
                     update: UpdateOneofLimitedEncode::TransactionStatus(
                         UpdateOneofLimitedEncodeTransactionStatus {
                             slot: *slot,
-                            signature: signature.as_ref(),
-                            is_vote: transaction.is_vote,
-                            index: transaction.index,
+                            signature: message.signature_ref(),
+                            is_vote: *is_vote,
+                            index: *index,
                             err: error.clone(),
                         },
                     ),
@@ -917,7 +917,6 @@ impl FilteredUpdate<'_> {
                 }
                 .encode(buf),
                 MessageTransaction::Prost {
-                    signature,
                     error,
                     transaction,
                     slot,
@@ -927,7 +926,7 @@ impl FilteredUpdate<'_> {
                     filters: &self.filters,
                     update: UpdateOneof::TransactionStatus(SubscribeUpdateTransactionStatus {
                         slot: *slot,
-                        signature: signature.as_ref().to_vec(),
+                        signature: message.signature_ref().to_vec(),
                         is_vote: transaction.is_vote,
                         index: transaction.index,
                         err: error.clone(),
