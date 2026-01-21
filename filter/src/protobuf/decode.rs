@@ -8,7 +8,7 @@ use {
     solana_clock::{Epoch, Slot},
     solana_pubkey::{PUBKEY_BYTES, Pubkey},
     solana_signature::SIGNATURE_BYTES,
-    std::{borrow::Cow, ops::Range},
+    std::{borrow::Cow, collections::HashSet, ops::Range},
 };
 
 fn decode_error(
@@ -510,6 +510,210 @@ impl LimitedDecode for UpdateOneofLimitedDecodeTransaction {
             }
             _ => encoding::skip_field(wire_type, tag, buf, ctx),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct UpdateOneofLimitedDecodeTransactionInfo {
+    pub signature: [u8; SIGNATURE_BYTES],
+    pub is_vote: bool,
+    pub index: u64,
+    pub account_keys: HashSet<Pubkey>,
+    pub err: Option<Range<usize>>,
+}
+
+impl Default for UpdateOneofLimitedDecodeTransactionInfo {
+    fn default() -> Self {
+        Self {
+            signature: [0; SIGNATURE_BYTES],
+            is_vote: false,
+            index: 0,
+            account_keys: HashSet::default(),
+            err: None,
+        }
+    }
+}
+
+impl LimitedDecode for UpdateOneofLimitedDecodeTransactionInfo {
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        const STRUCT_NAME: &str = "UpdateOneofLimitedDecodeTransactionInfo";
+        let ctx = DecodeContext::default();
+        match tag {
+            1u32 => {
+                // signature
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(decode_error(
+                        "buffer underflow",
+                        &[(STRUCT_NAME, "signature")],
+                    ));
+                }
+                if len != SIGNATURE_BYTES {
+                    return Err(decode_error(
+                        "invalid signature length",
+                        &[(STRUCT_NAME, "signature")],
+                    ));
+                }
+                buf.copy_to_slice(&mut self.signature);
+                Ok(())
+            }
+            2u32 => {
+                // is_vote
+                let value = &mut self.is_vote;
+                encoding::bool::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "is_vote");
+                    error
+                })
+            }
+            3u32 => {
+                // transaction (nested message containing account_keys)
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_transaction(buf, buf_len).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "transaction");
+                    error
+                })
+            }
+            4u32 => {
+                // meta (nested message containing loaded addresses and err)
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_meta(buf, buf_len).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "meta");
+                    error
+                })
+            }
+            5u32 => {
+                // index
+                let value = &mut self.index;
+                encoding::uint64::merge(wire_type, value, buf, ctx).map_err(|mut error| {
+                    error.push(STRUCT_NAME, "index");
+                    error
+                })
+            }
+            _ => encoding::skip_field(wire_type, tag, buf, ctx),
+        }
+    }
+}
+
+impl UpdateOneofLimitedDecodeTransactionInfo {
+    fn merge_transaction(&mut self, buf: &mut impl Buf, buf_len: usize) -> Result<(), DecodeError> {
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            // Transaction: message = 2
+            if tag == 2 {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                self.merge_transaction_message(buf, buf_len)?;
+            } else {
+                encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn merge_transaction_message(
+        &mut self,
+        buf: &mut impl Buf,
+        _buf_len: usize,
+    ) -> Result<(), DecodeError> {
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            // Message: account_keys = 2
+            if tag == 2 {
+                check_wire_type(WireType::LengthDelimited, wire_type)?;
+                let len = decode_varint(buf)? as usize;
+                if len > buf.remaining() {
+                    return Err(DecodeError::new("buffer underflow"));
+                }
+                if len != PUBKEY_BYTES {
+                    return Err(DecodeError::new("invalid pubkey length"));
+                }
+                let mut pubkey = [0; PUBKEY_BYTES];
+                buf.copy_to_slice(&mut pubkey);
+                self.account_keys.insert(pubkey.into());
+            } else {
+                encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn merge_meta(&mut self, buf: &mut impl Buf, buf_len: usize) -> Result<(), DecodeError> {
+        let len = decode_varint(buf)?;
+        let remaining = buf.remaining();
+        if len > remaining as u64 {
+            return Err(DecodeError::new("buffer underflow"));
+        }
+
+        let limit = remaining - len as usize;
+        while buf.remaining() > limit {
+            let (tag, wire_type) = decode_key(buf)?;
+            match tag {
+                1u32 => {
+                    // err
+                    check_wire_type(WireType::LengthDelimited, wire_type)?;
+                    let len = decode_varint(buf)? as usize;
+                    if len > buf.remaining() {
+                        return Err(DecodeError::new("buffer underflow"));
+                    }
+                    let start = buf_len - buf.remaining();
+                    buf.advance(len);
+                    let end = buf_len - buf.remaining();
+                    self.err = Some(Range { start, end });
+                }
+                12u32 => {
+                    // loaded_writable_addresses
+                    check_wire_type(WireType::LengthDelimited, wire_type)?;
+                    let len = decode_varint(buf)? as usize;
+                    if len > buf.remaining() {
+                        return Err(DecodeError::new("buffer underflow"));
+                    }
+                    if len != PUBKEY_BYTES {
+                        return Err(DecodeError::new("invalid pubkey length"));
+                    }
+                    let mut pubkey = [0; PUBKEY_BYTES];
+                    buf.copy_to_slice(&mut pubkey);
+                    self.account_keys.insert(pubkey.into());
+                }
+                13u32 => {
+                    // loaded_readonly_addresses
+                    check_wire_type(WireType::LengthDelimited, wire_type)?;
+                    let len = decode_varint(buf)? as usize;
+                    if len > buf.remaining() {
+                        return Err(DecodeError::new("buffer underflow"));
+                    }
+                    if len != PUBKEY_BYTES {
+                        return Err(DecodeError::new("invalid pubkey length"));
+                    }
+                    let mut pubkey = [0; PUBKEY_BYTES];
+                    buf.copy_to_slice(&mut pubkey);
+                    self.account_keys.insert(pubkey.into());
+                }
+                _ => {
+                    encoding::skip_field(wire_type, tag, buf, DecodeContext::default())?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

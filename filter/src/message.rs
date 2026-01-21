@@ -3,6 +3,7 @@ use {
         LimitedDecode, SubscribeUpdateLimitedDecode, UpdateOneofLimitedDecode,
         UpdateOneofLimitedDecodeAccount, UpdateOneofLimitedDecodeEntry,
         UpdateOneofLimitedDecodeSlot, UpdateOneofLimitedDecodeTransaction,
+        UpdateOneofLimitedDecodeTransactionInfo,
     },
     prost::{
         Message as _,
@@ -259,30 +260,28 @@ impl MessageParserLimited {
                     transaction_range.start += range.start;
                     transaction_range.end += range.start;
 
-                    let transaction = SubscribeUpdateTransactionInfo::decode(
+                    let tx_info = UpdateOneofLimitedDecodeTransactionInfo::decode(
                         &data.as_slice()[transaction_range.start..transaction_range.end],
                     )?;
 
-                    let meta = transaction
-                        .meta
-                        .as_ref()
-                        .ok_or(MessageParseError::FieldNotDefined("meta"))?;
-
-                    let account_keys =
-                        MessageTransaction::gen_account_keys_prost(&transaction, meta)?;
+                    let error = tx_info
+                        .err
+                        .map(|err_range| {
+                            TransactionError::decode(
+                                &data.as_slice()[transaction_range.start + err_range.start
+                                    ..transaction_range.start + err_range.end],
+                            )
+                        })
+                        .transpose()?;
 
                     Message::Transaction(MessageTransaction::Limited {
-                        signature: transaction
-                            .signature
-                            .as_slice()
-                            .try_into()
-                            .map_err(|_| MessageParseError::InvalidSignature)?,
-                        error: meta.err.clone(),
-                        account_keys,
-                        is_vote: transaction.is_vote,
-                        index: transaction.index,
+                        signature: tx_info.signature.into(),
+                        error,
+                        account_keys: tx_info.account_keys,
+                        is_vote: tx_info.is_vote,
+                        index: tx_info.index,
                         transaction_range,
-                        transaction: OnceLock::from(Some(transaction)),
+                        transaction: OnceLock::new(),
                         slot: message.slot,
                         created_at,
                         buffer: data,
