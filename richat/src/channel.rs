@@ -50,7 +50,8 @@ pub struct GlobalReplayFromSlot {
 #[derive(Debug)]
 struct GlobalReplayFromSlotInner {
     value: Option<Slot>,
-    sources_replay_failed: Vec<bool>,
+    sources_replay_failed: HashSet<&'static str>,
+    sources_total: usize,
 }
 
 impl GlobalReplayFromSlot {
@@ -58,7 +59,8 @@ impl GlobalReplayFromSlot {
         Self {
             inner: Arc::new(Mutex::new(GlobalReplayFromSlotInner {
                 value,
-                sources_replay_failed: vec![false; sources_total],
+                sources_replay_failed: HashSet::new(),
+                sources_total,
             })),
         }
     }
@@ -73,10 +75,17 @@ impl GlobalReplayFromSlot {
     }
 
     /// Reports that a source failed to replay. Returns true if all sources have failed.
-    pub fn report_replay_failed(&self, source_index: usize) -> bool {
+    pub fn report_replay_failed(&self, source_name: &'static str) -> bool {
         let mut locked = mutex_lock(&self.inner);
-        locked.sources_replay_failed[source_index] = true;
-        locked.sources_replay_failed.iter().all(|&failed| failed)
+        locked.sources_replay_failed.insert(source_name);
+        locked.sources_replay_failed.len() >= locked.sources_total
+    }
+
+    /// Update sources_total and clear failed sources set.
+    pub fn update_sources(&self, new_total: usize) {
+        let mut locked = mutex_lock(&self.inner);
+        locked.sources_total = new_total;
+        locked.sources_replay_failed.clear();
     }
 }
 

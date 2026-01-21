@@ -100,7 +100,7 @@ impl ConfigChannel {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "transport")]
 pub enum ConfigChannelSource {
     #[serde(rename = "quic")]
@@ -120,7 +120,7 @@ pub enum ConfigChannelSource {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConfigChannelSourceGeneral {
     pub name: String,
     /// Messages parser: `prost` or `limited`
@@ -139,7 +139,7 @@ impl ConfigChannelSourceGeneral {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConfigChannelSourceReconnect {
     #[serde(
         with = "humantime_serde",

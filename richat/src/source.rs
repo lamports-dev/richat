@@ -142,7 +142,6 @@ impl Subscription {
     async fn new(
         config: ConfigChannelSource,
         global_replay_from_slot: GlobalReplayFromSlot,
-        index: usize,
     ) -> anyhow::Result<Self> {
         let (subscription_config, mut config) = SubscriptionConfig::new(config);
         let name: &'static str = {
@@ -182,7 +181,7 @@ impl Subscription {
                                     return Ok(Some(((name, message), state)));
                                 }
                                 Ok(Err(ReceiveError::ReplayFailed)) => {
-                                    if state.3.report_replay_failed(index) {
+                                    if state.3.report_replay_failed(name) {
                                         return Err(ReceiveError::ReplayFailed);
                                     }
                                     error!(name, "failed to replay, waiting for other sources");
@@ -382,10 +381,10 @@ impl Subscriptions {
         sources: Vec<ConfigChannelSource>,
         global_replay_from_slot: GlobalReplayFromSlot,
     ) -> anyhow::Result<Self> {
-        let streams = try_join_all(sources.into_iter().enumerate().map(|(index, config)| {
+        let streams = try_join_all(sources.into_iter().map(|config| {
             let global_replay_from_slot = global_replay_from_slot.clone();
             async move {
-                Subscription::new(config, global_replay_from_slot, index)
+                Subscription::new(config, global_replay_from_slot)
                     .await
                     .context("failed to subscribe")
             }
