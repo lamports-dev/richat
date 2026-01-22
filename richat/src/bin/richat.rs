@@ -96,8 +96,8 @@ fn main() -> anyhow::Result<()> {
                     let streams_total = config.channel.sources.len();
                     let dedup_required = sigusr1_reload || streams_total > 1;
                     let mut stream = Subscriptions::new(
-                        config.channel.sources,
                         replay_from_slot,
+                        config.channel.sources,
                     )
                     .await?;
                     is_ready.store(true, Ordering::Relaxed);

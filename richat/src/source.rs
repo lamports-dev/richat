@@ -127,6 +127,7 @@ type SubscriptionMessage = Result<(&'static str, Message), ReceiveError>;
 
 struct Subscription {
     name: &'static str,
+    config: ConfigChannelSource,
     stream: BoxStream<'static, SubscriptionMessage>,
 }
 
@@ -140,22 +141,11 @@ impl fmt::Debug for Subscription {
 
 impl Subscription {
     async fn new(
-        config: ConfigChannelSource,
+        source_config: ConfigChannelSource,
         global_replay_from_slot: GlobalReplayFromSlot,
     ) -> anyhow::Result<Self> {
-        let (subscription_config, mut config) = SubscriptionConfig::new(config);
-        let name: &'static str = {
-            static NAMES: LazyLock<Mutex<HashSet<&'static str>>> =
-                LazyLock::new(|| Mutex::new(HashSet::new()));
-            let mut set = NAMES.lock().expect("poisoned");
-            if let Some(&name) = set.get(config.name.as_str()) {
-                name
-            } else {
-                let name: &'static str = config.name.clone().leak();
-                set.insert(name);
-                name
-            }
-        };
+        let (subscription_config, mut config) = SubscriptionConfig::new(source_config.clone());
+        let name = Self::get_static_name(&config.name);
 
         let stream = if let Some(reconnect) = config.reconnect.take() {
             let backoff = Backoff::new(reconnect);
@@ -237,7 +227,24 @@ impl Subscription {
             .boxed()
         };
 
-        Ok(Self { name, stream })
+        Ok(Self {
+            name,
+            config: source_config,
+            stream,
+        })
+    }
+
+    fn get_static_name(name: &str) -> &'static str {
+        static NAMES: LazyLock<Mutex<HashSet<&'static str>>> =
+            LazyLock::new(|| Mutex::new(HashSet::new()));
+        let mut set = NAMES.lock().expect("poisoned");
+        if let Some(&name) = set.get(name) {
+            name
+        } else {
+            let name: &'static str = name.to_owned().leak();
+            set.insert(name);
+            name
+        }
     }
 
     async fn subscribe(
@@ -362,7 +369,7 @@ impl Subscription {
 }
 
 pub struct Subscriptions {
-    #[allow(clippy::type_complexity)]
+    global_replay_from_slot: GlobalReplayFromSlot,
     streams: Vec<Subscription>,
     last_polled: usize,
 }
@@ -378,8 +385,8 @@ impl fmt::Debug for Subscriptions {
 
 impl Subscriptions {
     pub async fn new(
-        sources: Vec<ConfigChannelSource>,
         global_replay_from_slot: GlobalReplayFromSlot,
+        sources: Vec<ConfigChannelSource>,
     ) -> anyhow::Result<Self> {
         let streams = try_join_all(sources.into_iter().map(|config| {
             let global_replay_from_slot = global_replay_from_slot.clone();
@@ -392,6 +399,7 @@ impl Subscriptions {
         .await?;
 
         Ok(Self {
+            global_replay_from_slot,
             streams,
             last_polled: 0,
         })
@@ -399,6 +407,74 @@ impl Subscriptions {
 
     pub fn get_last_polled_name(&self) -> &'static str {
         self.streams[self.last_polled].name
+    }
+
+    /// Reload sources based on config changes.
+    pub async fn reload_sources(
+        &mut self,
+        new_sources: Vec<ConfigChannelSource>,
+    ) -> anyhow::Result<()> {
+        // collect streams for removal
+        let to_remove: Vec<&'static str> = self
+            .streams
+            .iter()
+            .filter(|stream| {
+                let matching = new_sources.iter().find(|new_source_config| {
+                    let name = match new_source_config {
+                        ConfigChannelSource::Quic { general, .. } => general.name.as_str(),
+                        ConfigChannelSource::Grpc { general, .. } => general.name.as_str(),
+                    };
+                    stream.name == name
+                });
+                match matching {
+                    None => true,
+                    Some(new_source_config) if &stream.config != new_source_config => true,
+                    Some(_) => false,
+                }
+            })
+            .map(|stream| stream.name)
+            .collect();
+
+        let new_streams = try_join_all(
+            new_sources
+                .into_iter()
+                .filter(|new_source_config| {
+                    let name = Subscription::get_static_name(match new_source_config {
+                        ConfigChannelSource::Quic { general, .. } => &general.name,
+                        ConfigChannelSource::Grpc { general, .. } => &general.name,
+                    });
+                    match self.streams.iter().find(|s| s.name == name) {
+                        Some(stream) => &stream.config != new_source_config,
+                        None => true,
+                    }
+                })
+                .map(|config| {
+                    let global_replay_from_slot = self.global_replay_from_slot.clone();
+                    async move {
+                        Subscription::new(config, global_replay_from_slot)
+                            .await
+                            .context("failed to subscribe")
+                    }
+                }),
+        )
+        .await?;
+
+        for name in to_remove {
+            info!(name, "removing subscription");
+            self.streams.retain(|stream| stream.name != name);
+        }
+
+        for stream in new_streams {
+            info!(name = stream.name, "adding subscription");
+            self.streams.push(stream);
+        }
+
+        self.global_replay_from_slot
+            .update_sources(self.streams.len());
+
+        self.last_polled = 0;
+
+        Ok(())
     }
 }
 
