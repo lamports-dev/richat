@@ -7,14 +7,18 @@ use {
     },
     richat::{
         channel::Messages,
-        config::Config,
+        config::{Config, ConfigChannelSource},
         grpc::server::GrpcServer,
         pubsub::server::PubSubServer,
         richat::server::RichatServer,
         source::{ReceiveError, Subscriptions},
         version::VERSION,
     },
-    signal_hook::{consts::SIGINT, iterator::Signals},
+    richat_filter::message::MessageParserEncoding,
+    signal_hook::{
+        consts::{SIGINT, SIGUSR1},
+        iterator::Signals,
+    },
     std::{
         sync::{
             Arc,
@@ -23,8 +27,9 @@ use {
         thread::{self, sleep},
         time::Duration,
     },
+    tokio::sync::mpsc,
     tokio_util::sync::CancellationToken,
-    tracing::{info, warn},
+    tracing::{error, info, warn},
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -74,8 +79,31 @@ fn main() -> anyhow::Result<()> {
     let is_ready = Arc::new(AtomicBool::new(false));
 
     // Create channel runtime (receive messages from solana node / richat)
+    let config_path = args.config.clone();
+    let sources_parser = config.channel.get_messages_parser();
+    let sources_sigusr1_reload = config.channel.sources_sigusr1_reload;
+    if sources_sigusr1_reload {
+        for source in &config.channel.sources {
+            let (name, has_reconnect) = match source {
+                ConfigChannelSource::Quic { general, .. } => {
+                    (&general.name, general.reconnect.is_some())
+                }
+                ConfigChannelSource::Grpc { general, .. } => {
+                    (&general.name, general.reconnect.is_some())
+                }
+            };
+            anyhow::ensure!(
+                has_reconnect,
+                "source '{name}' must have reconnect configured when sources_sigusr1_reload is enabled"
+            );
+        }
+    }
+    let streams_total = config.channel.sources.len();
+    let dedup_required = sources_sigusr1_reload || streams_total > 1;
+    let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
+
     let (messages, mut threads) = Messages::new(
-        config.channel.get_messages_parser(),
+        sources_parser,
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
@@ -92,17 +120,16 @@ fn main() -> anyhow::Result<()> {
                 let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let sigusr1_reload = config.channel.sources_sigusr1_reload;
-                    let streams_total = config.channel.sources.len();
-                    let dedup_required = sigusr1_reload || streams_total > 1;
                     let mut stream = Subscriptions::new(
                         replay_from_slot,
                         config.channel.sources,
                     )
                     .await?;
                     is_ready.store(true, Ordering::Relaxed);
+
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
+
                     loop {
                         let (source_name, message) = tokio::select! {
                             biased;
@@ -116,6 +143,14 @@ fn main() -> anyhow::Result<()> {
                                     anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
                                 ),
                                 None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
+                            },
+                            _ = reload_rx.recv(), if sources_sigusr1_reload => {
+                                info!("SIGUSR1: reloading sources...");
+                                match reload_sources(&config_path, sources_parser, &mut stream).await {
+                                    Ok(()) => info!("SIGUSR1: sources reloaded"),
+                                    Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
+                                }
+                                continue;
                             },
                             () = &mut shutdown => return Ok(()),
                         };
@@ -176,7 +211,7 @@ fn main() -> anyhow::Result<()> {
     })?;
     threads.push(("richatApp".to_owned(), Some(apps_jh)));
 
-    let mut signals = Signals::new([SIGINT])?;
+    let mut signals = Signals::new([SIGINT, SIGUSR1])?;
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {
@@ -187,6 +222,14 @@ fn main() -> anyhow::Result<()> {
                     }
                     info!("SIGINT received...");
                     shutdown.cancel();
+                }
+                SIGUSR1 => {
+                    if sources_sigusr1_reload {
+                        info!("SIGUSR1 received, triggering source reload...");
+                        let _ = reload_tx.blocking_send(());
+                    } else {
+                        warn!("SIGUSR1 received but sources_sigusr1_reload is disabled");
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -209,4 +252,38 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn reload_sources(
+    config_path: &str,
+    current_parser: MessageParserEncoding,
+    stream: &mut Subscriptions,
+) -> anyhow::Result<()> {
+    let config: Config = richat_shared::config::load_from_file(config_path)
+        .with_context(|| format!("failed to load config from {config_path}"))?;
+
+    // Validate parser hasn't changed
+    let new_parser = config.channel.get_messages_parser();
+    anyhow::ensure!(
+        new_parser == current_parser,
+        "MessageParserEncoding cannot be changed (current: {current_parser:?}, new: {new_parser:?})"
+    );
+
+    // Validate all sources have reconnect configured
+    for source in &config.channel.sources {
+        let (name, has_reconnect) = match source {
+            ConfigChannelSource::Quic { general, .. } => {
+                (&general.name, general.reconnect.is_some())
+            }
+            ConfigChannelSource::Grpc { general, .. } => {
+                (&general.name, general.reconnect.is_some())
+            }
+        };
+        anyhow::ensure!(
+            has_reconnect,
+            "source '{name}' must have reconnect configured for SIGUSR1 reload"
+        );
+    }
+
+    stream.reload_sources(config.channel.sources).await
 }
