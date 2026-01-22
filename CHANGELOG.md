@@ -22,6 +22,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - filter: account keys limited parser ([#179](https://github.com/lamports-dev/richat/pull/179))
 - filter: add parse benchmark ([#180](https://github.com/lamports-dev/richat/pull/180))
 - richat: handle phantom account updates with normal updates ([#181](https://github.com/lamports-dev/richat/pull/181))
+- richat: add SIGUSR1 signal handling for dynamic source reload ([#183](https://github.com/lamports-dev/richat/pull/183))
 
 ### Breaking
 
