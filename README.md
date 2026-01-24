@@ -29,7 +29,7 @@ Build Richat by running
 cargo build --release
 ```
 
-Then create a config with your details following the example [config.yml](./rochat/config.yml) and run Richat with:
+Then create a config with your details following the example [config.yml](./richat/config.yml) and run Richat with:
 
 ```bash
 ./target/release/richat --config path/to/your/config.yml
