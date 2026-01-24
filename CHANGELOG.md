@@ -14,6 +14,20 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Features
 
+### Breaking
+
+## 2025-01-25
+
+- richat-cli-v9.0.0
+- richat-client-v8.0.0
+- richat-filter-v8.0.0
+- richat-plugin-agave-v8.0.0
+- richat-proto-v8.0.0
+- richat-v8.0.0
+- richat-shared-v8.0.0
+
+### Features
+
 - richat: rm `solana-sdk` ([#174](https://github.com/lamports-dev/richat/pull/174))
 - richat: use channel per source ([#175](https://github.com/lamports-dev/richat/pull/175))
 - richat: use `kanal` instead of `tokio::sync::mpsc` ([#176](https://github.com/lamports-dev/richat/pull/176))
@@ -26,6 +40,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat: use SIGHUP instead of SIGUSR1 ([#185](https://github.com/lamports-dev/richat/pull/185))
 
 ### Breaking
+
+- richat: upgrade to 3.1 ([#186](https://github.com/lamports-dev/richat/pull/186))
 
 ## 2025-12-22
 
