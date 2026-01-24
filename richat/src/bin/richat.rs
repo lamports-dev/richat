@@ -11,7 +11,7 @@ use {
         grpc::server::GrpcServer,
         pubsub::server::PubSubServer,
         richat::server::RichatServer,
-        source::{PreparedReloadResult, ReceiveError, Subscriptions},
+        source::{ReceiveError, Subscriptions},
         version::VERSION,
     },
     richat_filter::message::MessageParserEncoding,
@@ -20,8 +20,7 @@ use {
         iterator::Signals,
     },
     std::{
-        future::{Future, pending},
-        pin::Pin,
+        future::pending,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -134,14 +133,13 @@ fn main() -> anyhow::Result<()> {
                     tokio::pin!(shutdown);
 
                     let mut reload_in_progress = false;
-                    let mut reload_prepare_task: Pin<Box<dyn Future<Output = PreparedReloadResult> + Send>> =
-                        Box::pin(pending());
+                    let mut reload_prepare_task = pending().boxed();
 
                     loop {
-                        let (source_name, message) = tokio::select! {
+                        tokio::select! {
                             biased;
                             message = stream.next() => match message {
-                                Some(Ok(value)) => value,
+                                Some(Ok((source_name, message))) => sender.push(dedup_required, source_name, message),
                                 Some(Err(error @ ReceiveError::ReplayFailed)) => {
                                     eprintln!("Error: {error:?}");
                                     std::process::exit(2);
@@ -156,15 +154,14 @@ fn main() -> anyhow::Result<()> {
                                 match load_config_for_reloading(&config_path, sources_parser).await {
                                     Ok(config) => {
                                         reload_in_progress = true;
-                                        reload_prepare_task = Box::pin(stream.prepare_reload(config.channel.sources));
+                                        reload_prepare_task = stream.prepare_reload(config.channel.sources).boxed();
                                     }
                                     Err(error) => error!("SIGUSR1: failed to load config: {error:?}"),
                                 }
-                                continue;
                             },
                             result = &mut reload_prepare_task, if reload_in_progress => {
                                 reload_in_progress = false;
-                                reload_prepare_task = Box::pin(pending());
+                                reload_prepare_task = pending().boxed();
                                 match result {
                                     Ok((to_remove, new_streams)) => {
                                         stream.apply_reload(to_remove, new_streams);
@@ -172,11 +169,9 @@ fn main() -> anyhow::Result<()> {
                                     }
                                     Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
                                 }
-                                continue;
                             },
                             () = &mut shutdown => return Ok(()),
-                        };
-                        sender.push(dedup_required, source_name, message);
+                        }
                     }
                 })
             }
