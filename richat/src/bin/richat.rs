@@ -29,7 +29,7 @@ use {
         thread::{self, sleep},
         time::Duration,
     },
-    tokio::sync::mpsc,
+    tokio::sync::Notify,
     tokio_util::sync::CancellationToken,
     tracing::{error, info, warn},
 };
@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
     }
     let streams_total = config.channel.sources.len();
     let dedup_required = sources_sigusr1_reload || streams_total > 1;
-    let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
+    let reload_notify = Arc::new(Notify::new());
 
     let (messages, mut threads) = Messages::new(
         sources_parser,
@@ -118,6 +118,7 @@ fn main() -> anyhow::Result<()> {
             let shutdown = shutdown.clone();
             let mut messages = messages.clone();
             let is_ready = Arc::clone(&is_ready);
+            let reload_notify = Arc::clone(&reload_notify);
             move || {
                 let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
@@ -150,7 +151,7 @@ fn main() -> anyhow::Result<()> {
                                 ),
                                 None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
                             },
-                            _ = reload_rx.recv(), if sources_sigusr1_reload && !reload_in_progress => {
+                            _ = reload_notify.notified(), if sources_sigusr1_reload && !reload_in_progress => {
                                 info!("SIGUSR1: reloading sources...");
                                 match load_config_for_reloading(&config_path, sources_parser).await {
                                     Ok(config) => {
@@ -247,7 +248,7 @@ fn main() -> anyhow::Result<()> {
                 SIGUSR1 => {
                     if sources_sigusr1_reload {
                         info!("SIGUSR1 received, triggering source reload...");
-                        let _ = reload_tx.blocking_send(());
+                        reload_notify.notify_one();
                     } else {
                         warn!("SIGUSR1 received but sources_sigusr1_reload is disabled");
                     }
