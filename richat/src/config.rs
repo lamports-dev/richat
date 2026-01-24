@@ -60,6 +60,24 @@ impl ConfigChannel {
         unreachable!("deserialize should check sources")
     }
 
+    pub fn ensure_sources_have_reconnect(&self) -> anyhow::Result<()> {
+        for source in &self.sources {
+            let (name, has_reconnect) = match source {
+                ConfigChannelSource::Quic { general, .. } => {
+                    (&general.name, general.reconnect.is_some())
+                }
+                ConfigChannelSource::Grpc { general, .. } => {
+                    (&general.name, general.reconnect.is_some())
+                }
+            };
+            anyhow::ensure!(
+                has_reconnect,
+                "source '{name}' must have reconnect configured for SIGUSR1 reload"
+            );
+        }
+        Ok(())
+    }
+
     fn deserialize_sources<'de, D>(deserializer: D) -> Result<Vec<ConfigChannelSource>, D::Error>
     where
         D: Deserializer<'de>,

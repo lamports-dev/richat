@@ -387,8 +387,8 @@ impl fmt::Debug for Subscriptions {
 
 impl Subscriptions {
     pub async fn new(
-        global_replay_from_slot: GlobalReplayFromSlot,
         sources: Vec<ConfigChannelSource>,
+        global_replay_from_slot: GlobalReplayFromSlot,
     ) -> anyhow::Result<Self> {
         let streams = Self::create_subscriptions(sources, &global_replay_from_slot).await?;
 

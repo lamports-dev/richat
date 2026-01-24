@@ -7,7 +7,7 @@ use {
     },
     richat::{
         channel::Messages,
-        config::{Config, ConfigChannelSource},
+        config::Config,
         grpc::server::GrpcServer,
         pubsub::server::PubSubServer,
         richat::server::RichatServer,
@@ -84,20 +84,7 @@ fn main() -> anyhow::Result<()> {
     let sources_parser = config.channel.get_messages_parser();
     let sources_sigusr1_reload = config.channel.sources_sigusr1_reload;
     if sources_sigusr1_reload {
-        for source in &config.channel.sources {
-            let (name, has_reconnect) = match source {
-                ConfigChannelSource::Quic { general, .. } => {
-                    (&general.name, general.reconnect.is_some())
-                }
-                ConfigChannelSource::Grpc { general, .. } => {
-                    (&general.name, general.reconnect.is_some())
-                }
-            };
-            anyhow::ensure!(
-                has_reconnect,
-                "source '{name}' must have reconnect configured when sources_sigusr1_reload is enabled"
-            );
-        }
+        config.channel.ensure_sources_have_reconnect()?;
     }
     let streams_total = config.channel.sources.len();
     let dedup_required = sources_sigusr1_reload || streams_total > 1;
@@ -123,8 +110,8 @@ fn main() -> anyhow::Result<()> {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let mut stream = Subscriptions::new(
-                        replay_from_slot,
                         config.channel.sources,
+                        replay_from_slot,
                     )
                     .await?;
                     is_ready.store(true, Ordering::Relaxed);
@@ -286,21 +273,7 @@ async fn load_config_for_reloading(
         "MessageParserEncoding cannot be changed (current: {current_parser:?}, new: {new_parser:?})"
     );
 
-    // Validate all sources have reconnect configured
-    for source in &config.channel.sources {
-        let (name, has_reconnect) = match source {
-            ConfigChannelSource::Quic { general, .. } => {
-                (&general.name, general.reconnect.is_some())
-            }
-            ConfigChannelSource::Grpc { general, .. } => {
-                (&general.name, general.reconnect.is_some())
-            }
-        };
-        anyhow::ensure!(
-            has_reconnect,
-            "source '{name}' must have reconnect configured for SIGUSR1 reload"
-        );
-    }
+    config.channel.ensure_sources_have_reconnect()?;
 
     Ok(config)
 }
