@@ -429,13 +429,9 @@ impl Subscriptions {
             .streams
             .iter()
             .filter(|stream| {
-                let matching = new_sources.iter().find(|new_source_config| {
-                    let name = match new_source_config {
-                        ConfigChannelSource::Quic { general, .. } => general.name.as_str(),
-                        ConfigChannelSource::Grpc { general, .. } => general.name.as_str(),
-                    };
-                    stream.name == name
-                });
+                let matching = new_sources
+                    .iter()
+                    .find(|new_source_config| stream.name == new_source_config.name());
                 match matching {
                     None => true,
                     Some(new_source_config) if &stream.config != new_source_config => true,
@@ -449,10 +445,7 @@ impl Subscriptions {
         let sources_to_add: Vec<ConfigChannelSource> = new_sources
             .into_iter()
             .filter(|new_source_config| {
-                let name = Subscription::get_static_name(match new_source_config {
-                    ConfigChannelSource::Quic { general, .. } => &general.name,
-                    ConfigChannelSource::Grpc { general, .. } => &general.name,
-                });
+                let name = Subscription::get_static_name(new_source_config.name());
                 match self.streams.iter().find(|s| s.name == name) {
                     Some(stream) => &stream.config != new_source_config,
                     None => true,

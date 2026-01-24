@@ -62,17 +62,14 @@ impl ConfigChannel {
 
     pub fn ensure_sources_have_reconnect(&self) -> anyhow::Result<()> {
         for source in &self.sources {
-            let (name, has_reconnect) = match source {
-                ConfigChannelSource::Quic { general, .. } => {
-                    (&general.name, general.reconnect.is_some())
-                }
-                ConfigChannelSource::Grpc { general, .. } => {
-                    (&general.name, general.reconnect.is_some())
-                }
+            let has_reconnect = match source {
+                ConfigChannelSource::Quic { general, .. } => general.reconnect.is_some(),
+                ConfigChannelSource::Grpc { general, .. } => general.reconnect.is_some(),
             };
             anyhow::ensure!(
                 has_reconnect,
-                "source '{name}' must have reconnect configured for SIGUSR1 reload"
+                "source '{}' must have reconnect configured for SIGUSR1 reload",
+                source.name()
             );
         }
         Ok(())
@@ -136,6 +133,16 @@ pub enum ConfigChannelSource {
         #[serde(flatten)]
         config: ConfigGrpcClient,
     },
+}
+
+impl ConfigChannelSource {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Quic { general, .. } => &general.name,
+            Self::Grpc { general, .. } => &general.name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
