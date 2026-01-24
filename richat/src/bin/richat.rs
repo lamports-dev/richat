@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
     );
 
     let args = Args::parse();
-    let config: Config = richat_shared::config::load_from_file(&args.config)
+    let config: Config = richat_shared::config::load_from_file_sync(&args.config)
         .with_context(|| format!("failed to load config from {}", args.config))?;
     if args.check {
         info!("Config is OK!");
@@ -146,9 +146,18 @@ fn main() -> anyhow::Result<()> {
                             },
                             _ = reload_rx.recv(), if sources_sigusr1_reload => {
                                 info!("SIGUSR1: reloading sources...");
-                                match reload_sources(&config_path, sources_parser, &mut stream).await {
-                                    Ok(()) => info!("SIGUSR1: sources reloaded"),
-                                    Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
+                                match load_config_for_reloading(&config_path, sources_parser).await {
+                                    Ok(config) => {
+                                        let reload_future = stream.prepare_reload(config.channel.sources);
+                                        match reload_future.await {
+                                            Ok((to_remove, new_streams)) => {
+                                                stream.apply_reload(to_remove, new_streams);
+                                                info!("SIGUSR1: sources reloaded");
+                                            }
+                                            Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
+                                        }
+                                    }
+                                    Err(error) => error!("SIGUSR1: failed to load config: {error:?}"),
                                 }
                                 continue;
                             },
@@ -254,12 +263,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn reload_sources(
+async fn load_config_for_reloading(
     config_path: &str,
     current_parser: MessageParserEncoding,
-    stream: &mut Subscriptions,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Config> {
     let config: Config = richat_shared::config::load_from_file(config_path)
+        .await
         .with_context(|| format!("failed to load config from {config_path}"))?;
 
     // Validate parser hasn't changed
@@ -285,7 +294,5 @@ async fn reload_sources(
         );
     }
 
-    let (to_remove, new_streams) = stream.prepare_reload(config.channel.sources).await?;
-    stream.apply_reload(to_remove, new_streams);
-    Ok(())
+    Ok(config)
 }
