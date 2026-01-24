@@ -8,9 +8,9 @@ use {
     serde::Deserialize,
     serde_json::{Value, json},
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
-    solana_client::nonblocking::pubsub_client::PubsubClient,
     solana_commitment_config::CommitmentConfig,
     solana_pubkey::Pubkey,
+    solana_pubsub_client::nonblocking::pubsub_client::PubsubClient,
     solana_rpc_client_api::{
         config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
