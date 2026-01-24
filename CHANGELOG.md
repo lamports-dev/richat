@@ -23,6 +23,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - filter: add parse benchmark ([#180](https://github.com/lamports-dev/richat/pull/180))
 - richat: handle phantom account updates with normal updates ([#181](https://github.com/lamports-dev/richat/pull/181))
 - richat: add SIGUSR1 signal handling for dynamic source reload ([#184](https://github.com/lamports-dev/richat/pull/184))
+- richat: use SIGHUP instead of SIGUSR1 ([#185](https://github.com/lamports-dev/richat/pull/185))
 
 ### Breaking
 

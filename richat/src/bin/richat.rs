@@ -16,7 +16,7 @@ use {
     },
     richat_filter::message::MessageParserEncoding,
     signal_hook::{
-        consts::{SIGINT, SIGUSR1},
+        consts::{SIGHUP, SIGINT},
         iterator::Signals,
     },
     std::{
@@ -82,12 +82,12 @@ fn main() -> anyhow::Result<()> {
     // Create channel runtime (receive messages from solana node / richat)
     let config_path = args.config.clone();
     let sources_parser = config.channel.get_messages_parser();
-    let sources_sigusr1_reload = config.channel.sources_sigusr1_reload;
-    if sources_sigusr1_reload {
+    let sources_sighup_reload = config.channel.sources_sighup_reload;
+    if sources_sighup_reload {
         config.channel.ensure_sources_have_reconnect()?;
     }
     let streams_total = config.channel.sources.len();
-    let dedup_required = sources_sigusr1_reload || streams_total > 1;
+    let dedup_required = sources_sighup_reload || streams_total > 1;
     let reload_notify = Arc::new(Notify::new());
 
     let (messages, mut threads) = Messages::new(
@@ -136,14 +136,14 @@ fn main() -> anyhow::Result<()> {
                                 ),
                                 None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
                             },
-                            _ = reload_notify.notified(), if sources_sigusr1_reload && !reload_in_progress => {
-                                info!("SIGUSR1: reloading sources...");
+                            _ = reload_notify.notified(), if sources_sighup_reload && !reload_in_progress => {
+                                info!("SIGHUP: reloading sources...");
                                 match load_config_for_reloading(&config_path, sources_parser).await {
                                     Ok(config) => {
                                         reload_in_progress = true;
                                         reload_prepare_task = stream.prepare_reload(config.channel.sources).boxed();
                                     }
-                                    Err(error) => error!("SIGUSR1: failed to load config: {error:?}"),
+                                    Err(error) => error!("SIGHUP: failed to load config: {error:?}"),
                                 }
                             },
                             result = &mut reload_prepare_task, if reload_in_progress => {
@@ -152,9 +152,9 @@ fn main() -> anyhow::Result<()> {
                                 match result {
                                     Ok((to_remove, new_streams)) => {
                                         stream.apply_reload(to_remove, new_streams);
-                                        info!("SIGUSR1: sources reloaded");
+                                        info!("SIGHUP: sources reloaded");
                                     }
-                                    Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
+                                    Err(error) => error!("SIGHUP: failed to reload sources: {error:?}"),
                                 }
                             },
                             () = &mut shutdown => return Ok(()),
@@ -215,7 +215,7 @@ fn main() -> anyhow::Result<()> {
     })?;
     threads.push(("richatApp".to_owned(), Some(apps_jh)));
 
-    let mut signals = Signals::new([SIGINT, SIGUSR1])?;
+    let mut signals = Signals::new([SIGINT, SIGHUP])?;
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {
@@ -227,12 +227,12 @@ fn main() -> anyhow::Result<()> {
                     info!("SIGINT received...");
                     shutdown.cancel();
                 }
-                SIGUSR1 => {
-                    if sources_sigusr1_reload {
-                        info!("SIGUSR1 received, triggering source reload...");
+                SIGHUP => {
+                    if sources_sighup_reload {
+                        info!("SIGHUP received, triggering source reload...");
                         reload_notify.notify_one();
                     } else {
-                        warn!("SIGUSR1 received but sources_sigusr1_reload is disabled");
+                        warn!("SIGHUP received but sources_sighup_reload is disabled");
                     }
                 }
                 _ => unreachable!(),

@@ -42,7 +42,7 @@ pub struct ConfigChannel {
     #[serde(default)]
     pub tokio: ConfigTokio,
     #[serde(default)]
-    pub sources_sigusr1_reload: bool,
+    pub sources_sighup_reload: bool,
     #[serde(deserialize_with = "ConfigChannel::deserialize_sources")]
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
@@ -68,7 +68,7 @@ impl ConfigChannel {
             };
             anyhow::ensure!(
                 has_reconnect,
-                "source '{}' must have reconnect configured for SIGUSR1 reload",
+                "source '{}' must have reconnect configured for SIGHUP reload",
                 source.name()
             );
         }
