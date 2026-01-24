@@ -125,6 +125,8 @@ impl Backoff {
 
 type SubscriptionMessage = Result<(&'static str, Message), ReceiveError>;
 
+pub type PreparedReloadResult = anyhow::Result<(Vec<&'static str>, Vec<Subscription>)>;
+
 pub struct Subscription {
     name: &'static str,
     config: ConfigChannelSource,
@@ -421,7 +423,7 @@ impl Subscriptions {
     pub fn prepare_reload(
         &self,
         new_sources: Vec<ConfigChannelSource>,
-    ) -> impl Future<Output = anyhow::Result<(Vec<&'static str>, Vec<Subscription>)>> {
+    ) -> impl Future<Output = PreparedReloadResult> + use<> {
         // collect streams for removal
         let to_remove: Vec<&'static str> = self
             .streams
