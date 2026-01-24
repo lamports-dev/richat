@@ -40,7 +40,7 @@ solana-signature = { workspace = true }
 solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-status = { workspace = true }
 tikv-jemallocator = { workspace = true }
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["rustls"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tracing = { workspace = true }

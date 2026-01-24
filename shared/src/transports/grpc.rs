@@ -51,7 +51,7 @@ pub mod geyser_gen {
     include!(concat!(env!("OUT_DIR"), "/geyser.Geyser.rs"));
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ConfigGrpcCompression {
     #[serde(deserialize_with = "ConfigGrpcCompression::deserialize_compression")]

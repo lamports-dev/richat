@@ -4,10 +4,7 @@ use {
         transports::{RecvError, RecvItem, RecvStream, Subscribe, SubscribeError, WriteVectored},
         version::Version,
     },
-    futures::{
-        future::{FutureExt, pending},
-        stream::StreamExt,
-    },
+    futures::stream::StreamExt,
     prost::Message,
     quinn::{
         Connection, Endpoint, Incoming, SendStream, VarInt,
@@ -281,19 +278,8 @@ impl QuicServer {
                 }
             }
 
-            let rx_recv = if next_message.is_none() {
-                rx.next().boxed()
-            } else {
-                pending().boxed()
-            };
-            let set_join_next = if !set.is_empty() {
-                set.join_next().boxed()
-            } else {
-                pending().boxed()
-            };
-
             tokio::select! {
-                message = rx_recv => {
+                message = rx.next(), if next_message.is_none() => {
                     match message {
                         Some(Ok(message)) => next_message = Some(message),
                         Some(Err(error)) => {
@@ -325,7 +311,7 @@ impl QuicServer {
                         None => break,
                     }
                 },
-                result = set_join_next => {
+                result = set.join_next(), if !set.is_empty() => {
                     let (msg_id, stream) = result.expect("already verified")??;
                     msg_ids.remove(&msg_id);
                     streams.push_back(stream);

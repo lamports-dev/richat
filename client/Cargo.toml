@@ -26,7 +26,7 @@ rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 solana-clock = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }

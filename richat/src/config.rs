@@ -41,6 +41,8 @@ pub struct ConfigChannel {
     /// Runtime for receiving plugin messages
     #[serde(default)]
     pub tokio: ConfigTokio,
+    #[serde(default)]
+    pub sources_sigusr1_reload: bool,
     #[serde(deserialize_with = "ConfigChannel::deserialize_sources")]
     pub sources: Vec<ConfigChannelSource>,
     #[serde(default)]
@@ -56,6 +58,21 @@ impl ConfigChannel {
             };
         }
         unreachable!("deserialize should check sources")
+    }
+
+    pub fn ensure_sources_have_reconnect(&self) -> anyhow::Result<()> {
+        for source in &self.sources {
+            let has_reconnect = match source {
+                ConfigChannelSource::Quic { general, .. } => general.reconnect.is_some(),
+                ConfigChannelSource::Grpc { general, .. } => general.reconnect.is_some(),
+            };
+            anyhow::ensure!(
+                has_reconnect,
+                "source '{}' must have reconnect configured for SIGUSR1 reload",
+                source.name()
+            );
+        }
+        Ok(())
     }
 
     fn deserialize_sources<'de, D>(deserializer: D) -> Result<Vec<ConfigChannelSource>, D::Error>
@@ -98,7 +115,7 @@ impl ConfigChannel {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "transport")]
 pub enum ConfigChannelSource {
     #[serde(rename = "quic")]
@@ -118,7 +135,17 @@ pub enum ConfigChannelSource {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl ConfigChannelSource {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Quic { general, .. } => &general.name,
+            Self::Grpc { general, .. } => &general.name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConfigChannelSourceGeneral {
     pub name: String,
     /// Messages parser: `prost` or `limited`
@@ -137,7 +164,7 @@ impl ConfigChannelSourceGeneral {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConfigChannelSourceReconnect {
     #[serde(
         with = "humantime_serde",

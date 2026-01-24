@@ -14,8 +14,13 @@ use {
         source::{ReceiveError, Subscriptions},
         version::VERSION,
     },
-    signal_hook::{consts::SIGINT, iterator::Signals},
+    richat_filter::message::MessageParserEncoding,
+    signal_hook::{
+        consts::{SIGINT, SIGUSR1},
+        iterator::Signals,
+    },
     std::{
+        future::pending,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -23,8 +28,9 @@ use {
         thread::{self, sleep},
         time::Duration,
     },
+    tokio::sync::Notify,
     tokio_util::sync::CancellationToken,
-    tracing::{info, warn},
+    tracing::{error, info, warn},
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -52,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     );
 
     let args = Args::parse();
-    let config: Config = richat_shared::config::load_from_file(&args.config)
+    let config: Config = richat_shared::config::load_from_file_sync(&args.config)
         .with_context(|| format!("failed to load config from {}", args.config))?;
     if args.check {
         info!("Config is OK!");
@@ -74,8 +80,18 @@ fn main() -> anyhow::Result<()> {
     let is_ready = Arc::new(AtomicBool::new(false));
 
     // Create channel runtime (receive messages from solana node / richat)
+    let config_path = args.config.clone();
+    let sources_parser = config.channel.get_messages_parser();
+    let sources_sigusr1_reload = config.channel.sources_sigusr1_reload;
+    if sources_sigusr1_reload {
+        config.channel.ensure_sources_have_reconnect()?;
+    }
+    let streams_total = config.channel.sources.len();
+    let dedup_required = sources_sigusr1_reload || streams_total > 1;
+    let reload_notify = Arc::new(Notify::new());
+
     let (messages, mut threads) = Messages::new(
-        config.channel.get_messages_parser(),
+        sources_parser,
         config.channel.config,
         config.apps.richat.is_some(),
         config.apps.grpc.is_some(),
@@ -88,24 +104,29 @@ fn main() -> anyhow::Result<()> {
             let shutdown = shutdown.clone();
             let mut messages = messages.clone();
             let is_ready = Arc::clone(&is_ready);
+            let reload_notify = Arc::clone(&reload_notify);
             move || {
                 let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
-                    let streams_total = config.channel.sources.len();
                     let mut stream = Subscriptions::new(
                         config.channel.sources,
                         replay_from_slot,
                     )
                     .await?;
                     is_ready.store(true, Ordering::Relaxed);
+
                     let shutdown = shutdown.cancelled();
                     tokio::pin!(shutdown);
+
+                    let mut reload_in_progress = false;
+                    let mut reload_prepare_task = pending().boxed();
+
                     loop {
-                        let (source_index, source_name, message) = tokio::select! {
+                        tokio::select! {
                             biased;
                             message = stream.next() => match message {
-                                Some(Ok(value)) => value,
+                                Some(Ok((source_name, message))) => sender.push(dedup_required, source_name, message),
                                 Some(Err(error @ ReceiveError::ReplayFailed)) => {
                                     eprintln!("Error: {error:?}");
                                     std::process::exit(2);
@@ -115,10 +136,29 @@ fn main() -> anyhow::Result<()> {
                                 ),
                                 None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
                             },
+                            _ = reload_notify.notified(), if sources_sigusr1_reload && !reload_in_progress => {
+                                info!("SIGUSR1: reloading sources...");
+                                match load_config_for_reloading(&config_path, sources_parser).await {
+                                    Ok(config) => {
+                                        reload_in_progress = true;
+                                        reload_prepare_task = stream.prepare_reload(config.channel.sources).boxed();
+                                    }
+                                    Err(error) => error!("SIGUSR1: failed to load config: {error:?}"),
+                                }
+                            },
+                            result = &mut reload_prepare_task, if reload_in_progress => {
+                                reload_in_progress = false;
+                                reload_prepare_task = pending().boxed();
+                                match result {
+                                    Ok((to_remove, new_streams)) => {
+                                        stream.apply_reload(to_remove, new_streams);
+                                        info!("SIGUSR1: sources reloaded");
+                                    }
+                                    Err(error) => error!("SIGUSR1: failed to reload sources: {error:?}"),
+                                }
+                            },
                             () = &mut shutdown => return Ok(()),
-                        };
-                        let source_index = (streams_total > 1).then_some(source_index);
-                        sender.push(source_index, source_name, message);
+                        }
                     }
                 })
             }
@@ -175,7 +215,7 @@ fn main() -> anyhow::Result<()> {
     })?;
     threads.push(("richatApp".to_owned(), Some(apps_jh)));
 
-    let mut signals = Signals::new([SIGINT])?;
+    let mut signals = Signals::new([SIGINT, SIGUSR1])?;
     'outer: while threads.iter().any(|th| th.1.is_some()) {
         for signal in signals.pending() {
             match signal {
@@ -186,6 +226,14 @@ fn main() -> anyhow::Result<()> {
                     }
                     info!("SIGINT received...");
                     shutdown.cancel();
+                }
+                SIGUSR1 => {
+                    if sources_sigusr1_reload {
+                        info!("SIGUSR1 received, triggering source reload...");
+                        reload_notify.notify_one();
+                    } else {
+                        warn!("SIGUSR1 received but sources_sigusr1_reload is disabled");
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -208,4 +256,24 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn load_config_for_reloading(
+    config_path: &str,
+    current_parser: MessageParserEncoding,
+) -> anyhow::Result<Config> {
+    let config: Config = richat_shared::config::load_from_file(config_path)
+        .await
+        .with_context(|| format!("failed to load config from {config_path}"))?;
+
+    // Validate parser hasn't changed
+    let new_parser = config.channel.get_messages_parser();
+    anyhow::ensure!(
+        new_parser == current_parser,
+        "MessageParserEncoding cannot be changed (current: {current_parser:?}, new: {new_parser:?})"
+    );
+
+    config.channel.ensure_sources_have_reconnect()?;
+
+    Ok(config)
 }

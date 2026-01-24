@@ -50,7 +50,8 @@ pub struct GlobalReplayFromSlot {
 #[derive(Debug)]
 struct GlobalReplayFromSlotInner {
     value: Option<Slot>,
-    sources_replay_failed: Vec<bool>,
+    sources_replay_failed: HashSet<&'static str>,
+    sources_total: usize,
 }
 
 impl GlobalReplayFromSlot {
@@ -58,7 +59,8 @@ impl GlobalReplayFromSlot {
         Self {
             inner: Arc::new(Mutex::new(GlobalReplayFromSlotInner {
                 value,
-                sources_replay_failed: vec![false; sources_total],
+                sources_replay_failed: HashSet::new(),
+                sources_total,
             })),
         }
     }
@@ -73,10 +75,17 @@ impl GlobalReplayFromSlot {
     }
 
     /// Reports that a source failed to replay. Returns true if all sources have failed.
-    pub fn report_replay_failed(&self, source_index: usize) -> bool {
+    pub fn report_replay_failed(&self, source_name: &'static str) -> bool {
         let mut locked = mutex_lock(&self.inner);
-        locked.sources_replay_failed[source_index] = true;
-        locked.sources_replay_failed.iter().all(|&failed| failed)
+        locked.sources_replay_failed.insert(source_name);
+        locked.sources_replay_failed.len() >= locked.sources_total
+    }
+
+    /// Update sources_total and clear failed sources set.
+    pub fn update_sources(&self, new_total: usize) {
+        let mut locked = mutex_lock(&self.inner);
+        locked.sources_total = new_total;
+        locked.sources_replay_failed.clear();
     }
 }
 
@@ -496,12 +505,7 @@ pub struct Sender {
 }
 
 impl Sender {
-    pub fn push(
-        &mut self,
-        source_index: Option<usize>,
-        source_name: &'static str,
-        message: Message,
-    ) {
+    pub fn push(&mut self, dedup_required: bool, source_name: &'static str, message: Message) {
         let slot = message.slot();
 
         // early return, probably nothing can be received after finalized slot status?
@@ -511,7 +515,7 @@ impl Sender {
 
         // get or create slot info
         let mut messages = SmallVec::<[ParsedMessage; 4]>::new();
-        let mut dedup_info = if let Some(index) = source_index {
+        if dedup_required {
             // dedup info
             let dedup = self.dedup.entry(slot).or_default();
 
@@ -592,12 +596,9 @@ impl Sender {
                 }
                 Message::Block(_) => unreachable!(),
             };
-
-            Some((index, dedup))
         } else {
             messages.push(message.into());
-            None
-        };
+        }
 
         // push messages
         let mut replay_lock = mutex_lock(&self.replay);
@@ -621,9 +622,6 @@ impl Sender {
             });
             let slot_index_head = slot_info.index;
             let block_message = slot_info.get_block_message(&message);
-            if let (Some((index, dedup)), Some(_)) = (dedup_info.as_mut(), &block_message) {
-                dedup.block_index = Some(*index);
-            }
 
             for message in [Some(message), block_message].into_iter().flatten() {
                 if let Some(messages) = &mut replay.messages {
@@ -1273,7 +1271,6 @@ struct DedupInfo {
     transactions: HashMap<Signature, DedupInfoTransactionIndex, RandomState>,
     entries: Vec<bool>,
     block_meta: bool,
-    block_index: Option<usize>,
 }
 
 impl Default for DedupInfo {
@@ -1285,7 +1282,6 @@ impl Default for DedupInfo {
             transactions: HashMap::with_capacity_and_hasher(8_192, RandomState::default()),
             entries: std::iter::repeat_n(false, 256).collect(),
             block_meta: false,
-            block_index: None,
         }
     }
 }

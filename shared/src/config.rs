@@ -33,16 +33,32 @@ pub enum ConfigLoadError {
     Json(#[from] json5::Error),
 }
 
-pub fn load_from_file<P, C>(file: P) -> Result<C, ConfigLoadError>
+pub fn load_from_file_sync<P, C>(file: P) -> Result<C, ConfigLoadError>
 where
     P: AsRef<Path>,
     C: DeserializeOwned,
 {
     let config = fs::read_to_string(&file)?;
-    match file.as_ref().extension().and_then(|e| e.to_str()) {
-        Some("yml") | Some("yaml") => serde_yaml::from_str(&config).map_err(Into::into),
-        Some("toml") => toml::from_str(&config).map_err(Into::into),
-        _ => json5::from_str(&config).map_err(Into::into),
+    parse_config(file.as_ref(), &config)
+}
+
+pub async fn load_from_file<P, C>(file: P) -> Result<C, ConfigLoadError>
+where
+    P: AsRef<Path>,
+    C: DeserializeOwned,
+{
+    let config = tokio::fs::read_to_string(&file).await?;
+    parse_config(file.as_ref(), &config)
+}
+
+fn parse_config<C>(file: &Path, config: &str) -> Result<C, ConfigLoadError>
+where
+    C: DeserializeOwned,
+{
+    match file.extension().and_then(|e| e.to_str()) {
+        Some("yml") | Some("yaml") => serde_yaml::from_str(config).map_err(Into::into),
+        Some("toml") => toml::from_str(config).map_err(Into::into),
+        _ => json5::from_str(config).map_err(Into::into),
     }
 }
 
