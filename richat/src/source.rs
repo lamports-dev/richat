@@ -125,7 +125,7 @@ impl Backoff {
 
 type SubscriptionMessage = Result<(&'static str, Message), ReceiveError>;
 
-struct Subscription {
+pub struct Subscription {
     name: &'static str,
     config: ConfigChannelSource,
     stream: BoxStream<'static, SubscriptionMessage>,
@@ -388,15 +388,7 @@ impl Subscriptions {
         global_replay_from_slot: GlobalReplayFromSlot,
         sources: Vec<ConfigChannelSource>,
     ) -> anyhow::Result<Self> {
-        let streams = try_join_all(sources.into_iter().map(|config| {
-            let global_replay_from_slot = global_replay_from_slot.clone();
-            async move {
-                Subscription::new(config, global_replay_from_slot)
-                    .await
-                    .context("failed to subscribe")
-            }
-        }))
-        .await?;
+        let streams = Self::create_subscriptions(sources, &global_replay_from_slot).await?;
 
         Ok(Self {
             global_replay_from_slot,
@@ -405,15 +397,31 @@ impl Subscriptions {
         })
     }
 
+    async fn create_subscriptions(
+        sources: impl IntoIterator<Item = ConfigChannelSource>,
+        global_replay_from_slot: &GlobalReplayFromSlot,
+    ) -> anyhow::Result<Vec<Subscription>> {
+        try_join_all(sources.into_iter().map(|config| {
+            let global_replay_from_slot = global_replay_from_slot.clone();
+            async move {
+                Subscription::new(config, global_replay_from_slot)
+                    .await
+                    .context("failed to subscribe")
+            }
+        }))
+        .await
+    }
+
     pub fn get_last_polled_name(&self) -> &'static str {
         self.streams[self.last_polled].name
     }
 
-    /// Reload sources based on config changes.
-    pub async fn reload_sources(
-        &mut self,
+    /// Prepare reload by computing changes and creating subscriptions.
+    /// Returns a future that resolves to names to remove and new streams to add.
+    pub fn prepare_reload(
+        &self,
         new_sources: Vec<ConfigChannelSource>,
-    ) -> anyhow::Result<()> {
+    ) -> impl Future<Output = anyhow::Result<(Vec<&'static str>, Vec<Subscription>)>> {
         // collect streams for removal
         let to_remove: Vec<&'static str> = self
             .streams
@@ -435,30 +443,31 @@ impl Subscriptions {
             .map(|stream| stream.name)
             .collect();
 
-        let new_streams = try_join_all(
-            new_sources
-                .into_iter()
-                .filter(|new_source_config| {
-                    let name = Subscription::get_static_name(match new_source_config {
-                        ConfigChannelSource::Quic { general, .. } => &general.name,
-                        ConfigChannelSource::Grpc { general, .. } => &general.name,
-                    });
-                    match self.streams.iter().find(|s| s.name == name) {
-                        Some(stream) => &stream.config != new_source_config,
-                        None => true,
-                    }
-                })
-                .map(|config| {
-                    let global_replay_from_slot = self.global_replay_from_slot.clone();
-                    async move {
-                        Subscription::new(config, global_replay_from_slot)
-                            .await
-                            .context("failed to subscribe")
-                    }
-                }),
-        )
-        .await?;
+        // collect sources to add
+        let sources_to_add: Vec<ConfigChannelSource> = new_sources
+            .into_iter()
+            .filter(|new_source_config| {
+                let name = Subscription::get_static_name(match new_source_config {
+                    ConfigChannelSource::Quic { general, .. } => &general.name,
+                    ConfigChannelSource::Grpc { general, .. } => &general.name,
+                });
+                match self.streams.iter().find(|s| s.name == name) {
+                    Some(stream) => &stream.config != new_source_config,
+                    None => true,
+                }
+            })
+            .collect();
 
+        let global_replay_from_slot = self.global_replay_from_slot.clone();
+        async move {
+            Self::create_subscriptions(sources_to_add, &global_replay_from_slot)
+                .await
+                .map(|new_streams| (to_remove, new_streams))
+        }
+    }
+
+    /// Apply the result of `prepare_reload` to update subscriptions.
+    pub fn apply_reload(&mut self, to_remove: Vec<&'static str>, new_streams: Vec<Subscription>) {
         for name in to_remove {
             info!(name, "removing subscription");
             self.streams.retain(|stream| stream.name != name);
@@ -473,8 +482,6 @@ impl Subscriptions {
             .update_sources(self.streams.len());
 
         self.last_polled = 0;
-
-        Ok(())
     }
 }
 

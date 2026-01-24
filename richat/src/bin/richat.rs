@@ -285,5 +285,7 @@ async fn reload_sources(
         );
     }
 
-    stream.reload_sources(config.channel.sources).await
+    let (to_remove, new_streams) = stream.prepare_reload(config.channel.sources).await?;
+    stream.apply_reload(to_remove, new_streams);
+    Ok(())
 }
