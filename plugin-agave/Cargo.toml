@@ -60,7 +60,7 @@ tokio-util = { workspace = true }
 criterion = { workspace = true }
 prost_011 = { workspace = true }
 richat-proto = { workspace = true, features = ["yellowstone-grpc-plugin"] }
-solana-storage-proto = { workspace = true }
+solana-storage-proto = { workspace = true, features = ["agave-unstable-api"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

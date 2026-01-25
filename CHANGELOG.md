@@ -16,7 +16,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2025-01-25
+## 2026-01-25
 
 - richat-cli-v9.0.0
 - richat-client-v8.0.0

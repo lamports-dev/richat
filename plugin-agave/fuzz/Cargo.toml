@@ -48,21 +48,21 @@ doc = false
 bench = false
 
 [dependencies]
-agave-geyser-plugin-interface = "~3.0.4"
+agave-geyser-plugin-interface = "~3.1.0"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 const-hex = "1.14.0"
 libfuzzer-sys = "0.4.8"
 prost = "0.11.9"
 richat-plugin-agave = { path = ".." }
-solana-account-decoder = "~3.0.4"
+solana-account-decoder = "~3.1.0"
 solana-hash = "3.0.0"
 solana-instruction-error = "2.0.0"
 solana-message = "3.0.0"
 solana-pubkey = { version = "3.0.0", features = ["dev-context-only-utils"] }
 solana-signature = { version = "3.1.0", features = ["rand"] }
 solana-signer = "3.0.0"
-solana-storage-proto = "~3.0.4"
+solana-storage-proto = "~3.1.0"
 solana-transaction = { version = "3.0.0", features = ["dev-context-only-utils"] }
-solana-transaction-context = "~3.0.4"
+solana-transaction-context = "~3.1.0"
 solana-transaction-error = "3.0.0"
-solana-transaction-status = "~3.0.4"
+solana-transaction-status = "~3.1.0"
