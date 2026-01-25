@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "affinity-linux",
  "agave-reserved-account-keys",
@@ -3378,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
