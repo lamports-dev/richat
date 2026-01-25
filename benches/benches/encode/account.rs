@@ -2,9 +2,8 @@ use {
     criterion::Criterion,
     prost::Message,
     prost_types::Timestamp,
-    richat_plugin_agave::protobuf::{
-        ProtobufEncoder, ProtobufMessage, fixtures::generate_accounts,
-    },
+    richat_benches::fixtures::generate_accounts,
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     richat_proto::plugin::{
         filter::{
             FilterAccountsDataSlice,

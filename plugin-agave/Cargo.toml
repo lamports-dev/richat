@@ -27,7 +27,6 @@ futures = { workspace = true }
 log = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 prost = { workspace = true }
-prost_011 = { workspace = true, optional = true }
 prost-types = { workspace = true }
 richat-metrics = { workspace = true }
 richat-proto = { workspace = true }
@@ -43,7 +42,6 @@ solana-logger = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
-solana-storage-proto = { workspace = true, optional = true, features = ["agave-unstable-api"] }
 solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
@@ -57,9 +55,12 @@ cargo-lock = { workspace = true }
 git-version = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
+[dev-dependencies]
+prost = { workspace = true }
+richat-benches = { path = "../benches" }
+
 [features]
 default = ["plugin"]
-fixtures = ["dep:prost_011", "dep:solana-storage-proto"]
 plugin = []
 rustls-install-default-provider = []
 

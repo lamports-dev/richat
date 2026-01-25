@@ -1,9 +1,8 @@
 use {
     criterion::Criterion,
+    richat_benches::fixtures::generate_accounts,
     richat_filter::message::{Message, MessageParserEncoding},
-    richat_plugin_agave::protobuf::{
-        ProtobufEncoder, ProtobufMessage, fixtures::generate_accounts,
-    },
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     std::{borrow::Cow, hint::black_box, time::SystemTime},
 };
 
