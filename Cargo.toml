@@ -71,7 +71,7 @@ regex = "1.11.1"
 richat-client = { path = "client", version = "8.0.0" }
 richat-filter = { path = "filter", version = "8.1.0" }
 richat-metrics = { path = "metrics", version = "1.0.1" }
-richat-plugin-agave = { path = "plugin-agave", version = "8.0.0" }
+richat-plugin-agave = { path = "plugin-agave", version = "8.1.0" }
 richat-proto = { path = "proto", version = "8.0.0" }
 richat-shared = { path = "shared", version = "8.0.0", default-features = false }
 rocksdb = "0.24.0"
