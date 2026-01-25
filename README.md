@@ -182,7 +182,6 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `InstantNodes` — https://instantnodes.io/
 - `OrbitFlare` — https://orbitflare.com/
 - `PixelLabz` — https://pixellabz.io/
-- `Platinum Node` — https://www.platinumnode.io/
 - `PublicNode` — https://solana-rpc.publicnode.com/
 - `QuickNode` — https://www.quicknode.com/
 - `Shyft` — https://shyft.to/
