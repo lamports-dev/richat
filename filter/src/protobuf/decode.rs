@@ -11,11 +11,16 @@ use {
     std::{borrow::Cow, collections::HashSet, mem::MaybeUninit, ops::Range},
 };
 
+#[allow(deprecated)]
+fn create_decode_error(description: impl Into<Cow<'static, str>>) -> DecodeError {
+    DecodeError::new(description)
+}
+
 fn decode_error(
     description: impl Into<Cow<'static, str>>,
     stack: &[(&'static str, &'static str)],
 ) -> DecodeError {
-    let mut error = DecodeError::new(description);
+    let mut error = create_decode_error(description);
     for (message, field) in stack {
         error.push(message, field);
     }
@@ -145,7 +150,7 @@ impl UpdateOneofLimitedDecode {
     ) -> Result<(), DecodeError> {
         let len = decode_varint(buf)? as usize;
         if len > buf.remaining() {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(create_decode_error("buffer underflow"));
         }
 
         let start = buf_len - buf.remaining();
@@ -155,63 +160,65 @@ impl UpdateOneofLimitedDecode {
 
         match tag {
             2u32 => match field {
-                Some(Self::Account(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Account(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Account(range));
                     Ok(())
                 }
             },
             3u32 => match field {
-                Some(Self::Slot(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Slot(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Slot(range));
                     Ok(())
                 }
             },
             4u32 => match field {
-                Some(Self::Transaction(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Transaction(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Transaction(range));
                     Ok(())
                 }
             },
             10u32 => match field {
-                Some(Self::TransactionStatus(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::TransactionStatus(_)) => {
+                    Err(create_decode_error("merge is not supported"))
+                }
                 _ => {
                     *field = Some(Self::TransactionStatus(range));
                     Ok(())
                 }
             },
             5u32 => match field {
-                Some(Self::Block(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Block(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Block(range));
                     Ok(())
                 }
             },
             6u32 => match field {
-                Some(Self::Ping(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Ping(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Ping(range));
                     Ok(())
                 }
             },
             9u32 => match field {
-                Some(Self::Pong(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Pong(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Pong(range));
                     Ok(())
                 }
             },
             7u32 => match field {
-                Some(Self::BlockMeta(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::BlockMeta(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::BlockMeta(range));
                     Ok(())
                 }
             },
             8u32 => match field {
-                Some(Self::Entry(_)) => Err(DecodeError::new("merge is not supported")),
+                Some(Self::Entry(_)) => Err(create_decode_error("merge is not supported")),
                 _ => {
                     *field = Some(Self::Entry(range));
                     Ok(())
@@ -298,7 +305,7 @@ impl UpdateOneofLimitedDecodeAccount {
         let len = decode_varint(buf)?;
         let remaining = buf.remaining();
         if len > remaining as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(create_decode_error("buffer underflow"));
         }
 
         let limit = remaining - len as usize;
@@ -308,7 +315,7 @@ impl UpdateOneofLimitedDecodeAccount {
         }
 
         if buf.remaining() != limit {
-            return Err(DecodeError::new("delimited length exceeded"));
+            return Err(create_decode_error("delimited length exceeded"));
         }
         Ok(())
     }
@@ -591,7 +598,7 @@ impl UpdateOneofLimitedDecodeTransactionInfo {
         let len = decode_varint(buf)?;
         let remaining = buf.remaining();
         if len > remaining as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(create_decode_error("buffer underflow"));
         }
 
         let limit = remaining - len as usize;
@@ -617,7 +624,7 @@ impl UpdateOneofLimitedDecodeTransactionInfo {
         let len = decode_varint(buf)?;
         let remaining = buf.remaining();
         if len > remaining as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(create_decode_error("buffer underflow"));
         }
 
         let limit = remaining - len as usize;
@@ -643,7 +650,7 @@ impl UpdateOneofLimitedDecodeTransactionInfo {
         let len = decode_varint(buf)?;
         let remaining = buf.remaining();
         if len > remaining as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(create_decode_error("buffer underflow"));
         }
 
         let limit = remaining - len as usize;
@@ -655,7 +662,7 @@ impl UpdateOneofLimitedDecodeTransactionInfo {
                     check_wire_type(WireType::LengthDelimited, wire_type)?;
                     let len = decode_varint(buf)? as usize;
                     if len > buf.remaining() {
-                        return Err(DecodeError::new("buffer underflow"));
+                        return Err(create_decode_error("buffer underflow"));
                     }
                     let start = buf_len - buf.remaining();
                     buf.advance(len);
@@ -729,7 +736,7 @@ impl LimitedDecode for UpdateOneofLimitedDecodeEntry {
                 check_wire_type(WireType::LengthDelimited, wire_type)?;
                 let len = decode_varint(buf)? as usize;
                 if len > buf.remaining() {
-                    Err(DecodeError::new("buffer underflow"))
+                    Err(create_decode_error("buffer underflow"))
                 } else {
                     buf.advance(len);
                     Ok(())

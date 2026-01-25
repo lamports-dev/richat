@@ -303,6 +303,7 @@ impl From<FuzzInstructionError> for InstructionError {
             DuplicateAccountIndex => Self::DuplicateAccountIndex,
             ExecutableModified => Self::ExecutableModified,
             RentEpochModified => Self::RentEpochModified,
+            #[allow(deprecated)]
             NotEnoughAccountKeys => Self::NotEnoughAccountKeys,
             AccountDataSizeChanged => Self::AccountDataSizeChanged,
             AccountNotExecutable => Self::AccountNotExecutable,
