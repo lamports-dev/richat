@@ -55,7 +55,7 @@ git-version = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [dev-dependencies]
-richat-benches = { path = "../benches" }
+richat-benches = { workspace = true }
 
 [features]
 default = ["plugin"]
