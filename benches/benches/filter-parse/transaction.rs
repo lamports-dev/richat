@@ -1,31 +1,30 @@
 use {
     criterion::Criterion,
+    richat_benches::fixtures::generate_transactions,
     richat_filter::message::{Message, MessageParserEncoding},
-    richat_plugin_agave::protobuf::{
-        ProtobufEncoder, ProtobufMessage, fixtures::generate_accounts,
-    },
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     std::{borrow::Cow, hint::black_box, time::SystemTime},
 };
 
-pub fn bench_parse_accounts(criterion: &mut Criterion) {
-    let accounts = generate_accounts();
+pub fn bench_parse_transactions(criterion: &mut Criterion) {
+    let transactions = generate_transactions();
     let created_at = SystemTime::now();
 
-    let encoded_accounts = accounts
+    let encoded_transactions = transactions
         .iter()
-        .map(|acc| {
-            let (slot, replica) = acc.to_replica();
-            let msg = ProtobufMessage::Account {
+        .map(|tx| {
+            let (slot, replica) = tx.to_replica();
+            let msg = ProtobufMessage::Transaction {
                 slot,
-                account: &replica,
+                transaction: &replica,
             };
             msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
         })
         .collect::<Vec<_>>();
 
     criterion
-        .benchmark_group("parse_accounts")
-        .bench_with_input("limited", &encoded_accounts, |criterion, encoded| {
+        .benchmark_group("parse_transactions")
+        .bench_with_input("limited", &encoded_transactions, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
@@ -38,7 +37,7 @@ pub fn bench_parse_accounts(criterion: &mut Criterion) {
                 })
             })
         })
-        .bench_with_input("prost", &encoded_accounts, |criterion, encoded| {
+        .bench_with_input("prost", &encoded_transactions, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({

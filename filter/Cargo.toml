@@ -1,6 +1,6 @@
 [package]
 name = "richat-filter"
-version = "8.0.0"
+version = "8.1.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Filters"
@@ -9,10 +9,6 @@ repository = { workspace = true }
 license = { workspace = true }
 keywords = { workspace = true }
 publish = true
-
-[[bench]]
-name = "parse"
-harness = false
 
 [dependencies]
 arrayvec = { workspace = true }
@@ -35,9 +31,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 const-hex = { workspace = true }
-criterion = { workspace = true }
 maplit = { workspace = true }
-richat-plugin-agave = { workspace = true, features = ["fixtures"] }
 
 [lints]
 workspace = true

@@ -18,7 +18,7 @@ ci-clippy:
 ci-clippy-fuzz:
 	cd plugin-agave/fuzz && cargo clippy --workspace --all-targets -- -Dwarnings
 
-PACKAGES=richat-cli richat-client richat-filter richat-metrics richat-plugin-agave richat richat-shared
+PACKAGES=richat-benches richat-cli richat-client richat-filter richat-metrics richat-plugin-agave richat richat-shared
 ci-check:
 	for package in $(PACKAGES) ; do \
 		echo cargo check -p $$package --all-targets ; \

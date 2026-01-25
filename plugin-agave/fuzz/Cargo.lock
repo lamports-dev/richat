@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -2763,7 +2763,6 @@ dependencies = [
  "smallvec",
  "solana-account-decoder",
  "solana-clock",
- "solana-hash 3.1.0",
  "solana-logger",
  "solana-message",
  "solana-pubkey 3.0.0",

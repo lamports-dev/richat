@@ -18,6 +18,16 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ## 2026-01-25
 
+- richat-filter-v8.1.0
+- richat-plugin-agave-v8.1.0
+- richat-v8.1.0
+
+### Breaking
+
+- richat: move benches to separate crate ([#188](https://github.com/lamports-dev/richat/pull/188))
+
+## 2026-01-25
+
 - richat-cli-v9.0.0
 - richat-client-v8.0.0
 - richat-filter-v8.0.0

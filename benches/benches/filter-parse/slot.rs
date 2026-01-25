@@ -1,26 +1,31 @@
 use {
     criterion::Criterion,
+    richat_benches::fixtures::generate_slots,
     richat_filter::message::{Message, MessageParserEncoding},
-    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage, fixtures::generate_entries},
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     std::{borrow::Cow, hint::black_box, time::SystemTime},
 };
 
-pub fn bench_parse_entries(criterion: &mut Criterion) {
-    let entries = generate_entries();
+pub fn bench_parse_slots(criterion: &mut Criterion) {
+    let slots = generate_slots();
     let created_at = SystemTime::now();
 
-    let encoded_entries = entries
+    let encoded_slots = slots
         .iter()
-        .map(|e| {
-            let replica = e.to_replica();
-            let msg = ProtobufMessage::Entry { entry: &replica };
+        .map(|s| {
+            let (slot, parent, status) = s.to_replica();
+            let msg = ProtobufMessage::Slot {
+                slot,
+                parent,
+                status,
+            };
             msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
         })
         .collect::<Vec<_>>();
 
     criterion
-        .benchmark_group("parse_entries")
-        .bench_with_input("limited", &encoded_entries, |criterion, encoded| {
+        .benchmark_group("parse_slots")
+        .bench_with_input("limited", &encoded_slots, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
@@ -33,7 +38,7 @@ pub fn bench_parse_entries(criterion: &mut Criterion) {
                 })
             })
         })
-        .bench_with_input("prost", &encoded_entries, |criterion, encoded| {
+        .bench_with_input("prost", &encoded_slots, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({

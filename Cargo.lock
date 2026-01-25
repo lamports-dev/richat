@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "affinity-linux",
  "agave-reserved-account-keys",
@@ -3295,6 +3295,28 @@ dependencies = [
  "tonic-prost",
  "tracing",
  "vergen",
+]
+
+[[package]]
+name = "richat-benches"
+version = "1.0.0"
+dependencies = [
+ "agave-geyser-plugin-interface",
+ "criterion",
+ "prost 0.11.9",
+ "prost 0.14.3",
+ "prost-types 0.14.3",
+ "richat-filter",
+ "richat-plugin-agave",
+ "richat-proto",
+ "solana-clock",
+ "solana-hash 3.1.0",
+ "solana-message",
+ "solana-pubkey 3.0.0",
+ "solana-signature",
+ "solana-storage-proto",
+ "solana-transaction",
+ "solana-transaction-status",
 ]
 
 [[package]]
@@ -3366,17 +3388,15 @@ dependencies = [
 
 [[package]]
 name = "richat-filter"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "arrayvec",
  "base64 0.22.1",
  "bs58",
  "const-hex",
- "criterion",
  "maplit",
  "prost 0.14.3",
  "prost-types 0.14.3",
- "richat-plugin-agave",
  "richat-proto",
  "richat-shared",
  "serde",
@@ -3407,21 +3427,20 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
  "bincode",
  "cargo-lock",
  "clap",
- "criterion",
  "futures",
  "git-version",
  "log",
  "metrics-exporter-prometheus",
- "prost 0.11.9",
  "prost 0.14.3",
  "prost-types 0.14.3",
+ "richat-benches",
  "richat-metrics",
  "richat-proto",
  "richat-shared",
@@ -3431,12 +3450,10 @@ dependencies = [
  "smallvec",
  "solana-account-decoder",
  "solana-clock",
- "solana-hash 3.1.0",
  "solana-logger",
  "solana-message",
  "solana-pubkey 3.0.0",
  "solana-signature",
- "solana-storage-proto",
  "solana-transaction",
  "solana-transaction-context",
  "solana-transaction-error",

@@ -1,30 +1,30 @@
 use {
     criterion::Criterion,
+    richat_benches::fixtures::generate_accounts,
     richat_filter::message::{Message, MessageParserEncoding},
-    richat_plugin_agave::protobuf::{
-        ProtobufEncoder, ProtobufMessage, fixtures::generate_block_metas,
-    },
+    richat_plugin_agave::protobuf::{ProtobufEncoder, ProtobufMessage},
     std::{borrow::Cow, hint::black_box, time::SystemTime},
 };
 
-pub fn bench_parse_block_metas(criterion: &mut Criterion) {
-    let block_metas = generate_block_metas();
+pub fn bench_parse_accounts(criterion: &mut Criterion) {
+    let accounts = generate_accounts();
     let created_at = SystemTime::now();
 
-    let encoded_block_metas = block_metas
+    let encoded_accounts = accounts
         .iter()
-        .map(|b| {
-            let replica = b.to_replica();
-            let msg = ProtobufMessage::BlockMeta {
-                blockinfo: &replica,
+        .map(|acc| {
+            let (slot, replica) = acc.to_replica();
+            let msg = ProtobufMessage::Account {
+                slot,
+                account: &replica,
             };
             msg.encode_with_timestamp(ProtobufEncoder::Raw, created_at)
         })
         .collect::<Vec<_>>();
 
     criterion
-        .benchmark_group("parse_block_metas")
-        .bench_with_input("limited", &encoded_block_metas, |criterion, encoded| {
+        .benchmark_group("parse_accounts")
+        .bench_with_input("limited", &encoded_accounts, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({
@@ -37,7 +37,7 @@ pub fn bench_parse_block_metas(criterion: &mut Criterion) {
                 })
             })
         })
-        .bench_with_input("prost", &encoded_block_metas, |criterion, encoded| {
+        .bench_with_input("prost", &encoded_accounts, |criterion, encoded| {
             criterion.iter(|| {
                 #[allow(clippy::unit_arg)]
                 black_box({

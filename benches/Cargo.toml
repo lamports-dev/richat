@@ -1,0 +1,46 @@
+[package]
+name = "richat-benches"
+version = "1.0.0"
+authors = { workspace = true }
+edition = { workspace = true }
+description = "Richat Benchmarks"
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+publish = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[[bench]]
+name = "encode-geyser"
+harness = false
+
+[[bench]]
+name = "filter-parse"
+harness = false
+
+[dependencies]
+agave-geyser-plugin-interface = { workspace = true }
+prost_011 = { workspace = true }
+richat-proto = { workspace = true }
+solana-clock = { workspace = true }
+solana-hash = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-storage-proto = { workspace = true, features = ["agave-unstable-api"] }
+solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
+solana-transaction-status = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+richat-filter = { workspace = true }
+richat-plugin-agave = { workspace = true }
+richat-proto = { workspace = true, features = ["yellowstone-grpc-plugin"] }
+
+[lints]
+workspace = true
