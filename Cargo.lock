@@ -3450,7 +3450,6 @@ dependencies = [
  "smallvec",
  "solana-account-decoder",
  "solana-clock",
- "solana-hash 3.1.0",
  "solana-logger",
  "solana-message",
  "solana-pubkey 3.0.0",

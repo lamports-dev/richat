@@ -37,12 +37,11 @@ serde_json = { workspace = true }
 smallvec = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-clock = { workspace = true }
-solana-hash = { workspace = true }
 solana-logger = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
-solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
+solana-transaction = { workspace = true }
 solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
@@ -56,7 +55,6 @@ git-version = { workspace = true }
 vergen = { workspace = true, features = ["build", "rustc"] }
 
 [dev-dependencies]
-prost = { workspace = true }
 richat-benches = { path = "../benches" }
 
 [features]
