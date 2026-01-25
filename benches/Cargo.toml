@@ -14,11 +14,11 @@ publish = { workspace = true }
 path = "src/lib.rs"
 
 [[bench]]
-name = "encode"
+name = "encode-geyser"
 harness = false
 
 [[bench]]
-name = "parse"
+name = "filter-parse"
 harness = false
 
 [dependencies]
