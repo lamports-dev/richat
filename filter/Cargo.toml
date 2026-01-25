@@ -10,10 +10,6 @@ license = { workspace = true }
 keywords = { workspace = true }
 publish = true
 
-[[bench]]
-name = "parse"
-harness = false
-
 [dependencies]
 arrayvec = { workspace = true }
 base64 = { workspace = true }
@@ -35,9 +31,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 const-hex = { workspace = true }
-criterion = { workspace = true }
 maplit = { workspace = true }
-richat-plugin-agave = { workspace = true, features = ["fixtures"] }
 
 [lints]
 workspace = true

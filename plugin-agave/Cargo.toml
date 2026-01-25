@@ -18,11 +18,6 @@ name = "richat-plugin-agave-config-check"
 path = "src/bin/config-check.rs"
 required-features = ["plugin"]
 
-[[bench]]
-name = "encode"
-harness = false
-required-features = ["fixtures"]
-
 [dependencies]
 agave-geyser-plugin-interface = { workspace = true }
 anyhow = { workspace = true }
@@ -55,12 +50,6 @@ solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util = { workspace = true }
-
-[dev-dependencies]
-criterion = { workspace = true }
-prost_011 = { workspace = true }
-richat-proto = { workspace = true, features = ["yellowstone-grpc-plugin"] }
-solana-storage-proto = { workspace = true, features = ["agave-unstable-api"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

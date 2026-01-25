@@ -3298,6 +3298,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "richat-benches"
+version = "1.0.0"
+dependencies = [
+ "criterion",
+ "prost 0.14.3",
+ "prost-types 0.14.3",
+ "richat-filter",
+ "richat-plugin-agave",
+ "richat-proto",
+]
+
+[[package]]
 name = "richat-cli"
 version = "9.0.0"
 dependencies = [
@@ -3372,11 +3384,9 @@ dependencies = [
  "base64 0.22.1",
  "bs58",
  "const-hex",
- "criterion",
  "maplit",
  "prost 0.14.3",
  "prost-types 0.14.3",
- "richat-plugin-agave",
  "richat-proto",
  "richat-shared",
  "serde",
@@ -3414,7 +3424,6 @@ dependencies = [
  "bincode",
  "cargo-lock",
  "clap",
- "criterion",
  "futures",
  "git-version",
  "log",
