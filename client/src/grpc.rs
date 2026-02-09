@@ -528,20 +528,24 @@ trait SubscribeMessage {
 
 impl SubscribeMessage for Vec<u8> {
     fn decode(src: &mut DecodeBuf<'_>) -> Self {
-        // TODO: use Box<[MaybeUninit<u8>]> (from rust 1.82.0)
-        let mut dst = Vec::with_capacity(src.remaining());
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            dst.set_len(src.remaining());
-        }
+        let mut dst = Box::new_uninit_slice(src.remaining());
         let mut start = 0;
         while src.remaining() > 0 {
             let chunk = src.chunk();
-            dst.as_mut_slice()[start..start + chunk.len()].copy_from_slice(chunk);
+            // SAFETY: writing within bounds of allocated uninit slice,
+            // MaybeUninit<u8> has the same layout as u8
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    chunk.as_ptr(),
+                    dst.as_mut_ptr().cast::<u8>().add(start),
+                    chunk.len(),
+                );
+            }
             start += chunk.len();
             src.advance(chunk.len());
         }
-        dst
+        // SAFETY: all bytes initialized by copying from src
+        unsafe { dst.assume_init() }.into_vec()
     }
 }
 
