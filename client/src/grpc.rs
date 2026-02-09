@@ -376,7 +376,7 @@ impl Interceptor for GrpcInterceptor {
 
 #[derive(Debug)]
 pub struct GrpcClient<F> {
-    geyser: GeyserClient<InterceptedService<Channel, F>>,
+    pub geyser: GeyserClient<InterceptedService<Channel, F>>,
 }
 
 impl GrpcClient<()> {
@@ -408,9 +408,7 @@ impl<F: Interceptor> GrpcClient<F> {
     > {
         let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
+        let stream = GrpcClientStream::new(response.into_inner());
         Ok((subscribe_tx, stream))
     }
 
@@ -438,9 +436,7 @@ impl<F: Interceptor> GrpcClient<F> {
         let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
         let response: Response<Streaming<Vec<u8>>> =
             self.geyser.subscribe_accounts(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
+        let stream = GrpcClientStream::new(response.into_inner());
         Ok((subscribe_tx, stream))
     }
 
@@ -455,8 +451,7 @@ impl<F: Interceptor> GrpcClient<F> {
             .expect("failed to send to unbounded channel");
 
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe_richat(rx).await?;
-        let stream = response.into_inner();
-        Ok(GrpcClientStream { stream })
+        Ok(GrpcClientStream::new(response.into_inner()))
     }
 
     // RPC calls
@@ -533,20 +528,24 @@ trait SubscribeMessage {
 
 impl SubscribeMessage for Vec<u8> {
     fn decode(src: &mut DecodeBuf<'_>) -> Self {
-        // TODO: use Box<[MaybeUninit<u8>]> (from rust 1.82.0)
-        let mut dst = Vec::with_capacity(src.remaining());
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            dst.set_len(src.remaining());
-        }
+        let mut dst = Box::new_uninit_slice(src.remaining());
         let mut start = 0;
         while src.remaining() > 0 {
             let chunk = src.chunk();
-            dst.as_mut_slice()[start..start + chunk.len()].copy_from_slice(chunk);
+            // SAFETY: writing within bounds of allocated uninit slice,
+            // MaybeUninit<u8> has the same layout as u8
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    chunk.as_ptr(),
+                    dst.as_mut_ptr().cast::<u8>().add(start),
+                    chunk.len(),
+                );
+            }
             start += chunk.len();
             src.advance(chunk.len());
         }
-        dst
+        // SAFETY: all bytes initialized by copying from src
+        unsafe { dst.assume_init() }.into_vec()
     }
 }
 
@@ -616,6 +615,10 @@ pin_project! {
 }
 
 impl GrpcClientStream {
+    pub const fn new(stream: Streaming<Vec<u8>>) -> Self {
+        Self { stream }
+    }
+
     pub fn into_parsed(self) -> SubscribeStream {
         SubscribeStream::new(self.boxed())
     }
