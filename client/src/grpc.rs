@@ -376,7 +376,7 @@ impl Interceptor for GrpcInterceptor {
 
 #[derive(Debug)]
 pub struct GrpcClient<F> {
-    geyser: GeyserClient<InterceptedService<Channel, F>>,
+    pub geyser: GeyserClient<InterceptedService<Channel, F>>,
 }
 
 impl GrpcClient<()> {
@@ -408,9 +408,7 @@ impl<F: Interceptor> GrpcClient<F> {
     > {
         let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
+        let stream = GrpcClientStream::new(response.into_inner());
         Ok((subscribe_tx, stream))
     }
 
@@ -438,9 +436,7 @@ impl<F: Interceptor> GrpcClient<F> {
         let (subscribe_tx, subscribe_rx) = mpsc::unbounded();
         let response: Response<Streaming<Vec<u8>>> =
             self.geyser.subscribe_accounts(subscribe_rx).await?;
-        let stream = GrpcClientStream {
-            stream: response.into_inner(),
-        };
+        let stream = GrpcClientStream::new(response.into_inner());
         Ok((subscribe_tx, stream))
     }
 
@@ -455,8 +451,7 @@ impl<F: Interceptor> GrpcClient<F> {
             .expect("failed to send to unbounded channel");
 
         let response: Response<Streaming<Vec<u8>>> = self.geyser.subscribe_richat(rx).await?;
-        let stream = response.into_inner();
-        Ok(GrpcClientStream { stream })
+        Ok(GrpcClientStream::new(response.into_inner()))
     }
 
     // RPC calls
@@ -616,6 +611,10 @@ pin_project! {
 }
 
 impl GrpcClientStream {
+    pub const fn new(stream: Streaming<Vec<u8>>) -> Self {
+        Self { stream }
+    }
+
     pub fn into_parsed(self) -> SubscribeStream {
         SubscribeStream::new(self.boxed())
     }
