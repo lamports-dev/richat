@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-02-16
+
+- richat-client-v7.1.0
+
+### Features
+
+client: geyser access from client ([#189](https://github.com/lamports-dev/richat/pull/189))
+
 ## 2025-12-22
 
 - richat-shared-v7.2.0
