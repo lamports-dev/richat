@@ -1,6 +1,6 @@
 [package]
 name = "richat-shared"
-version = "7.2.0"
+version = "7.2.1"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Shared code"
@@ -62,7 +62,7 @@ default = [
     "jsonrpc",
     "tracing",
     "transports",
-    "version"
+    "version",
 ]
 config = [
     "dep:affinity-linux",

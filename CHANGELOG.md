@@ -18,7 +18,15 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ## 2026-02-16
 
+- richat-cli-v8.0.1
 - richat-client-v7.1.0
+- richat-plugin-agave-v7.0.1
+- richat-v7.1.3
+- richat-shared-v7.2.1
+
+### Fixes
+
+richat: update rustls ([#190](https://github.com/lamports-dev/richat/pull/190))
 
 ### Features
 
