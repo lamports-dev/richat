@@ -44,25 +44,13 @@ solana-pubkey = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, features = [
-    "rt-multi-thread",
-    "macros",
-    "fs",
-], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"], optional = true }
 tokio-util = { workspace = true }
 toml = { workspace = true, optional = true }
-tonic = { workspace = true, features = [
-    "tls-native-roots",
-    "gzip",
-    "zstd",
-], optional = true }
+tonic = { workspace = true, features = ["tls-native-roots", "gzip", "zstd"], optional = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, features = [
-    "ansi",
-    "env-filter",
-    "json",
-], optional = true }
+tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "json"], optional = true }
 
 [build-dependencies]
 anyhow = { workspace = true, optional = true }
@@ -70,7 +58,14 @@ protoc-bin-vendored = { workspace = true, optional = true }
 tonic-build = { workspace = true, optional = true }
 
 [features]
-default = ["config", "five8", "jsonrpc", "tracing", "transports", "version"]
+default = [
+    "config",
+    "five8",
+    "jsonrpc",
+    "tracing",
+    "transports",
+    "version"
+]
 config = [
     "dep:affinity-linux",
     "dep:base64",
@@ -91,7 +86,11 @@ config = [
     "dep:toml",
     "five8",
 ]
-five8 = ["dep:five8", "dep:solana-pubkey", "dep:solana-signature"]
+five8 = [
+    "dep:five8",
+    "dep:solana-pubkey",
+    "dep:solana-signature"
+]
 jsonrpc = [
     "dep:anyhow",
     "dep:futures",
