@@ -2044,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "keccak"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
  "cpufeatures",
 ]
@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "8.1.0"
+version = "8.1.1"
 dependencies = [
  "affinity-linux",
  "agave-reserved-account-keys",
@@ -3321,7 +3321,7 @@ dependencies = [
 
 [[package]]
 name = "richat-cli"
-version = "9.0.0"
+version = "9.0.1"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3360,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "richat-client"
-version = "8.1.0"
+version = "8.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3427,7 +3427,7 @@ dependencies = [
 
 [[package]]
 name = "richat-plugin-agave"
-version = "8.1.0"
+version = "8.1.1"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -3477,7 +3477,7 @@ dependencies = [
 
 [[package]]
 name = "richat-shared"
-version = "8.0.0"
+version = "8.0.1"
 dependencies = [
  "affinity-linux",
  "anyhow",
