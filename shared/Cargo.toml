@@ -64,7 +64,7 @@ default = [
     "jsonrpc",
     "tracing",
     "transports",
-    "version"
+    "version",
 ]
 config = [
     "dep:affinity-linux",
@@ -89,7 +89,7 @@ config = [
 five8 = [
     "dep:five8",
     "dep:solana-pubkey",
-    "dep:solana-signature"
+    "dep:solana-signature",
 ]
 jsonrpc = [
     "dep:anyhow",
