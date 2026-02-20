@@ -43,7 +43,6 @@ channel:
     #     multiplier: 2
     #   channel_size: 16384
     #   transport: quic
-    #   source: richat # valid: richat, dragons_mouth
     #   endpoint: 127.0.0.1:10101
     #   local_addr: "[::]:0"
     #   expected_rtt: 100
