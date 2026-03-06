@@ -87,6 +87,11 @@ impl GlobalReplayFromSlot {
         locked.sources_total = new_total;
         locked.sources_replay_failed.clear();
     }
+
+    #[cfg(test)]
+    pub fn new_test(sources_total: usize) -> Self {
+        Self::new(None, sources_total)
+    }
 }
 
 #[derive(Debug, Clone)]

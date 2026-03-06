@@ -484,19 +484,185 @@ impl Stream for Subscriptions {
     type Item = SubscriptionMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.streams.is_empty() {
+            return Poll::Ready(None);
+        }
+
         let init_index = self.last_polled;
         loop {
             self.last_polled = (self.last_polled + 1) % self.streams.len();
             let index = self.last_polled;
 
-            let result = self.streams[index].stream.poll_next_unpin(cx);
-            if let Poll::Ready(value) = result {
-                return Poll::Ready(value);
-            }
-
-            if index == init_index {
-                return Poll::Pending;
+            match self.streams[index].stream.poll_next_unpin(cx) {
+                Poll::Ready(Some(value)) => return Poll::Ready(Some(value)),
+                Poll::Ready(None) => {
+                    let removed = self.streams.remove(index);
+                    error!(name = removed.name, "source stream finished, removing");
+                    if self.streams.is_empty() {
+                        return Poll::Ready(None);
+                    }
+                    // Adjust last_polled after removal
+                    self.last_polled = if index == 0 {
+                        self.streams.len() - 1
+                    } else {
+                        index - 1
+                    };
+                    // Restart the scan with updated indices
+                    return self.poll_next(cx);
+                }
+                Poll::Pending => {
+                    if index == init_index {
+                        return Poll::Pending;
+                    }
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        futures::stream::{self, StreamExt},
+    };
+
+    fn mock_subscription(
+        name: &'static str,
+        stream: BoxStream<'static, SubscriptionMessage>,
+    ) -> Subscription {
+        Subscription {
+            name,
+            // config is only used for reload comparison; not relevant in these tests
+            config: ConfigChannelSource::Grpc {
+                general: ConfigChannelSourceGeneral {
+                    name: name.to_owned(),
+                    parser: MessageParserEncoding::Prost,
+                    disable_accounts: false,
+                    reconnect: None,
+                    channel_size: 1,
+                },
+                source: ConfigGrpcClientSource::default(),
+                config: serde_json::from_str(r#"{"endpoint":"http://test"}"#).unwrap(),
+            },
+            stream,
+        }
+    }
+
+    fn mock_subscriptions(streams: Vec<Subscription>) -> Subscriptions {
+        Subscriptions {
+            global_replay_from_slot: GlobalReplayFromSlot::new_test(streams.len()),
+            last_polled: 0,
+            streams,
+        }
+    }
+
+    /// Helper: create a mock source backed by a futures mpsc channel.
+    /// Returns the subscription and a sender that can inject messages.
+    fn mock_channel_subscription(
+        name: &'static str,
+    ) -> (Subscription, futures::channel::mpsc::Sender<SubscriptionMessage>) {
+        let (tx, rx) = futures::channel::mpsc::channel::<SubscriptionMessage>(4);
+        (mock_subscription(name, rx.boxed()), tx)
+    }
+
+    /// Before the fix, when one source's stream finished (returned None),
+    /// the entire Subscriptions stream would propagate that None — killing
+    /// the whole Richat process even though other sources were still healthy.
+    #[tokio::test]
+    async fn one_source_finishes_others_continue() {
+        // source_a has a message, source_b finishes immediately (simulates disconnect)
+        // Round-robin with last_polled=0 polls index 1 first, so source_b (empty)
+        // is hit first — this is the exact scenario that triggered the bug.
+        let (source_a, mut tx) = mock_channel_subscription("source_a");
+        let source_b = mock_subscription("source_b", stream::empty().boxed());
+
+        let mut subs = mock_subscriptions(vec![source_a, source_b]);
+
+        // Send a message on the healthy source
+        tx.try_send(Err(ReceiveError::ReplayFailed)).unwrap();
+
+        // Poll: source_b (index 1) is polled first and is empty.
+        // Old code: propagated None, killing the instance.
+        // Fixed code: removes source_b, continues to poll source_a.
+        let result = subs.next().await;
+        assert!(
+            result.is_some(),
+            "Subscriptions should NOT return None when one source finishes"
+        );
+
+        // Verify source_b was removed
+        assert_eq!(subs.streams.len(), 1, "source_b should have been removed");
+        assert_eq!(subs.streams[0].name, "source_a");
+    }
+
+    /// When ALL sources finish, the stream should return None.
+    #[tokio::test]
+    async fn all_sources_finish_returns_none() {
+        let source_a = mock_subscription("a", stream::empty().boxed());
+        let source_b = mock_subscription("b", stream::empty().boxed());
+
+        let mut subs = mock_subscriptions(vec![source_a, source_b]);
+
+        let result = subs.next().await;
+        assert!(
+            result.is_none(),
+            "Subscriptions should return None when all sources are finished"
+        );
+        assert!(subs.streams.is_empty());
+    }
+
+    /// Messages from multiple active sources should be round-robin polled.
+    #[tokio::test]
+    async fn round_robin_across_sources() {
+        let (source_a, mut tx_a) = mock_channel_subscription("a");
+        let (source_b, mut tx_b) = mock_channel_subscription("b");
+
+        let mut subs = mock_subscriptions(vec![source_a, source_b]);
+
+        // Send an error from each (easy to construct, proves delivery from both)
+        tx_a.try_send(Err(ReceiveError::ReplayFailed)).unwrap();
+        tx_b.try_send(Err(ReceiveError::ReplayFailed)).unwrap();
+
+        // Both messages should be delivered
+        let r1 = subs.next().await;
+        let r2 = subs.next().await;
+        assert!(r1.is_some());
+        assert!(r2.is_some());
+        assert_eq!(subs.streams.len(), 2);
+    }
+
+    /// Verifies the old buggy behavior: a single source returning None
+    /// would have terminated the entire Subscriptions stream.
+    /// This test documents the bug that was fixed.
+    #[tokio::test]
+    async fn regression_single_disconnect_does_not_kill_instance() {
+        // 3 sources: source_a and source_c (alive), source_b (disconnects)
+        // Round-robin polls index 1 first (source_b), which is the dead one.
+        let (source_a, mut tx_a) = mock_channel_subscription("source_a");
+        let source_b = mock_subscription("source_b", stream::empty().boxed());
+        let (source_c, mut tx_c) = mock_channel_subscription("source_c");
+
+        let mut subs = mock_subscriptions(vec![source_a, source_b, source_c]);
+
+        // Send messages on the two healthy sources
+        tx_a.try_send(Err(ReceiveError::ReplayFailed)).unwrap();
+        tx_c.try_send(Err(ReceiveError::ReplayFailed)).unwrap();
+
+        // Should get both messages despite source_b being dead
+        let r1 = subs.next().await;
+        let r2 = subs.next().await;
+        assert!(r1.is_some(), "first healthy source message should arrive");
+        assert!(r2.is_some(), "second healthy source message should arrive");
+        assert_eq!(
+            subs.streams.len(),
+            2,
+            "only the two healthy sources should remain"
+        );
+
+        let names: Vec<&str> = subs.streams.iter().map(|s| s.name).collect();
+        assert!(names.contains(&"source_a"));
+        assert!(names.contains(&"source_c"));
+        assert!(!names.contains(&"source_b"));
     }
 }
