@@ -144,7 +144,7 @@ impl ConfigChannelSource {
         }
     }
 
-    pub fn exclude_on_finish(&self) -> bool {
+    pub const fn exclude_on_finish(&self) -> bool {
         match self {
             Self::Quic { general, .. } => general.exclude_on_finish,
             Self::Grpc { general, .. } => general.exclude_on_finish,
