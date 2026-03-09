@@ -500,6 +500,8 @@ impl Stream for Subscriptions {
                         self.last_polled = 0;
                         let removed = self.streams.remove(index);
                         warn!(name = removed.name, "source stream finished, removing");
+                        self.global_replay_from_slot
+                            .update_sources(self.streams.len());
                         self.poll_next(cx)
                     } else {
                         Poll::Ready(None)
