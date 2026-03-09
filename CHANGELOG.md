@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-03-09
+
+- richat-v8.2.0
+
+### Features
+
+- richat: add `exclude_on_finish` source config option ([#193](https://github.com/lamports-dev/richat/pull/193))
+
 ## 2026-02-16
 
 - richat-cli-v9.0.1

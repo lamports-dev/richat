@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
                                 Some(Err(error)) => return Err(
                                     anyhow::Error::new(error).context(format!("source: {}", stream.get_last_polled_name()))
                                 ),
-                                None => anyhow::bail!("{:?} source stream finished", stream.get_last_polled_name()),
+                                None => anyhow::bail!("source stream finished"),
                             },
                             _ = reload_notify.notified(), if sources_sighup_reload && !reload_in_progress => {
                                 info!("SIGHUP: reloading sources...");

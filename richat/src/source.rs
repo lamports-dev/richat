@@ -37,7 +37,7 @@ use {
     thiserror::Error,
     tokio::time::{Duration, sleep},
     tonic::Code,
-    tracing::{error, info},
+    tracing::{error, info, warn},
 };
 
 #[derive(Debug, Error)]
@@ -484,18 +484,34 @@ impl Stream for Subscriptions {
     type Item = SubscriptionMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.streams.is_empty() {
+            return Poll::Ready(None);
+        }
+
         let init_index = self.last_polled;
         loop {
             self.last_polled = (self.last_polled + 1) % self.streams.len();
             let index = self.last_polled;
 
-            let result = self.streams[index].stream.poll_next_unpin(cx);
-            if let Poll::Ready(value) = result {
-                return Poll::Ready(value);
-            }
-
-            if index == init_index {
-                return Poll::Pending;
+            match self.streams[index].stream.poll_next_unpin(cx) {
+                Poll::Ready(Some(value)) => return Poll::Ready(Some(value)),
+                Poll::Ready(None) => {
+                    return if self.streams[index].config.exclude_on_finish() {
+                        self.last_polled = 0;
+                        let removed = self.streams.remove(index);
+                        warn!(name = removed.name, "source stream finished, removing");
+                        self.global_replay_from_slot
+                            .update_sources(self.streams.len());
+                        self.poll_next(cx)
+                    } else {
+                        Poll::Ready(None)
+                    };
+                }
+                Poll::Pending => {
+                    if index == init_index {
+                        return Poll::Pending;
+                    }
+                }
             }
         }
     }
