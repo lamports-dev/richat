@@ -12,6 +12,7 @@ channel:
     - name: plugin-grpc
       parser: prost # valid: prost, limited
       disable_accounts: false
+      exclude_on_finish: false
       reconnect: null
       channel_size: 16384
       source: richat # valid: richat, dragons_mouth
@@ -37,6 +38,7 @@ channel:
     # - name: plugin-quic
     #   parser: prost
     #   disable_accounts: false
+    #   exclude_on_finish: false
     #   reconnect:
     #     initial_interval: 1s
     #     max_interval: 30s

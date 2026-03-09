@@ -37,7 +37,7 @@ use {
     thiserror::Error,
     tokio::time::{Duration, sleep},
     tonic::Code,
-    tracing::{error, info},
+    tracing::{error, info, warn},
 };
 
 #[derive(Debug, Error)]
@@ -496,19 +496,14 @@ impl Stream for Subscriptions {
             match self.streams[index].stream.poll_next_unpin(cx) {
                 Poll::Ready(Some(value)) => return Poll::Ready(Some(value)),
                 Poll::Ready(None) => {
-                    let removed = self.streams.remove(index);
-                    error!(name = removed.name, "source stream finished, removing");
-                    if self.streams.is_empty() {
-                        return Poll::Ready(None);
-                    }
-                    // Adjust last_polled after removal
-                    self.last_polled = if index == 0 {
-                        self.streams.len() - 1
+                    return if self.streams[index].config.exclude_on_finish() {
+                        self.last_polled = 0;
+                        let removed = self.streams.remove(index);
+                        warn!(name = removed.name, "source stream finished, removing");
+                        self.poll_next(cx)
                     } else {
-                        index - 1
+                        Poll::Ready(None)
                     };
-                    // Restart the scan with updated indices
-                    return self.poll_next(cx);
                 }
                 Poll::Pending => {
                     if index == init_index {

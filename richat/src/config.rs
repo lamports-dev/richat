@@ -143,6 +143,13 @@ impl ConfigChannelSource {
             Self::Grpc { general, .. } => &general.name,
         }
     }
+
+    pub fn exclude_on_finish(&self) -> bool {
+        match self {
+            Self::Quic { general, .. } => general.exclude_on_finish,
+            Self::Grpc { general, .. } => general.exclude_on_finish,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -152,6 +159,8 @@ pub struct ConfigChannelSourceGeneral {
     pub parser: MessageParserEncoding,
     #[serde(default)]
     pub disable_accounts: bool,
+    #[serde(default)]
+    pub exclude_on_finish: bool,
     #[serde(default)]
     pub reconnect: Option<ConfigChannelSourceReconnect>,
     #[serde(default = "ConfigChannelSourceGeneral::default_channel_size")]
