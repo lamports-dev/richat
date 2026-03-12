@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-03-12
+
+- richat-v8.2.1
+
+### Fixes
+
+- richat: fix not available replay detection ([#196](https://github.com/lamports-dev/richat/pull/196))
+
 ## 2026-03-09
 
 - richat-v8.2.0
