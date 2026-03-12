@@ -74,12 +74,10 @@ impl GlobalReplayFromSlot {
         locked.value = Some(locked.value.unwrap_or(slot).max(slot));
     }
 
-    /// Reports that a source failed to replay. Clears the stale replay slot
-    /// so subsequent reconnect attempts subscribe from latest. Returns `true`
-    /// if all sources have now reported failure.
+    /// Reports that a source failed to replay. Returns `true` if all sources
+    /// have now reported failure.
     pub fn report_replay_failed(&self, source_name: &'static str) -> bool {
         let mut locked = mutex_lock(&self.inner);
-        locked.value = None;
         locked.sources_replay_failed.insert(source_name);
         locked.sources_replay_failed.len() >= locked.sources_total
     }
