@@ -92,6 +92,36 @@ impl SubscriptionConfig {
     }
 }
 
+impl SubscribeError {
+    /// Returns `true` when the upstream rejected the replay slot because it
+    /// is too old.  Covers Quic, Richat-native gRPC, and Dragons Mouth error
+    /// paths at subscribe time.
+    fn is_replay_slot_not_available(&self) -> bool {
+        match self {
+            Self::Subscribe(richat_client::error::SubscribeError::ReplayFromSlotNotAvailable(
+                _,
+            )) => true,
+            Self::SubscribeGrpc(status) => is_grpc_replay_rejected(status),
+            _ => false,
+        }
+    }
+}
+
+/// Check whether a gRPC status indicates that the requested replay slot is
+/// not available.  The Richat server returns `InvalidArgument` with a message
+/// like `"first available slot: {N}"`, while Dragons Mouth may use
+/// `DataLoss` or `InvalidArgument` with `"replay"` in the message.
+fn is_grpc_replay_rejected(status: &tonic::Status) -> bool {
+    match status.code() {
+        Code::InvalidArgument => {
+            let msg = status.message();
+            msg.contains("first available slot") || msg.contains("replay")
+        }
+        Code::DataLoss => true,
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 struct Backoff {
     current_interval: Duration,
@@ -203,7 +233,18 @@ impl Subscription {
                                     state.0.reset();
                                 }
                                 Err(error) => {
-                                    error!(name, ?error, "failed to connect");
+                                    if error.is_replay_slot_not_available() {
+                                        if state.3.report_replay_failed(name) {
+                                            return Err(ReceiveError::ReplayFailed);
+                                        }
+                                        error!(
+                                            name,
+                                            "failed to replay at subscribe time, \
+                                             waiting for other sources"
+                                        );
+                                    } else {
+                                        error!(name, ?error, "failed to connect");
+                                    }
                                     state.0.sleep().await;
                                 }
                             }
@@ -316,7 +357,7 @@ impl Subscription {
                         if matches!(
                             &error,
                             richat_client::error::ReceiveError::Status(status)
-                                if (status.code() == Code::InvalidArgument && status.message().contains("replay")) || status.code() == Code::DataLoss
+                                if is_grpc_replay_rejected(status)
                         ) {
                             Err(ReceiveError::ReplayFailed)
                         } else {
