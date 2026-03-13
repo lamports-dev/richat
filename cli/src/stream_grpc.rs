@@ -162,6 +162,9 @@ impl ArgsAppStreamGrpc {
         let (mut client, action) = self.connect().await?;
         info!("connected");
 
+        let version = client.get_version().await?;
+        info!("version: {}", version.version);
+
         match action {
             Action::Subscribe(action_subscribe) => {
                 let (request, stats, verify_encoding) = action_subscribe
