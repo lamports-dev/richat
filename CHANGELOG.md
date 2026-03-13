@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-03-13
+
+- richat-cli-v9.0.2
+
+### Fixes
+
+- cli: show version on stream subscription ([#197](https://github.com/lamports-dev/richat/pull/197))
+
 ## 2026-03-12
 
 - richat-v8.2.1

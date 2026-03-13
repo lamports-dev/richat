@@ -164,6 +164,9 @@ impl ArgsAppStreamGrpc {
 
         match action {
             Action::Subscribe(action_subscribe) => {
+                let version = client.get_version().await?;
+                info!("version: {}", version.version);
+
                 let (request, stats, verify_encoding) = action_subscribe
                     .get_subscribe_request(commitment)
                     .await?
@@ -177,6 +180,9 @@ impl ArgsAppStreamGrpc {
                 .await;
             }
             Action::SubscribeAccounts(action_subscribe) => {
+                let version = client.get_version().await?;
+                info!("version: {}", version.version);
+
                 let (request, stats, verify_encoding) = action_subscribe
                     .get_subscribe_request()
                     .await?
