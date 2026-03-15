@@ -324,6 +324,23 @@ impl GrpcServer {
             if state.finished {
                 continue;
             }
+
+            // Detect zombie clients: buffer is full but nothing has been
+            // drained for 30 seconds. This happens when a downstream
+            // connection dies without the HTTP/2 stream being closed (e.g.
+            // behind Envoy). Mark as finished so the client gets cleaned up.
+            if state.is_zombie(Duration::from_secs(30)) {
+                warn!(
+                    id = state.id,
+                    x_subscription_id = state.x_subscription_id.as_ref(),
+                    messages_len_total = state.messages_len_total,
+                    "dropping zombie client (is_full with no drain for 30s)"
+                );
+                state.push_error(Status::deadline_exceeded("zombie: no drain"));
+                state.finished = true;
+                continue;
+            }
+
             let ts = Instant::now();
 
             // filter messages
@@ -789,6 +806,10 @@ pub struct SubscribeClientState {
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
     messages_waker: Option<Waker>,
     metric_cpu_usage: Gauge,
+
+    /// Tracks when the client last successfully drained a message via `poll_next`.
+    /// Used by workers to detect zombie clients that are `is_full` but never draining.
+    last_pop_at: Instant,
 }
 
 impl Drop for SubscribeClientState {
@@ -837,6 +858,7 @@ impl SubscribeClientState {
             messages: LinkedList::new(),
             messages_waker: None,
             metric_cpu_usage,
+            last_pop_at: Instant::now(),
         }
     }
 
@@ -862,6 +884,13 @@ impl SubscribeClientState {
 
     const fn is_full(&self) -> bool {
         self.messages_len_total > self.messages_len_max
+    }
+
+    /// Returns `true` if the client buffer is full and no messages have been
+    /// drained for longer than `timeout`. This indicates a zombie client whose
+    /// downstream connection is dead but was never properly closed.
+    fn is_zombie(&self, timeout: Duration) -> bool {
+        self.is_full() && self.last_pop_at.elapsed() > timeout
     }
 
     pub const fn is_full_replay(&self) -> bool {
@@ -893,6 +922,7 @@ impl SubscribeClientState {
 
         if let Some(message) = self.messages.pop_front() {
             self.messages_len_total -= message.1.len();
+            self.last_pop_at = Instant::now();
             Some(Ok(message))
         } else {
             self.messages_waker = Some(cx.waker().clone());
