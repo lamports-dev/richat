@@ -11,6 +11,7 @@ use {
     futures::{
         future::{FutureExt, TryFutureExt, ready, try_join_all},
         stream::Stream,
+        task::AtomicWaker,
     },
     prost::Message,
     quanta::Instant,
@@ -748,6 +749,10 @@ impl geyser_gen::geyser_server::Geyser for GrpcServer {
 #[derive(Debug, Clone)]
 pub struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
+    /// Waker registered by `poll_next()` when it cannot acquire the mutex.
+    /// Workers wake this after releasing the mutex so the tokio task retries
+    /// without ever blocking the async runtime.
+    drain_waker: Arc<AtomicWaker>,
 }
 
 impl SubscribeClient {
@@ -765,6 +770,7 @@ impl SubscribeClient {
         );
         Self {
             state: Arc::new(Mutex::new(state)),
+            drain_waker: Arc::new(AtomicWaker::new()),
         }
     }
 
@@ -931,7 +937,25 @@ impl Stream for ReceiverStream {
             return Poll::Ready(None);
         }
 
-        let mut state = self.client.state_lock();
+        // Use try_lock() to avoid blocking the tokio thread when a worker
+        // holds the mutex. If the lock is busy, register a waker so the
+        // worker can wake us when it releases the mutex.
+        let mut state = match self.client.state.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // Worker holds the mutex. Register waker and return Pending.
+                // The worker will call drain_waker.wake() after releasing.
+                self.client.drain_waker.register(cx.waker());
+
+                // Double-check: the worker may have released between our
+                // try_lock and the waker registration.
+                match self.client.state.try_lock() {
+                    Ok(guard) => guard,
+                    Err(_) => return Poll::Pending,
+                }
+            }
+        };
+
         if let Some(item) = state.pop_message(cx) {
             let item = match item {
                 Ok((message, data)) => {
