@@ -11,6 +11,7 @@ use {
     futures::{
         future::{FutureExt, TryFutureExt, ready, try_join_all},
         stream::Stream,
+        task::AtomicWaker,
     },
     prost::Message,
     quanta::Instant,
@@ -377,6 +378,8 @@ impl GrpcServer {
                     }
                 }
             }
+            let has_pending = !state.messages.is_empty();
+
             if messages_counter == 0 {
                 ticks_without_messages += 1;
             } else {
@@ -386,7 +389,19 @@ impl GrpcServer {
                 ticks_without_messages = 0;
             }
             drop(state);
-            if !errored {
+
+            // Wake poll_next so it can drain via try_lock.
+            // Yield briefly only when the client has buffered messages,
+            // so poll_next (on a tokio thread) can win the lock against
+            // pinned worker threads that would otherwise re-acquire instantly.
+            if messages_counter > 0 || has_pending {
+                client.drain_waker.wake();
+                sleep(Duration::from_millis(1));
+            }
+
+            if errored {
+                client.drain_waker.wake();
+            } else {
                 prev_client = Some(client);
             }
 
@@ -748,6 +763,7 @@ impl geyser_gen::geyser_server::Geyser for GrpcServer {
 #[derive(Debug, Clone)]
 pub struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
+    drain_waker: Arc<AtomicWaker>,
 }
 
 impl SubscribeClient {
@@ -765,6 +781,7 @@ impl SubscribeClient {
         );
         Self {
             state: Arc::new(Mutex::new(state)),
+            drain_waker: Arc::new(AtomicWaker::new()),
         }
     }
 
@@ -931,7 +948,17 @@ impl Stream for ReceiverStream {
             return Poll::Ready(None);
         }
 
-        let mut state = self.client.state_lock();
+        let mut state = match self.client.state.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.client.drain_waker.register(cx.waker());
+                match self.client.state.try_lock() {
+                    Ok(guard) => guard,
+                    Err(_) => return Poll::Pending,
+                }
+            }
+        };
+
         if let Some(item) = state.pop_message(cx) {
             let item = match item {
                 Ok((message, data)) => {
