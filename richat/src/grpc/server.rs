@@ -378,6 +378,8 @@ impl GrpcServer {
                     }
                 }
             }
+            let is_full_now = state.is_full();
+
             if messages_counter == 0 {
                 ticks_without_messages += 1;
             } else {
@@ -387,7 +389,27 @@ impl GrpcServer {
                 ticks_without_messages = 0;
             }
             drop(state);
-            if !errored {
+
+            // Release the mutex and sleep so poll_next() (which uses
+            // try_lock to avoid blocking the tokio runtime) gets an
+            // exclusive window to drain buffered messages. The worker
+            // still holds the client ref so no other worker competes.
+            if messages_counter > 0 {
+                client.drain_waker.wake();
+                sleep(Duration::from_millis(10));
+            } else if is_full_now {
+                client.drain_waker.wake();
+                sleep(Duration::from_millis(50));
+            }
+
+            if errored {
+                // Ensure poll_next() is woken so it sees the error,
+                // returns Ready(Err), and tonic drops the ReceiverStream.
+                // Without this, poll_next() may be parked on drain_waker
+                // (from a failed try_lock) and never re-polled, leaking
+                // the subscription.
+                client.drain_waker.wake();
+            } else {
                 prev_client = Some(client);
             }
 
