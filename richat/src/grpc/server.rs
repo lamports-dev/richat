@@ -50,7 +50,7 @@ use {
             Arc, Mutex, MutexGuard, TryLockError,
             atomic::{AtomicU64, Ordering},
         },
-        task::{Context, Poll, Waker},
+        task::{Context, Poll},
         thread::sleep,
         time::{Duration, SystemTime},
     },
@@ -378,8 +378,6 @@ impl GrpcServer {
                     }
                 }
             }
-            let is_empty_state = state.messages.is_empty();
-
             if messages_counter == 0 {
                 ticks_without_messages += 1;
             } else {
@@ -390,9 +388,7 @@ impl GrpcServer {
             }
             drop(state);
 
-            if !is_empty_state || errored {
-                client.waker.wake();
-            }
+            client.waker.wake();
 
             if !errored {
                 prev_client = Some(client);
@@ -447,6 +443,8 @@ impl GrpcServer {
                             tracing::error!("push error");
                             let mut state = client.state_lock();
                             state.push_error(Status::internal("shutdown"));
+                            drop(state);
+                            client.waker.wake();
                             break
                         }
                         () = tokio::time::sleep(Duration::from_millis(500)) => {
@@ -460,6 +458,8 @@ impl GrpcServer {
                                 ts_latest = ts;
                                 let message = SubscribeClientState::create_ping();
                                 state.push_message(GrpcSubscribeMessage::Ping, message);
+                                drop(state);
+                                client.waker.wake();
                             }
                         }
                     }
@@ -480,6 +480,8 @@ impl GrpcServer {
                                 let message = SubscribeClientState::create_pong(id);
                                 let mut state = client.state_lock();
                                 state.push_message(GrpcSubscribeMessage::Pong, message);
+                                drop(state);
+                                client.waker.wake();
                                 continue;
                             }
 
@@ -519,6 +521,8 @@ impl GrpcServer {
                             }) {
                                 warn!(id, %error, "failed to handle request");
                                 state.push_error(error);
+                                drop(state);
+                                client.waker.wake();
                             } else {
                                 info!(id, "set new filter");
                                 continue;
@@ -797,7 +801,6 @@ pub struct SubscribeClientState {
     messages_len_max: usize,
     messages_replay_len_max: usize,
     messages: LinkedList<(GrpcSubscribeMessage, Vec<u8>)>,
-    messages_waker: Option<Waker>,
     metric_cpu_usage: Gauge,
 }
 
@@ -845,7 +848,6 @@ impl SubscribeClientState {
             messages_len_max,
             messages_replay_len_max,
             messages: LinkedList::new(),
-            messages_waker: None,
             metric_cpu_usage,
         }
     }
@@ -880,23 +882,14 @@ impl SubscribeClientState {
 
     pub fn push_error(&mut self, error: Status) {
         self.messages_error = Some(error);
-        if let Some(waker) = self.messages_waker.take() {
-            waker.wake();
-        }
     }
 
     pub fn push_message(&mut self, message: GrpcSubscribeMessage, data: Vec<u8>) {
         self.messages_len_total += data.len();
         self.messages.push_back((message, data));
-        if let Some(waker) = self.messages_waker.take() {
-            waker.wake();
-        }
     }
 
-    fn pop_message(
-        &mut self,
-        cx: &Context,
-    ) -> Option<TonicResult<(GrpcSubscribeMessage, Vec<u8>)>> {
+    fn pop_message(&mut self) -> Option<TonicResult<(GrpcSubscribeMessage, Vec<u8>)>> {
         if let Some(error) = self.messages_error.take() {
             return Some(Err(error));
         }
@@ -905,7 +898,6 @@ impl SubscribeClientState {
             self.messages_len_total -= message.1.len();
             Some(Ok(message))
         } else {
-            self.messages_waker = Some(cx.waker().clone());
             None
         }
     }
@@ -941,20 +933,15 @@ impl Stream for ReceiverStream {
             return Poll::Ready(None);
         }
 
+        self.client.waker.register(cx.waker());
+
         let mut state = match self.client.state.try_lock() {
             Ok(guard) => guard,
-            Err(TryLockError::WouldBlock) => {
-                self.client.waker.register(cx.waker());
-                match self.client.state.try_lock() {
-                    Ok(guard) => guard,
-                    Err(TryLockError::WouldBlock) => return Poll::Pending,
-                    Err(TryLockError::Poisoned(e)) => e.into_inner(),
-                }
-            }
+            Err(TryLockError::WouldBlock) => return Poll::Pending,
             Err(TryLockError::Poisoned(e)) => e.into_inner(),
         };
 
-        if let Some(item) = state.pop_message(cx) {
+        if let Some(item) = state.pop_message() {
             let item = match item {
                 Ok((message, data)) => {
                     counter!(
