@@ -47,7 +47,7 @@ use {
         future::Future,
         pin::Pin,
         sync::{
-            Arc, Mutex, MutexGuard,
+            Arc, Mutex, MutexGuard, TryLockError,
             atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
@@ -378,7 +378,7 @@ impl GrpcServer {
                     }
                 }
             }
-            let has_pending = !state.messages.is_empty();
+            let is_empty_state = state.messages.is_empty();
 
             if messages_counter == 0 {
                 ticks_without_messages += 1;
@@ -390,18 +390,11 @@ impl GrpcServer {
             }
             drop(state);
 
-            // Wake poll_next so it can drain via try_lock.
-            // Yield briefly only when the client has buffered messages,
-            // so poll_next (on a tokio thread) can win the lock against
-            // pinned worker threads that would otherwise re-acquire instantly.
-            if messages_counter > 0 || has_pending {
-                client.drain_waker.wake();
-                sleep(Duration::from_millis(1));
+            if !is_empty_state || errored {
+                client.waker.wake();
             }
 
-            if errored {
-                client.drain_waker.wake();
-            } else {
+            if !errored {
                 prev_client = Some(client);
             }
 
@@ -763,7 +756,7 @@ impl geyser_gen::geyser_server::Geyser for GrpcServer {
 #[derive(Debug, Clone)]
 pub struct SubscribeClient {
     state: Arc<Mutex<SubscribeClientState>>,
-    drain_waker: Arc<AtomicWaker>,
+    waker: Arc<AtomicWaker>,
 }
 
 impl SubscribeClient {
@@ -781,7 +774,7 @@ impl SubscribeClient {
         );
         Self {
             state: Arc::new(Mutex::new(state)),
-            drain_waker: Arc::new(AtomicWaker::new()),
+            waker: Arc::new(AtomicWaker::new()),
         }
     }
 
@@ -950,13 +943,15 @@ impl Stream for ReceiverStream {
 
         let mut state = match self.client.state.try_lock() {
             Ok(guard) => guard,
-            Err(_) => {
-                self.client.drain_waker.register(cx.waker());
+            Err(TryLockError::WouldBlock) => {
+                self.client.waker.register(cx.waker());
                 match self.client.state.try_lock() {
                     Ok(guard) => guard,
-                    Err(_) => return Poll::Pending,
+                    Err(TryLockError::WouldBlock) => return Poll::Pending,
+                    Err(TryLockError::Poisoned(e)) => e.into_inner(),
                 }
             }
+            Err(TryLockError::Poisoned(e)) => e.into_inner(),
         };
 
         if let Some(item) = state.pop_message(cx) {
