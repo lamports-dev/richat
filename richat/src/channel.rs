@@ -644,7 +644,14 @@ impl Sender {
                             .set(msg.slot() as f64)
                     }
                     if msg.status() == SlotStatus::SlotProcessed {
-                        let processed_slots_len = self.processed.shared.slots_lock().len();
+                        let slots = self.processed.shared.slots_lock();
+                        let processed_slots_len = slots.len();
+
+                        if let Some((&first, _)) = slots.first_key_value() {
+                            gauge!(metrics::CHANNEL_FIRST_AVAILABLE_SLOT).set(first as f64);
+                        }
+                        drop(slots);
+
                         debug!(
                             "new processed {slot} / {} messages / {} slots / {} bytes",
                             self.processed.tail - self.processed.head,
