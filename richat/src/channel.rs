@@ -643,7 +643,6 @@ impl Sender {
                     }
                     if msg.status() == SlotStatus::SlotProcessed {
                         let processed_slots_len = self.processed.shared.slots_lock().len();
-
                         debug!(
                             "new processed {slot} / {} messages / {} slots / {} bytes",
                             self.processed.tail - self.processed.head,
