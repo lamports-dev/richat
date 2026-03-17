@@ -235,10 +235,7 @@ fn first_available_slot(
     shared: &SharedChannel,
 ) -> Option<Slot> {
     let slot_replay = replay.and_then(|r| r.first_key_value().map(|(&slot, _)| slot));
-    let slot_processed = shared
-        .slots_lock()
-        .first_key_value()
-        .map(|(&slot, _)| slot);
+    let slot_processed = shared.slots_lock().first_key_value().map(|(&slot, _)| slot);
     match (slot_replay, slot_processed) {
         (Some(r), Some(p)) => Some(r.min(p)),
         _ => slot_replay.or(slot_processed),
