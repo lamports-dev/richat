@@ -230,6 +230,21 @@ pub enum IndexLocation {
     Memory(u64),
 }
 
+fn first_available_slot(
+    replay: Option<&BTreeMap<Slot, ReplayInfo>>,
+    shared: &SharedChannel,
+) -> Option<Slot> {
+    let slot_replay = replay.and_then(|r| r.first_key_value().map(|(&slot, _)| slot));
+    let slot_processed = shared
+        .slots_lock()
+        .first_key_value()
+        .map(|(&slot, _)| slot);
+    match (slot_replay, slot_processed) {
+        (Some(r), Some(p)) => Some(r.min(p)),
+        _ => slot_replay.or(slot_processed),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Messages {
     shared_processed: Arc<SharedChannel>,
@@ -421,22 +436,8 @@ impl Messages {
     }
 
     pub fn get_first_available_slot(&self) -> Option<Slot> {
-        let slot_replay = self
-            .replay_info
-            .as_deref()
-            .map(mutex_lock)
-            .and_then(|replay| replay.first_key_value().map(|(slot, _info)| *slot));
-
-        let slot_processed = self
-            .shared_processed
-            .slots_lock()
-            .first_key_value()
-            .map(|(slot, _head)| *slot);
-
-        match (slot_replay, slot_processed) {
-            (Some(slot_replay), Some(slot_processed)) => Some(slot_replay.min(slot_processed)),
-            _ => slot_replay.or(slot_processed),
-        }
+        let replay_guard = self.replay_info.as_deref().map(mutex_lock);
+        first_available_slot(replay_guard.as_deref(), &self.shared_processed)
     }
 
     pub fn replay_from_storage(
@@ -644,13 +645,7 @@ impl Sender {
                             .set(msg.slot() as f64)
                     }
                     if msg.status() == SlotStatus::SlotProcessed {
-                        let slots = self.processed.shared.slots_lock();
-                        let processed_slots_len = slots.len();
-
-                        if let Some((&first, _)) = slots.first_key_value() {
-                            gauge!(metrics::CHANNEL_FIRST_AVAILABLE_SLOT).set(first as f64);
-                        }
-                        drop(slots);
+                        let processed_slots_len = self.processed.shared.slots_lock().len();
 
                         debug!(
                             "new processed {slot} / {} messages / {} slots / {} bytes",
@@ -762,6 +757,10 @@ impl Sender {
         }
         if replay_inserted || clean_after_finalized {
             gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay_lock.len() as f64);
+
+            if let Some(slot) = first_available_slot(Some(&replay_lock), &self.processed.shared) {
+                gauge!(metrics::CHANNEL_FIRST_AVAILABLE_SLOT).set(slot as f64);
+            }
         }
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
