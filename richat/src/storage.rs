@@ -33,7 +33,7 @@ use {
     std::{
         borrow::Cow,
         collections::{BTreeMap, VecDeque},
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, atomic::Ordering},
         thread,
         time::Duration,
     },
@@ -391,7 +391,8 @@ impl Storage {
 
             // send error
             if let Some(error) = req.state.read_error.take() {
-                locked_state.push_error(error);
+                drop(locked_state);
+                req.client.push_error(error);
                 ReplayQueue::drop_req(&replay_queue);
                 continue;
             }
@@ -410,7 +411,9 @@ impl Storage {
 
             // filter messages
             let ts = Instant::now();
-            while !locked_state.is_full_replay() {
+            let mut pushed = false;
+            let mut messages_len = req.client.messages_len.load(Ordering::Relaxed);
+            while messages_len <= req.client.messages_replay_len_max {
                 let Some((index, message)) = req.state.messages.pop_front() else {
                     break;
                 };
@@ -424,7 +427,9 @@ impl Storage {
                     .collect::<SmallVec<[(GrpcSubscribeMessage, Vec<u8>); 2]>>();
 
                 for (message, data) in items {
-                    locked_state.push_message(message, data);
+                    messages_len += data.len();
+                    req.client.push_message(message, data);
+                    pushed = true;
                 }
 
                 current_head = index;
@@ -446,12 +451,19 @@ impl Storage {
 
                 req.metric_cpu_usage
                     .increment(duration_to_seconds(ts.elapsed()));
+                drop(locked_state);
+                if pushed {
+                    req.client.wake();
+                }
                 ReplayQueue::drop_req(&replay_queue);
                 continue;
             }
 
             // drop locked state before sync read
             drop(locked_state);
+            if pushed {
+                req.client.wake();
+            }
 
             // read messages
             if !req.state.read_finished && req.state.messages.len() < messages_decode_per_tick {
