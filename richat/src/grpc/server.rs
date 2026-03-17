@@ -42,7 +42,7 @@ use {
     solana_pubkey::Pubkey,
     std::{
         borrow::Cow,
-        collections::{HashSet, LinkedList},
+        collections::{HashSet, LinkedList, VecDeque},
         fmt,
         future::Future,
         pin::Pin,
@@ -391,12 +391,10 @@ impl GrpcServer {
             drop(state);
 
             // Wake poll_next so it can drain via try_lock.
-            // Yield briefly only when the client has buffered messages,
-            // so poll_next (on a tokio thread) can win the lock against
-            // pinned worker threads that would otherwise re-acquire instantly.
+            // No sleep needed — poll_next drains all messages into a local
+            // buffer in one lock acquisition, so contention is minimal.
             if messages_counter > 0 || has_pending {
                 client.drain_waker.wake();
-                sleep(Duration::from_millis(1));
             }
 
             if errored {
@@ -922,13 +920,17 @@ impl SubscribeClientState {
 pub struct ReceiverStream {
     client: SubscribeClient,
     finished: bool,
+    /// Local buffer — drained from shared state while holding the lock.
+    /// Subsequent poll_next calls serve from here without contention.
+    drain: VecDeque<TonicResult<Vec<u8>>>,
 }
 
 impl ReceiverStream {
-    const fn new(client: SubscribeClient) -> Self {
+    fn new(client: SubscribeClient) -> Self {
         Self {
             client,
             finished: false,
+            drain: VecDeque::new(),
         }
     }
 }
@@ -943,45 +945,60 @@ impl Drop for ReceiverStream {
 impl Stream for ReceiverStream {
     type Item = TonicResult<Vec<u8>>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.finished {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if this.finished {
             return Poll::Ready(None);
         }
 
-        let mut state = match self.client.state.try_lock() {
+        // Serve from local buffer first — no lock needed.
+        if let Some(item) = this.drain.pop_front() {
+            this.finished = item.is_err();
+            return Poll::Ready(Some(item));
+        }
+
+        // Local buffer empty — acquire lock and drain shared state.
+        let mut state = match this.client.state.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
-                self.client.drain_waker.register(cx.waker());
-                match self.client.state.try_lock() {
+                this.client.drain_waker.register(cx.waker());
+                match this.client.state.try_lock() {
                     Ok(guard) => guard,
                     Err(_) => return Poll::Pending,
                 }
             }
         };
 
-        if let Some(item) = state.pop_message(cx) {
+        // Drain ALL messages from shared state into local buffer.
+        let x_subscription_id = Arc::clone(&state.x_subscription_id);
+
+        while let Some(item) = state.pop_message(cx) {
             let item = match item {
                 Ok((message, data)) => {
                     counter!(
                         metrics::GRPC_SUBSCRIBE_MESSAGES_COUNT_TOTAL,
-                        "x_subscription_id" => Arc::clone(&state.x_subscription_id),
+                        "x_subscription_id" => Arc::clone(&x_subscription_id),
                         "message" => message.as_str(),
                     )
                     .increment(1);
                     counter!(
                         metrics::GRPC_SUBSCRIBE_MESSAGES_BYTES_TOTAL,
-                        "x_subscription_id" => Arc::clone(&state.x_subscription_id),
+                        "x_subscription_id" => Arc::clone(&x_subscription_id),
                         "message" => message.as_str(),
                     )
                     .increment(data.len() as u64);
-
                     Ok(data)
                 }
                 Err(error) => Err(error),
             };
-            drop(state);
+            this.drain.push_back(item);
+        }
+        drop(state);
 
-            self.finished = item.is_err();
+        // Serve first item from freshly drained buffer.
+        if let Some(item) = this.drain.pop_front() {
+            this.finished = item.is_err();
             Poll::Ready(Some(item))
         } else {
             Poll::Pending
