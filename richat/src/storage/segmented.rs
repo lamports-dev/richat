@@ -11,14 +11,18 @@ use {
             StorageWriteQueueMetrics, WriterCommand, spawn_serialize_workers, spawn_writer,
         },
     },
-    crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
+    crate::{
+        channel::ParsedMessage, config::ConfigStorage, metrics::STORAGE_DISK_SIZE_BYTES,
+        util::SpawnedThreads,
+    },
+    ::metrics::gauge,
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     solana_clock::Slot,
     std::{
         collections::BTreeMap,
         fs::OpenOptions,
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{Arc, RwLock},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -222,6 +226,22 @@ impl SegmentedStorage {
             Err(error) => Box::new(std::iter::once(Err(error))),
         }
     }
+
+    pub(crate) fn publish_disk_size_metric(&self) -> anyhow::Result<()> {
+        gauge!(STORAGE_DISK_SIZE_BYTES).set(self.disk_size_bytes()? as f64);
+        Ok(())
+    }
+
+    fn disk_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(dir_size_bytes(&self.config.metadata_path)?.saturating_add(self.segment_bytes()))
+    }
+
+    fn segment_bytes(&self) -> u64 {
+        let catalog = self.catalog.read().expect("segment catalog poisoned");
+        catalog.segments.values().fold(0u64, |bytes, segment| {
+            bytes.saturating_add(segment.file_len)
+        })
+    }
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow::Result<()> {
@@ -247,6 +267,32 @@ fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow
     Ok(())
 }
 
+fn dir_size_bytes(path: &Path) -> anyhow::Result<u64> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read metadata for {path:?}"));
+        }
+    };
+
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if !metadata.is_dir() {
+        return Ok(0);
+    }
+
+    let mut bytes = 0u64;
+    for entry in
+        std::fs::read_dir(path).with_context(|| format!("failed to read directory {path:?}"))?
+    {
+        let entry = entry.with_context(|| format!("failed to read directory entry in {path:?}"))?;
+        bytes = bytes.saturating_add(dir_size_bytes(&entry.path())?);
+    }
+    Ok(bytes)
+}
+
 fn current_unix_ms() -> anyhow::Result<u64> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -257,7 +303,7 @@ fn current_unix_ms() -> anyhow::Result<u64> {
 #[cfg(test)]
 mod tests {
     use {
-        super::{SegmentedStorage, segment_file_name},
+        super::{SegmentedStorage, dir_size_bytes, segment_file_name},
         crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
         prost_types::Timestamp,
         richat_filter::message::{MessageParserEncoding, MessageSlot},
@@ -376,6 +422,20 @@ mod tests {
 
         drop(recovered);
         join_threads(threads);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dir_size_bytes_sums_nested_files() {
+        let root = temp_dir("dir-size");
+        let nested = root.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("a.bin"), [1u8, 2, 3]).unwrap();
+        std::fs::write(nested.join("b.bin"), [4u8, 5, 6, 7]).unwrap();
+
+        assert_eq!(dir_size_bytes(&root).unwrap(), 7);
+        assert_eq!(dir_size_bytes(&root.join("missing")).unwrap(), 0);
+
         let _ = std::fs::remove_dir_all(root);
     }
 

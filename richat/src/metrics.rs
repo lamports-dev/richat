@@ -33,6 +33,7 @@ pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
 pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const CHANNEL_STORAGE_FIRST_SLOT: &str = "channel_storage_first_slot";
 pub const CHANNEL_STORAGE_LAST_SLOT: &str = "channel_storage_last_slot";
+pub const STORAGE_DISK_SIZE_BYTES: &str = "storage_disk_size_bytes";
 pub const STORAGE_SEGMENT_ACTIVE_ID: &str = "storage_segment_active_id";
 pub const STORAGE_SEGMENT_ACTIVE_SIZE_BYTES: &str = "storage_segment_active_size_bytes";
 pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
@@ -118,6 +119,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     );
     describe_gauge!(CHANNEL_STORAGE_FIRST_SLOT, "Oldest slot currently retained in the storage replay map; -1 when empty");
     describe_gauge!(CHANNEL_STORAGE_LAST_SLOT, "Newest slot currently retained in the storage replay map; -1 when empty");
+    describe_gauge!(STORAGE_DISK_SIZE_BYTES, "Approximate replay storage bytes retained on disk");
     describe_gauge!(STORAGE_SEGMENT_ACTIVE_ID, "Current writable segment id");
     describe_gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES, "Current writable segment size");
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");

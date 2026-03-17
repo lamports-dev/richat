@@ -28,10 +28,11 @@ use {
         collections::{BTreeMap, VecDeque},
         sync::{Arc, Mutex, atomic::Ordering},
         thread,
-        time::Duration,
+        time::{Duration, Instant as StdInstant},
     },
     tokio_util::sync::CancellationToken,
     tonic::Status,
+    tracing::warn,
 };
 
 type StorageIter<'a> = Box<dyn Iterator<Item = anyhow::Result<(u64, ParsedMessage)>> + 'a>;
@@ -97,6 +98,18 @@ impl Storage {
             replay_queue: Arc::new(Mutex::new(ReplayQueue::new(replay_inflight_max))),
         };
 
+        if let Err(error) = storage.inner.publish_disk_size_metric() {
+            warn!(?error, "failed to publish storage disk size metric");
+        }
+
+        let disk_metrics_storage = storage.clone();
+        let disk_metrics_shutdown = shutdown.clone();
+        let disk_metrics_name = "richatStrgDsk".to_owned();
+        let disk_metrics_jh = thread::Builder::new()
+            .name(disk_metrics_name.clone())
+            .spawn(move || Self::spawn_disk_metrics(disk_metrics_storage, disk_metrics_shutdown))?;
+        threads.push((disk_metrics_name, Some(disk_metrics_jh)));
+
         for index in 0..replay_threads {
             let th_name = format!("richatStrgRep{index:02}");
             let storage = storage.clone();
@@ -115,6 +128,27 @@ impl Storage {
         }
 
         Ok((storage, threads))
+    }
+
+    fn spawn_disk_metrics(storage: Self, shutdown: CancellationToken) -> anyhow::Result<()> {
+        const PUBLISH_INTERVAL: Duration = Duration::from_secs(5);
+        const POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+        let mut last_publish = StdInstant::now();
+        loop {
+            if shutdown.is_cancelled() {
+                return Ok(());
+            }
+
+            if last_publish.elapsed() >= PUBLISH_INTERVAL {
+                if let Err(error) = storage.inner.publish_disk_size_metric() {
+                    warn!(?error, "failed to publish storage disk size metric");
+                }
+                last_publish = StdInstant::now();
+            }
+
+            thread::sleep(POLL_INTERVAL);
+        }
     }
 
     fn spawn_replay(
