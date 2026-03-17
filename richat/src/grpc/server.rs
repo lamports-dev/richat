@@ -802,6 +802,7 @@ impl SubscribeClient {
     }
 
     pub fn push_error(&self, error: Status) {
+        while self.messages.pop().is_some() {}
         self.messages.push(Err(error));
         self.waker.wake();
     }
