@@ -7,7 +7,7 @@ use {
             SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name, write_segment_header,
         },
         segment_reader::SegmentReader,
-        segment_writer::{WriterCommand, spawn_writer},
+        segment_writer::{StorageWriteQueueMetrics, WriterCommand, spawn_writer},
     },
     crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
     anyhow::Context,
@@ -70,6 +70,7 @@ impl SegmentedConfig {
 pub(crate) struct SegmentedStorage {
     config: SegmentedConfig,
     catalog: Arc<RwLock<MetadataCatalog>>,
+    queue_metrics: Arc<StorageWriteQueueMetrics>,
     write_tx: kanal::Sender<WriterCommand>,
 }
 
@@ -108,19 +109,29 @@ impl SegmentedStorage {
         }
 
         let catalog = Arc::new(RwLock::new(catalog));
+        let queue_metrics = Arc::new(StorageWriteQueueMetrics::default());
+        queue_metrics.publish_current();
         let (write_tx, write_rx) = kanal::unbounded();
         let writer_config = config.clone();
         let writer_catalog = Arc::clone(&catalog);
         let writer_metadata = metadata.clone();
+        let writer_queue_metrics = Arc::clone(&queue_metrics);
         let writer_jh = thread::Builder::new()
             .name("richatStrgSeg".to_owned())
             .spawn(move || {
-                spawn_writer(writer_config, writer_metadata, writer_catalog, write_rx)
+                spawn_writer(
+                    writer_config,
+                    writer_metadata,
+                    writer_catalog,
+                    writer_queue_metrics,
+                    write_rx,
+                )
             })?;
 
         let storage = Self {
             config,
             catalog,
+            queue_metrics,
             write_tx,
         };
         Ok((storage, vec![("richatStrgSeg".to_owned(), Some(writer_jh))]))
@@ -134,19 +145,25 @@ impl SegmentedStorage {
         index: u64,
         message: ParsedMessage,
     ) {
-        let _ = self.write_tx.send(WriterCommand::PushMessage {
-            init,
-            slot,
-            head,
-            index,
-            message,
-        });
+        let command = WriterCommand::push_message(init, slot, head, index, message);
+        let approx_bytes = command.approx_bytes();
+        self.queue_metrics.begin_enqueue(approx_bytes);
+        if self.write_tx.send(command).is_ok() {
+            self.queue_metrics.commit_enqueue(approx_bytes);
+        } else {
+            self.queue_metrics.cancel_enqueue(approx_bytes);
+        }
     }
 
     pub(crate) fn remove_replay(&self, slot: Slot, until: Option<u64>) {
-        let _ = self
-            .write_tx
-            .send(WriterCommand::RemoveReplay { slot, until });
+        let command = WriterCommand::remove_replay(slot, until);
+        let approx_bytes = command.approx_bytes();
+        self.queue_metrics.begin_enqueue(approx_bytes);
+        if self.write_tx.send(command).is_ok() {
+            self.queue_metrics.commit_enqueue(approx_bytes);
+        } else {
+            self.queue_metrics.cancel_enqueue(approx_bytes);
+        }
     }
 
     pub(crate) fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {

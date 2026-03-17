@@ -16,7 +16,10 @@ use {
             CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
             STORAGE_SEGMENT_ACTIVE_ID, STORAGE_SEGMENT_ACTIVE_SIZE_BYTES,
             STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_SEGMENT_ROTATIONS_TOTAL,
-            STORAGE_SEGMENTS_DELETED_TOTAL,
+            STORAGE_SEGMENTS_DELETED_TOTAL, STORAGE_WRITE_QUEUE_BYTES,
+            STORAGE_WRITE_QUEUE_COMMANDS, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
+            STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL,
+            STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
         },
     },
     ::metrics::{counter, gauge},
@@ -28,14 +31,67 @@ use {
         collections::HashSet,
         fs::{File, OpenOptions},
         io::{Seek, SeekFrom, Write},
-        sync::{Arc, RwLock},
+        sync::{
+            Arc, RwLock,
+            atomic::{AtomicU64, Ordering},
+        },
         time::{Instant, SystemTime, UNIX_EPOCH},
     },
     zstd::bulk::Compressor,
 };
 
 #[derive(Debug)]
-pub(crate) enum WriterCommand {
+pub(crate) struct WriterCommand {
+    enqueued_at: Instant,
+    approx_bytes: usize,
+    kind: WriterCommandKind,
+}
+
+impl WriterCommand {
+    pub(crate) fn push_message(
+        init: bool,
+        slot: Slot,
+        head: u64,
+        index: u64,
+        message: ParsedMessage,
+    ) -> Self {
+        let approx_bytes = message.size();
+        Self {
+            enqueued_at: Instant::now(),
+            approx_bytes,
+            kind: WriterCommandKind::PushMessage {
+                init,
+                slot,
+                head,
+                index,
+                message,
+            },
+        }
+    }
+
+    pub(crate) fn remove_replay(slot: Slot, until: Option<u64>) -> Self {
+        Self {
+            enqueued_at: Instant::now(),
+            approx_bytes: 0,
+            kind: WriterCommandKind::RemoveReplay { slot, until },
+        }
+    }
+
+    pub(crate) const fn approx_bytes(&self) -> usize {
+        self.approx_bytes
+    }
+
+    fn wait_micros(&self) -> u64 {
+        self.enqueued_at.elapsed().as_micros().min(u64::MAX as u128) as u64
+    }
+
+    fn into_kind(self) -> WriterCommandKind {
+        self.kind
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum WriterCommandKind {
     PushMessage {
         init: bool,
         slot: Slot,
@@ -47,6 +103,57 @@ pub(crate) enum WriterCommand {
         slot: Slot,
         until: Option<u64>,
     },
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct StorageWriteQueueMetrics {
+    queued_commands: AtomicU64,
+    queued_bytes: AtomicU64,
+}
+
+impl StorageWriteQueueMetrics {
+    pub(crate) fn publish_current(&self) {
+        gauge!(STORAGE_WRITE_QUEUE_COMMANDS)
+            .set(self.queued_commands.load(Ordering::Relaxed) as f64);
+        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(self.queued_bytes.load(Ordering::Relaxed) as f64);
+    }
+
+    pub(crate) fn begin_enqueue(&self, approx_bytes: usize) {
+        let approx_bytes = approx_bytes as u64;
+        let queued_commands = self.queued_commands.fetch_add(1, Ordering::Relaxed) + 1;
+        let queued_bytes =
+            self.queued_bytes.fetch_add(approx_bytes, Ordering::Relaxed) + approx_bytes;
+        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
+        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
+    }
+
+    pub(crate) fn commit_enqueue(&self, approx_bytes: usize) {
+        let approx_bytes = approx_bytes as u64;
+        counter!(STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL).increment(1);
+        counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL).increment(approx_bytes);
+    }
+
+    pub(crate) fn cancel_enqueue(&self, approx_bytes: usize) {
+        let approx_bytes = approx_bytes as u64;
+        let queued_commands = self.queued_commands.fetch_sub(1, Ordering::Relaxed) - 1;
+        let queued_bytes =
+            self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
+        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
+        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
+    }
+
+    pub(crate) fn record_dequeue(&self, command: &WriterCommand) {
+        let approx_bytes = command.approx_bytes() as u64;
+        let queued_commands = self.queued_commands.fetch_sub(1, Ordering::Relaxed) - 1;
+        let queued_bytes =
+            self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
+
+        counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL).increment(1);
+        counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL).increment(approx_bytes);
+        counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL).increment(command.wait_micros());
+        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
+        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
+    }
 }
 
 #[derive(Debug)]
@@ -83,13 +190,17 @@ pub(crate) fn spawn_writer(
     config: SegmentedConfig,
     metadata: MetadataDb,
     catalog: Arc<RwLock<MetadataCatalog>>,
+    queue_metrics: Arc<StorageWriteQueueMetrics>,
     rx: kanal::Receiver<WriterCommand>,
 ) -> anyhow::Result<()> {
     let mut writer = SegmentWriter::open(config, metadata, catalog)?;
     loop {
         if writer.has_pending_chunk() {
             match rx.recv_timeout(writer.config.chunk_flush_delay) {
-                Ok(command) => writer.handle(command)?,
+                Ok(command) => {
+                    queue_metrics.record_dequeue(&command);
+                    writer.handle(command.into_kind())?
+                }
                 Err(ReceiveErrorTimeout::Timeout) => writer.flush_chunk()?,
                 Err(ReceiveErrorTimeout::SendClosed | ReceiveErrorTimeout::Closed) => {
                     writer.flush_chunk()?;
@@ -98,7 +209,10 @@ pub(crate) fn spawn_writer(
             }
         } else {
             match rx.recv() {
-                Ok(command) => writer.handle(command)?,
+                Ok(command) => {
+                    queue_metrics.record_dequeue(&command);
+                    writer.handle(command.into_kind())?
+                }
                 Err(_) => break,
             }
         }
@@ -152,16 +266,16 @@ impl SegmentWriter {
         })
     }
 
-    fn handle(&mut self, command: WriterCommand) -> anyhow::Result<()> {
+    fn handle(&mut self, command: WriterCommandKind) -> anyhow::Result<()> {
         match command {
-            WriterCommand::PushMessage {
+            WriterCommandKind::PushMessage {
                 init,
                 slot,
                 head,
                 index,
                 message,
             } => self.handle_push(init, slot, head, index, message),
-            WriterCommand::RemoveReplay { slot, until } => self.handle_trim(slot, until),
+            WriterCommandKind::RemoveReplay { slot, until } => self.handle_trim(slot, until),
         }
     }
 

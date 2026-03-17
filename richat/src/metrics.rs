@@ -33,6 +33,15 @@ pub const STORAGE_SEGMENT_ACTIVE_ID: &str = "storage_segment_active_id";
 pub const STORAGE_SEGMENT_ACTIVE_SIZE_BYTES: &str = "storage_segment_active_size_bytes";
 pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
 pub const STORAGE_SEGMENT_ROTATIONS_TOTAL: &str = "storage_segment_rotations_total";
+pub const STORAGE_WRITE_QUEUE_COMMANDS: &str = "storage_write_queue_commands";
+pub const STORAGE_WRITE_QUEUE_BYTES: &str = "storage_write_queue_bytes";
+pub const STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL: &str = "storage_write_queue_enqueued_total";
+pub const STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL: &str = "storage_write_queue_dequeued_total";
+pub const STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL: &str =
+    "storage_write_queue_enqueued_bytes_total";
+pub const STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL: &str =
+    "storage_write_queue_dequeued_bytes_total";
+pub const STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL: &str = "storage_write_queue_wait_micros_total";
 pub const STORAGE_RECOVERY_RUNS_TOTAL: &str = "storage_recovery_runs_total";
 pub const STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL: &str = "storage_recovery_truncated_bytes_total";
 pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
@@ -93,6 +102,13 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES, "Current writable segment size");
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
     describe_counter!(STORAGE_SEGMENT_ROTATIONS_TOTAL, "Number of storage segment rotations");
+    describe_gauge!(STORAGE_WRITE_QUEUE_COMMANDS, "Current number of queued storage write commands");
+    describe_gauge!(STORAGE_WRITE_QUEUE_BYTES, "Approximate bytes currently queued for the storage writer");
+    describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, "Total number of commands enqueued for the storage writer");
+    describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, "Total number of commands dequeued by the storage writer");
+    describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL, "Approximate bytes enqueued for the storage writer");
+    describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL, "Approximate bytes dequeued by the storage writer");
+    describe_counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL, "Total queue residence time of storage write commands in microseconds");
     describe_counter!(STORAGE_RECOVERY_RUNS_TOTAL, "Number of storage recovery scans");
     describe_counter!(
         STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL,
