@@ -29,6 +29,15 @@ pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
 pub const CHANNEL_STORAGE_WRITE_SER_INDEX: &str = "channel_storage_write_ser_index";
 pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
 pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
+pub const STORAGE_SEGMENT_ACTIVE_ID: &str = "storage_segment_active_id";
+pub const STORAGE_SEGMENT_ACTIVE_SIZE_BYTES: &str = "storage_segment_active_size_bytes";
+pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
+pub const STORAGE_SEGMENT_ROTATIONS_TOTAL: &str = "storage_segment_rotations_total";
+pub const STORAGE_RECOVERY_RUNS_TOTAL: &str = "storage_recovery_runs_total";
+pub const STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL: &str = "storage_recovery_truncated_bytes_total";
+pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
+pub const STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL: &str = "storage_replay_decompressed_bytes_total";
+pub const STORAGE_SEGMENTS_DELETED_TOTAL: &str = "storage_segments_deleted_total";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -80,6 +89,24 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
         CHANNEL_STORAGE_SLOTS_TOTAL,
         "Total number of slots in storage"
     );
+    describe_gauge!(STORAGE_SEGMENT_ACTIVE_ID, "Current writable segment id");
+    describe_gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES, "Current writable segment size");
+    describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
+    describe_counter!(STORAGE_SEGMENT_ROTATIONS_TOTAL, "Number of storage segment rotations");
+    describe_counter!(STORAGE_RECOVERY_RUNS_TOTAL, "Number of storage recovery scans");
+    describe_counter!(
+        STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL,
+        "Bytes truncated from active storage segment during recovery"
+    );
+    describe_counter!(
+        STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL,
+        "Compressed bytes read from segmented replay storage"
+    );
+    describe_counter!(
+        STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
+        "Decompressed bytes read from segmented replay storage"
+    );
+    describe_counter!(STORAGE_SEGMENTS_DELETED_TOTAL, "Number of deleted sealed storage segments");
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(GRPC_BLOCK_META_QUEUE_SIZE, "Number of gRPC requests to block meta data");
     describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");
