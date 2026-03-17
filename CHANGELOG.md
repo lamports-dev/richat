@@ -18,6 +18,8 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ## 2026-03-17
 
+- richat-v8.2.2
+
 ### Fixes
 
 - richat: fix gRPC subscribe streams stalling under high message throughput ([#198](https://github.com/lamports-dev/richat/pull/198))
