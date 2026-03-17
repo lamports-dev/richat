@@ -247,6 +247,12 @@ pub struct ConfigStorage {
     )]
     /// Retention target in slots; trim remains whole-segment approximate.
     pub max_slots: usize,
+    #[serde(
+        default = "ConfigStorage::default_serialize_workers",
+        deserialize_with = "deserialize_num_str"
+    )]
+    /// Number of chunk serialization / compression workers.
+    pub serialize_workers: usize,
     /// CPU affinity for serialization before chunk compression.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
@@ -309,6 +315,10 @@ pub struct ConfigStorage {
 impl ConfigStorage {
     const fn default_max_slots() -> usize {
         1024
+    }
+
+    const fn default_serialize_workers() -> usize {
+        4
     }
 
     const fn default_segment_target_size() -> usize {

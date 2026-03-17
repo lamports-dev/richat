@@ -42,6 +42,18 @@ pub const STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL: &str =
 pub const STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL: &str =
     "storage_write_queue_dequeued_bytes_total";
 pub const STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL: &str = "storage_write_queue_wait_micros_total";
+pub const STORAGE_WRITE_CHUNKS_IN_FLIGHT: &str = "storage_write_chunks_in_flight";
+pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
+    "storage_write_chunk_uncompressed_bytes_total";
+pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
+    "storage_write_chunk_compressed_bytes_total";
+pub const STORAGE_WRITE_SERIALIZE_MICROS_TOTAL: &str = "storage_write_serialize_micros_total";
+pub const STORAGE_WRITE_COMPRESS_MICROS_TOTAL: &str = "storage_write_compress_micros_total";
+pub const STORAGE_WRITE_APPEND_MICROS_TOTAL: &str = "storage_write_append_micros_total";
+pub const STORAGE_WRITE_FSYNC_MICROS_TOTAL: &str = "storage_write_fsync_micros_total";
+pub const STORAGE_WRITE_METADATA_MICROS_TOTAL: &str = "storage_write_metadata_micros_total";
+pub const STORAGE_WRITE_TRIM_MICROS_TOTAL: &str = "storage_write_trim_micros_total";
+pub const STORAGE_WRITE_ROTATE_MICROS_TOTAL: &str = "storage_write_rotate_micros_total";
 pub const STORAGE_RECOVERY_RUNS_TOTAL: &str = "storage_recovery_runs_total";
 pub const STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL: &str = "storage_recovery_truncated_bytes_total";
 pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
@@ -109,6 +121,16 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL, "Approximate bytes enqueued for the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL, "Approximate bytes dequeued by the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL, "Total queue residence time of storage write commands in microseconds");
+    describe_gauge!(STORAGE_WRITE_CHUNKS_IN_FLIGHT, "Current number of chunk jobs dispatched to storage workers but not yet appended");
+    describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
+    describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
+    describe_counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL, "Total microseconds spent serializing storage chunks");
+    describe_counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL, "Total microseconds spent compressing storage chunks");
+    describe_counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL, "Total microseconds spent appending storage chunks to segment files");
+    describe_counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL, "Total microseconds spent fsyncing storage segment writes");
+    describe_counter!(STORAGE_WRITE_METADATA_MICROS_TOTAL, "Total microseconds spent committing storage metadata");
+    describe_counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL, "Total microseconds spent trimming retained storage segments");
+    describe_counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL, "Total microseconds spent rotating active storage segments");
     describe_counter!(STORAGE_RECOVERY_RUNS_TOTAL, "Number of storage recovery scans");
     describe_counter!(
         STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL,

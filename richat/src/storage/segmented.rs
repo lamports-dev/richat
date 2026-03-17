@@ -7,7 +7,9 @@ use {
             SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name, write_segment_header,
         },
         segment_reader::SegmentReader,
-        segment_writer::{StorageWriteQueueMetrics, WriterCommand, spawn_writer},
+        segment_writer::{
+            StorageWriteQueueMetrics, WriterCommand, spawn_serialize_workers, spawn_writer,
+        },
     },
     crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
     anyhow::Context,
@@ -29,6 +31,9 @@ use {
 pub(crate) struct SegmentedConfig {
     pub(crate) metadata_path: PathBuf,
     pub(crate) segments_path: PathBuf,
+    pub(crate) serialize_workers: usize,
+    pub(crate) serialize_affinity: Option<Vec<usize>>,
+    pub(crate) write_affinity: Option<Vec<usize>>,
     pub(crate) segment_target_size: usize,
     pub(crate) chunk_target_size: usize,
     pub(crate) chunk_flush_delay: Duration,
@@ -51,6 +56,9 @@ impl SegmentedConfig {
         Self {
             metadata_path,
             segments_path,
+            serialize_workers: config.serialize_workers.max(1),
+            serialize_affinity: config.serialize_affinity.clone(),
+            write_affinity: config.write_affinity.clone(),
             segment_target_size: config.segment_target_size,
             chunk_target_size: config.chunk_target_size,
             chunk_flush_delay: config.chunk_flush_delay,
@@ -112,21 +120,31 @@ impl SegmentedStorage {
         let queue_metrics = Arc::new(StorageWriteQueueMetrics::default());
         queue_metrics.publish_current();
         let (write_tx, write_rx) = kanal::unbounded();
+        let (compression_tx, compression_rx) = kanal::unbounded();
+        let (compression_txs, mut threads) = spawn_serialize_workers(&config, compression_tx)?;
         let writer_config = config.clone();
         let writer_catalog = Arc::clone(&catalog);
         let writer_metadata = metadata.clone();
         let writer_queue_metrics = Arc::clone(&queue_metrics);
+        let writer_affinity = config.write_affinity.clone();
         let writer_jh = thread::Builder::new()
             .name("richatStrgSeg".to_owned())
             .spawn(move || {
+                if let Some(cpus) = writer_affinity {
+                    affinity_linux::set_thread_affinity(cpus.into_iter())
+                        .expect("failed to set affinity");
+                }
                 spawn_writer(
                     writer_config,
                     writer_metadata,
                     writer_catalog,
                     writer_queue_metrics,
+                    compression_txs,
+                    compression_rx,
                     write_rx,
                 )
             })?;
+        threads.push(("richatStrgSeg".to_owned(), Some(writer_jh)));
 
         let storage = Self {
             config,
@@ -134,7 +152,7 @@ impl SegmentedStorage {
             queue_metrics,
             write_tx,
         };
-        Ok((storage, vec![("richatStrgSeg".to_owned(), Some(writer_jh))]))
+        Ok((storage, threads))
     }
 
     pub(crate) fn push_message(
@@ -371,6 +389,7 @@ mod tests {
             metadata_path: Some(root.join("meta").join("rocksdb")),
             segments_path: Some(root.join("segments")),
             max_slots: 1024,
+            serialize_workers: 2,
             serialize_affinity: None,
             write_affinity: None,
             segment_target_size,

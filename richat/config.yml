@@ -69,8 +69,9 @@ channel:
       # metadata_path: null # optional override for metadata RocksDB location
       # segments_path: null # optional override for append-only payload segment files
       # max_slots: 1024 # retention target in slots; trim is approximate to whole segments
-      # serialize_affinity: null # CPU affinity for record serialization before chunking
-      # write_affinity: null # CPU affinity for the segment writer / trim thread
+      # serialize_workers: 4 # number of chunk serialization / compression workers
+      # serialize_affinity: null # CPU affinity for chunk serialization / compression workers
+      # write_affinity: null # CPU affinity for the ordered segment appender / metadata writer
       # segment_target_size: 4GiB # rotate to a new .seg file when the active one reaches this size
       # chunk_target_size: 4MiB # flush buffered records into one compressed chunk around this size
       # chunk_flush_delay: 50ms # flush a partial chunk after this delay even if size target is not hit
