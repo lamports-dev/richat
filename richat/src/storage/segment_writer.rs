@@ -14,14 +14,11 @@ use {
         channel::ParsedMessage,
         metrics::{
             CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
-            STORAGE_SEGMENT_ACTIVE_ID, STORAGE_SEGMENT_ACTIVE_SIZE_BYTES,
-            STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_SEGMENT_ROTATIONS_TOTAL,
-            STORAGE_SEGMENTS_DELETED_TOTAL, STORAGE_WRITE_APPEND_MICROS_TOTAL,
+            STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_MICROS_TOTAL,
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
-            STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_CHUNKS_IN_FLIGHT,
-            STORAGE_WRITE_COMPRESS_MICROS_TOTAL, STORAGE_WRITE_FSYNC_MICROS_TOTAL,
-            STORAGE_WRITE_METADATA_MICROS_TOTAL, STORAGE_WRITE_QUEUE_BYTES,
-            STORAGE_WRITE_QUEUE_COMMANDS, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
+            STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
+            STORAGE_WRITE_FSYNC_MICROS_TOTAL, STORAGE_WRITE_METADATA_MICROS_TOTAL,
+            STORAGE_WRITE_QUEUE_BYTES, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
             STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
@@ -115,23 +112,18 @@ pub(crate) enum WriterCommandKind {
 
 #[derive(Debug, Default)]
 pub(crate) struct StorageWriteQueueMetrics {
-    queued_commands: AtomicU64,
     queued_bytes: AtomicU64,
 }
 
 impl StorageWriteQueueMetrics {
     pub(crate) fn publish_current(&self) {
-        gauge!(STORAGE_WRITE_QUEUE_COMMANDS)
-            .set(self.queued_commands.load(Ordering::Relaxed) as f64);
         gauge!(STORAGE_WRITE_QUEUE_BYTES).set(self.queued_bytes.load(Ordering::Relaxed) as f64);
     }
 
     pub(crate) fn begin_enqueue(&self, approx_bytes: usize) {
         let approx_bytes = approx_bytes as u64;
-        let queued_commands = self.queued_commands.fetch_add(1, Ordering::Relaxed) + 1;
         let queued_bytes =
             self.queued_bytes.fetch_add(approx_bytes, Ordering::Relaxed) + approx_bytes;
-        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
         gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
     }
 
@@ -143,23 +135,19 @@ impl StorageWriteQueueMetrics {
 
     pub(crate) fn cancel_enqueue(&self, approx_bytes: usize) {
         let approx_bytes = approx_bytes as u64;
-        let queued_commands = self.queued_commands.fetch_sub(1, Ordering::Relaxed) - 1;
         let queued_bytes =
             self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
-        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
         gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
     }
 
     pub(crate) fn record_dequeue(&self, command: &WriterCommand) {
         let approx_bytes = command.approx_bytes() as u64;
-        let queued_commands = self.queued_commands.fetch_sub(1, Ordering::Relaxed) - 1;
         let queued_bytes =
             self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
 
         counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL).increment(1);
         counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL).increment(approx_bytes);
         counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL).increment(command.wait_micros());
-        gauge!(STORAGE_WRITE_QUEUE_COMMANDS).set(queued_commands as f64);
         gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
     }
 }
@@ -468,8 +456,6 @@ impl SegmentWriter {
             .with_context(|| format!("failed to open active segment: {active_path:?}"))?;
         active_file.seek(SeekFrom::Start(active_segment.file_len))?;
 
-        gauge!(STORAGE_WRITE_CHUNKS_IN_FLIGHT).set(0.0);
-
         Ok(Self {
             config,
             metadata,
@@ -549,10 +535,6 @@ impl SegmentWriter {
                 }
             }
         }
-        if !commit.deleted_segments.is_empty() {
-            counter!(STORAGE_SEGMENTS_DELETED_TOTAL)
-                .increment(commit.deleted_segments.len() as u64);
-        }
         counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
             .increment(duration_as_micros(trim_started_at.elapsed()));
         Ok(())
@@ -573,7 +555,6 @@ impl SegmentWriter {
             .map_err(|error| anyhow!("failed to send chunk to serialize worker: {error}"))?;
 
         self.inflight_chunks += 1;
-        gauge!(STORAGE_WRITE_CHUNKS_IN_FLIGHT).set(self.inflight_chunks as f64);
         Ok(())
     }
 
@@ -617,7 +598,6 @@ impl SegmentWriter {
             "compression result without inflight chunk"
         );
         self.inflight_chunks -= 1;
-        gauge!(STORAGE_WRITE_CHUNKS_IN_FLIGHT).set(self.inflight_chunks as f64);
 
         let chunk = result?;
         let prev = self.ready_chunks.insert(chunk.chunk_id, chunk);
@@ -695,8 +675,6 @@ impl SegmentWriter {
             .increment(duration_as_micros(metadata_started_at.elapsed()));
 
         counter!(CHANNEL_STORAGE_WRITE_INDEX).absolute(chunk_meta.last_index);
-        gauge!(STORAGE_SEGMENT_ACTIVE_ID).set(self.active_segment.segment_id as f64);
-        gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES).set(commit.segment.file_len as f64);
         counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL).increment(1);
 
         self.active_segment = commit.segment;
@@ -783,13 +761,10 @@ impl SegmentWriter {
             catalog.apply_rotation_commit(commit);
         }
 
-        counter!(STORAGE_SEGMENT_ROTATIONS_TOTAL).increment(1);
         counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL)
             .increment(duration_as_micros(rotate_started_at.elapsed()));
         self.active_segment = new_segment;
         self.active_file = new_file;
-        gauge!(STORAGE_SEGMENT_ACTIVE_ID).set(self.active_segment.segment_id as f64);
-        gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES).set(self.active_segment.file_len as f64);
         Ok(())
     }
 }

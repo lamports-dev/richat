@@ -34,11 +34,7 @@ pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const CHANNEL_STORAGE_FIRST_SLOT: &str = "channel_storage_first_slot";
 pub const CHANNEL_STORAGE_LAST_SLOT: &str = "channel_storage_last_slot";
 pub const STORAGE_DISK_SIZE_BYTES: &str = "storage_disk_size_bytes";
-pub const STORAGE_SEGMENT_ACTIVE_ID: &str = "storage_segment_active_id";
-pub const STORAGE_SEGMENT_ACTIVE_SIZE_BYTES: &str = "storage_segment_active_size_bytes";
 pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
-pub const STORAGE_SEGMENT_ROTATIONS_TOTAL: &str = "storage_segment_rotations_total";
-pub const STORAGE_WRITE_QUEUE_COMMANDS: &str = "storage_write_queue_commands";
 pub const STORAGE_WRITE_QUEUE_BYTES: &str = "storage_write_queue_bytes";
 pub const STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL: &str = "storage_write_queue_enqueued_total";
 pub const STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL: &str = "storage_write_queue_dequeued_total";
@@ -47,7 +43,6 @@ pub const STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL: &str =
 pub const STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL: &str =
     "storage_write_queue_dequeued_bytes_total";
 pub const STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL: &str = "storage_write_queue_wait_micros_total";
-pub const STORAGE_WRITE_CHUNKS_IN_FLIGHT: &str = "storage_write_chunks_in_flight";
 pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_uncompressed_bytes_total";
 pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
@@ -59,11 +54,8 @@ pub const STORAGE_WRITE_FSYNC_MICROS_TOTAL: &str = "storage_write_fsync_micros_t
 pub const STORAGE_WRITE_METADATA_MICROS_TOTAL: &str = "storage_write_metadata_micros_total";
 pub const STORAGE_WRITE_TRIM_MICROS_TOTAL: &str = "storage_write_trim_micros_total";
 pub const STORAGE_WRITE_ROTATE_MICROS_TOTAL: &str = "storage_write_rotate_micros_total";
-pub const STORAGE_RECOVERY_RUNS_TOTAL: &str = "storage_recovery_runs_total";
-pub const STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL: &str = "storage_recovery_truncated_bytes_total";
 pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
 pub const STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL: &str = "storage_replay_decompressed_bytes_total";
-pub const STORAGE_SEGMENTS_DELETED_TOTAL: &str = "storage_segments_deleted_total";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -120,18 +112,13 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_gauge!(CHANNEL_STORAGE_FIRST_SLOT, "Oldest slot currently retained in the storage replay map; -1 when empty");
     describe_gauge!(CHANNEL_STORAGE_LAST_SLOT, "Newest slot currently retained in the storage replay map; -1 when empty");
     describe_gauge!(STORAGE_DISK_SIZE_BYTES, "Approximate replay storage bytes retained on disk");
-    describe_gauge!(STORAGE_SEGMENT_ACTIVE_ID, "Current writable segment id");
-    describe_gauge!(STORAGE_SEGMENT_ACTIVE_SIZE_BYTES, "Current writable segment size");
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
-    describe_counter!(STORAGE_SEGMENT_ROTATIONS_TOTAL, "Number of storage segment rotations");
-    describe_gauge!(STORAGE_WRITE_QUEUE_COMMANDS, "Current number of queued storage write commands");
     describe_gauge!(STORAGE_WRITE_QUEUE_BYTES, "Approximate bytes currently queued for the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, "Total number of commands enqueued for the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, "Total number of commands dequeued by the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL, "Approximate bytes enqueued for the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL, "Approximate bytes dequeued by the storage writer");
     describe_counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL, "Total queue residence time of storage write commands in microseconds");
-    describe_gauge!(STORAGE_WRITE_CHUNKS_IN_FLIGHT, "Current number of chunk jobs dispatched to storage workers but not yet appended");
     describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
     describe_counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL, "Total microseconds spent serializing storage chunks");
@@ -141,11 +128,6 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(STORAGE_WRITE_METADATA_MICROS_TOTAL, "Total microseconds spent committing storage metadata");
     describe_counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL, "Total microseconds spent trimming retained storage segments");
     describe_counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL, "Total microseconds spent rotating active storage segments");
-    describe_counter!(STORAGE_RECOVERY_RUNS_TOTAL, "Number of storage recovery scans");
-    describe_counter!(
-        STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL,
-        "Bytes truncated from active storage segment during recovery"
-    );
     describe_counter!(
         STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL,
         "Compressed bytes read from segmented replay storage"
@@ -154,7 +136,6 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
         STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
         "Decompressed bytes read from segmented replay storage"
     );
-    describe_counter!(STORAGE_SEGMENTS_DELETED_TOTAL, "Number of deleted sealed storage segments");
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(GRPC_BLOCK_META_QUEUE_SIZE, "Number of gRPC requests to block meta data");
     describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");

@@ -8,8 +8,6 @@ use {
         },
         segmented::SegmentedConfig,
     },
-    crate::metrics::{STORAGE_RECOVERY_RUNS_TOTAL, STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL},
-    ::metrics::counter,
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     richat_proto::geyser::SlotStatus,
@@ -26,7 +24,6 @@ pub(crate) fn recover_active_segment(
     catalog: &MetadataCatalog,
     parser: MessageParserEncoding,
 ) -> anyhow::Result<RecoveryCommit> {
-    counter!(STORAGE_RECOVERY_RUNS_TOTAL).increment(1);
     let active_segment = catalog
         .segments
         .get(&catalog.state.active_segment_id)
@@ -158,7 +155,6 @@ pub(crate) fn recover_active_segment(
         if config.segment_fsync {
             file.sync_data()?;
         }
-        counter!(STORAGE_RECOVERY_TRUNCATED_BYTES_TOTAL).increment(file_len - valid_end);
     }
 
     let segment = if let Some(last_chunk) = chunks.last().copied() {
