@@ -18,6 +18,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ## 2026-03-17
 
+- richat-v8.2.3
+
+### Fixes
+
+- richat: expose first available slot in metrics ([#202](https://github.com/lamports-dev/richat/pull/202))
+
+## 2026-03-17
+
 - richat-v8.2.2
 
 ### Fixes
