@@ -309,7 +309,7 @@ mod tests {
         richat_filter::message::{MessageParserEncoding, MessageSlot},
         richat_proto::geyser::SlotStatus,
         std::{
-            path::PathBuf,
+            path::{Path, PathBuf},
             sync::Arc,
             thread::sleep,
             time::{Duration, SystemTime, UNIX_EPOCH},
@@ -440,7 +440,7 @@ mod tests {
     }
 
     fn test_config(
-        root: &PathBuf,
+        root: &Path,
         segment_target_size: usize,
         chunk_target_size: usize,
     ) -> ConfigStorage {

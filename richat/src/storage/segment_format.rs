@@ -4,8 +4,10 @@ use {
     anyhow::Context,
     prost::encoding::decode_varint,
     solana_clock::Slot,
-    std::fs::File,
-    std::io::{Read, Seek, SeekFrom, Write},
+    std::{
+        fs::File,
+        io::{Read, Seek, SeekFrom, Write},
+    },
 };
 
 pub(crate) const SEGMENT_MAGIC: [u8; 4] = *b"RSEG";

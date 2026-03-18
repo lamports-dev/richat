@@ -217,7 +217,7 @@ impl PendingChunk {
         self.records.push(PendingRecord { slot, message });
     }
 
-    fn should_flush(&self, target_size: usize) -> bool {
+    const fn should_flush(&self, target_size: usize) -> bool {
         self.estimated_uncompressed_size >= target_size
     }
 
