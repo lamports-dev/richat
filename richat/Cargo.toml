@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "8.2.3"
+version = "8.3.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -16,6 +16,7 @@ agave-reserved-account-keys = { workspace = true }
 anyhow = { workspace = true }
 arrayvec = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+crc32fast = { workspace = true }
 crossbeam-queue = { workspace = true }
 fastwebsockets = { workspace = true, features = ["upgrade", "unstable-split"] }
 foldhash = { workspace = true }
@@ -67,6 +68,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
+zstd = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

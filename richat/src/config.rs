@@ -13,7 +13,6 @@ use {
         },
         tracing::ConfigTracing,
     },
-    rocksdb::DBCompressionType,
     serde::{
         Deserialize,
         de::{self, Deserializer},
@@ -234,40 +233,120 @@ impl Default for ConfigChannelInner {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigStorage {
+    /// Root directory for replay storage.
     pub path: PathBuf,
+    /// Optional override for the metadata RocksDB path.
+    #[serde(default)]
+    pub metadata_path: Option<PathBuf>,
+    /// Optional override for the append-only payload segment directory.
+    #[serde(default)]
+    pub segments_path: Option<PathBuf>,
     #[serde(
         default = "ConfigStorage::default_max_slots",
         deserialize_with = "deserialize_num_str"
     )]
+    /// Retention target in slots; trim remains whole-segment approximate.
     pub max_slots: usize,
+    #[serde(
+        default = "ConfigStorage::default_serialize_workers",
+        deserialize_with = "deserialize_num_str"
+    )]
+    /// Number of chunk serialization / compression workers.
+    pub serialize_workers: usize,
+    /// CPU affinity for serialization before chunk compression.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
+    /// CPU affinity for the segment writer thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub write_affinity: Option<Vec<usize>>,
-    #[serde(default)]
-    pub messages_compression: ConfigStorageRocksdbCompression,
+    #[serde(
+        default = "ConfigStorage::default_segment_target_size",
+        deserialize_with = "deserialize_humansize_usize"
+    )]
+    /// Rotate to a new segment file when the active one reaches this size.
+    pub segment_target_size: usize,
+    #[serde(
+        default = "ConfigStorage::default_chunk_target_size",
+        deserialize_with = "deserialize_humansize_usize"
+    )]
+    /// Target uncompressed size for each independently compressed chunk.
+    pub chunk_target_size: usize,
+    #[serde(
+        default = "ConfigStorage::default_chunk_flush_delay",
+        with = "humantime_serde"
+    )]
+    /// Max time to keep a partial chunk buffered before flushing.
+    pub chunk_flush_delay: Duration,
+    /// Whether payload segment writes are fsynced after each flushed chunk.
+    #[serde(default = "ConfigStorage::default_segment_fsync")]
+    pub segment_fsync: bool,
+    /// Whether metadata RocksDB batches are synced to disk.
+    #[serde(default = "ConfigStorage::default_metadata_fsync")]
+    pub metadata_fsync: bool,
+    /// zstd compression level used for payload chunks.
+    #[serde(default = "ConfigStorage::default_segment_zstd_level")]
+    pub segment_zstd_level: i32,
+    /// Whether startup rebuilds metadata from the active segment tail.
+    #[serde(default = "ConfigStorage::default_recovery_rebuild_active")]
+    pub recovery_rebuild_active: bool,
     #[serde(
         default = "ConfigStorage::default_replay_channel_capacity",
         deserialize_with = "deserialize_num_str"
     )]
+    /// Maximum number of in-flight replay-from-disk requests.
     pub replay_inflight_max: usize,
     #[serde(
         default = "ConfigStorage::default_replay_threads",
         deserialize_with = "deserialize_num_str"
     )]
+    /// Worker threads serving replay reads from segmented storage.
     pub replay_threads: usize,
+    /// CPU affinity for replay worker threads.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub replay_affinity: Option<Vec<usize>>,
     #[serde(
         default = "ConfigStorage::default_replay_decode_per_tick",
         deserialize_with = "deserialize_num_str"
     )]
+    /// Maximum decoded records each replay worker loads per cycle.
     pub replay_decode_per_tick: usize,
 }
 
 impl ConfigStorage {
     const fn default_max_slots() -> usize {
         1024
+    }
+
+    const fn default_serialize_workers() -> usize {
+        4
+    }
+
+    const fn default_segment_target_size() -> usize {
+        4 * 1024 * 1024 * 1024
+    }
+
+    const fn default_chunk_target_size() -> usize {
+        4 * 1024 * 1024
+    }
+
+    const fn default_chunk_flush_delay() -> Duration {
+        Duration::from_millis(50)
+    }
+
+    const fn default_segment_fsync() -> bool {
+        true
+    }
+
+    const fn default_metadata_fsync() -> bool {
+        true
+    }
+
+    const fn default_segment_zstd_level() -> i32 {
+        3
+    }
+
+    const fn default_recovery_rebuild_active() -> bool {
+        true
     }
 
     const fn default_replay_channel_capacity() -> usize {
@@ -280,33 +359,6 @@ impl ConfigStorage {
 
     const fn default_replay_decode_per_tick() -> usize {
         256
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "lowercase")]
-pub enum ConfigStorageRocksdbCompression {
-    #[default]
-    None,
-    Snappy,
-    Zlib,
-    Bz2,
-    Lz4,
-    Lz4hc,
-    Zstd,
-}
-
-impl From<ConfigStorageRocksdbCompression> for DBCompressionType {
-    fn from(value: ConfigStorageRocksdbCompression) -> Self {
-        match value {
-            ConfigStorageRocksdbCompression::None => Self::None,
-            ConfigStorageRocksdbCompression::Snappy => Self::Snappy,
-            ConfigStorageRocksdbCompression::Zlib => Self::Zlib,
-            ConfigStorageRocksdbCompression::Bz2 => Self::Bz2,
-            ConfigStorageRocksdbCompression::Lz4 => Self::Lz4,
-            ConfigStorageRocksdbCompression::Lz4hc => Self::Lz4hc,
-            ConfigStorageRocksdbCompression::Zstd => Self::Zstd,
-        }
     }
 }
 

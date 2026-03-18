@@ -230,18 +230,6 @@ pub enum IndexLocation {
     Memory(u64),
 }
 
-fn first_available_slot(
-    replay: Option<&BTreeMap<Slot, ReplayInfo>>,
-    shared: &SharedChannel,
-) -> Option<Slot> {
-    let slot_replay = replay.and_then(|r| r.first_key_value().map(|(&slot, _)| slot));
-    let slot_processed = shared.slots_lock().first_key_value().map(|(&slot, _)| slot);
-    match (slot_replay, slot_processed) {
-        (Some(r), Some(p)) => Some(r.min(p)),
-        _ => slot_replay.or(slot_processed),
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Messages {
     shared_processed: Arc<SharedChannel>,
@@ -279,6 +267,10 @@ impl Messages {
         };
 
         let max_messages = config.max_messages.next_power_of_two();
+        set_optional_slot_gauge(metrics::CHANNEL_MEMORY_FIRST_SLOT, None);
+        set_optional_slot_gauge(metrics::CHANNEL_MEMORY_LAST_SLOT, None);
+        set_optional_slot_gauge(metrics::CHANNEL_STORAGE_FIRST_SLOT, None);
+        set_optional_slot_gauge(metrics::CHANNEL_STORAGE_LAST_SLOT, None);
         let messages = Self {
             shared_processed: Arc::new(SharedChannel::new(max_messages, richat)),
             shared_confirmed: (grpc || pubsub)
@@ -311,6 +303,7 @@ impl Messages {
                 replay.insert(*slot, ReplayInfo::new(item.head));
             }
             gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay.len() as f64);
+            update_storage_slot_metrics(&replay);
 
             if let Some(finalized_slot) = slots
                 .iter()
@@ -433,8 +426,22 @@ impl Messages {
     }
 
     pub fn get_first_available_slot(&self) -> Option<Slot> {
-        let replay_guard = self.replay_info.as_deref().map(mutex_lock);
-        first_available_slot(replay_guard.as_deref(), &self.shared_processed)
+        let slot_replay = self
+            .replay_info
+            .as_deref()
+            .map(mutex_lock)
+            .and_then(|replay| replay.first_key_value().map(|(slot, _info)| *slot));
+
+        let slot_processed = self
+            .shared_processed
+            .slots_lock()
+            .first_key_value()
+            .map(|(slot, _head)| *slot);
+
+        match (slot_replay, slot_processed) {
+            (Some(slot_replay), Some(slot_processed)) => Some(slot_replay.min(slot_processed)),
+            _ => slot_replay.or(slot_processed),
+        }
     }
 
     pub fn replay_from_storage(
@@ -753,11 +760,9 @@ impl Sender {
         }
         if replay_inserted || clean_after_finalized {
             gauge!(metrics::CHANNEL_STORAGE_SLOTS_TOTAL).set(replay_lock.len() as f64);
-
-            if let Some(slot) = first_available_slot(Some(&replay_lock), &self.processed.shared) {
-                gauge!(metrics::CHANNEL_FIRST_AVAILABLE_SLOT).set(slot as f64);
-            }
+            update_storage_slot_metrics(&replay_lock);
         }
+        update_memory_slot_metrics(&self.processed.shared.slots_lock());
 
         if let Some(mut wakers) = self.processed.shared.wakers_lock() {
             for waker in wakers.drain(..) {
@@ -1056,6 +1061,36 @@ impl SharedChannel {
     }
 }
 
+fn update_memory_slot_metrics(slots: &BTreeMap<Slot, SlotHead>) {
+    set_optional_slot_gauge(
+        metrics::CHANNEL_MEMORY_FIRST_SLOT,
+        slots.first_key_value().map(|(slot, _head)| *slot),
+    );
+    set_optional_slot_gauge(
+        metrics::CHANNEL_MEMORY_LAST_SLOT,
+        slots.last_key_value().map(|(slot, _head)| *slot),
+    );
+}
+
+fn update_storage_slot_metrics(slots: &BTreeMap<Slot, ReplayInfo>) {
+    set_optional_slot_gauge(
+        metrics::CHANNEL_STORAGE_FIRST_SLOT,
+        slots.first_key_value().map(|(slot, _info)| *slot),
+    );
+    set_optional_slot_gauge(
+        metrics::CHANNEL_STORAGE_LAST_SLOT,
+        slots.last_key_value().map(|(slot, _info)| *slot),
+    );
+}
+
+fn set_optional_slot_gauge(metric: &'static str, slot: Option<Slot>) {
+    gauge!(metric).set(optional_slot_gauge_value(slot));
+}
+
+fn optional_slot_gauge_value(slot: Option<Slot>) -> f64 {
+    slot.map(|slot| slot as f64).unwrap_or(-1.0)
+}
+
 #[derive(Debug)]
 struct Item {
     replay_index: u64,
@@ -1263,6 +1298,22 @@ impl ReplayInfo {
             head,
             messages: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::{optional_slot_gauge_value, update_storage_slot_metrics},
+        std::collections::BTreeMap,
+    };
+
+    #[test]
+    fn storage_slot_metrics_report_empty_as_negative_one() {
+        update_storage_slot_metrics(&BTreeMap::new());
+
+        assert_eq!(optional_slot_gauge_value(None), -1.0);
+        assert_eq!(optional_slot_gauge_value(Some(42)), 42.0);
     }
 }
 

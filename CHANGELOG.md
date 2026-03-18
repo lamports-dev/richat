@@ -16,13 +16,32 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2026-03-17
-
-- richat-v8.2.3
+## 2026-03-18
 
 ### Fixes
 
-- richat: expose first available slot in metrics ([#202](https://github.com/lamports-dev/richat/pull/202))
+- richat: initialize and share storage replay state before spawning source /
+  gRPC / PubSub / Richat server clones, so `subscribe-replay-info` and
+  `from_slot` replay use the storage horizon instead of falling back to the
+  memory channel only
+
+### Features
+
+- richat: replace the old replay payload RocksDB layout with segmented
+  append-only storage using chunked `zstd`-compressed segment files for payloads
+  and RocksDB only for replay metadata (`slots`, `segments`, `chunks`, `state`)
+- richat: add active-segment recovery, chunk-based replay reads, and a parallel
+  storage write pipeline with ordered append / metadata commit
+- richat: add storage observability for replay horizons, storage writer queue
+  pressure, pipeline timings, segment lifecycle, recovery, and replay read
+  throughput, and update the Grafana dashboard for the new metrics
+
+### Breaking
+
+- richat: replay storage on disk is now a new segmented layout; existing replay
+  payload data from the old layout is not reused and operators should start on
+  a fresh replay path
+- richat: storage config is also changed
 
 ## 2026-03-17
 

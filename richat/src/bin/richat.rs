@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
     let dedup_required = sources_sighup_reload || streams_total > 1;
     let reload_notify = Arc::new(Notify::new());
 
-    let (messages, mut threads) = Messages::new(
+    let (mut messages, mut threads) = Messages::new(
         sources_parser,
         config.channel.config,
         config.apps.richat.is_some(),
@@ -98,15 +98,15 @@ fn main() -> anyhow::Result<()> {
         config.apps.pubsub.is_some(),
         shutdown.clone(),
     )?;
+    let (sender, replay_from_slot) = messages.to_sender(streams_total)?;
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
             let shutdown = shutdown.clone();
-            let mut messages = messages.clone();
             let is_ready = Arc::clone(&is_ready);
             let reload_notify = Arc::clone(&reload_notify);
+            let mut sender = sender;
             move || {
-                let (mut sender, replay_from_slot) = messages.to_sender(config.channel.sources.len())?;
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
                     let mut stream = Subscriptions::new(
