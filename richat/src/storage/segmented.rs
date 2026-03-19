@@ -4,11 +4,12 @@ use {
         metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
         recovery::recover_active_segment,
         segment_format::{
-            SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name, write_segment_header,
+            ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
+            write_segment_header,
         },
         segment_reader::SegmentReader,
         segment_writer::{
-            StorageWriteQueueMetrics, WriterCommand, spawn_serialize_workers, spawn_writer,
+            StorageWriteQueueMetrics, WriterCommand, spawn_serialize_worker, spawn_writer,
         },
     },
     crate::{
@@ -25,7 +26,7 @@ use {
         path::{Path, PathBuf},
         sync::{Arc, RwLock},
         thread,
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        time::{SystemTime, UNIX_EPOCH},
     },
 };
 
@@ -35,40 +36,24 @@ use {
 pub(crate) struct SegmentedConfig {
     pub(crate) metadata_path: PathBuf,
     pub(crate) segments_path: PathBuf,
-    pub(crate) serialize_workers: usize,
     pub(crate) serialize_affinity: Option<Vec<usize>>,
     pub(crate) write_affinity: Option<Vec<usize>>,
     pub(crate) segment_target_size: usize,
     pub(crate) chunk_target_size: usize,
-    pub(crate) chunk_flush_delay: Duration,
-    pub(crate) segment_fsync: bool,
-    pub(crate) metadata_fsync: bool,
-    pub(crate) segment_zstd_level: i32,
+    pub(crate) chunk_compression: Option<ChunkCompression>,
     pub(crate) recovery_rebuild_active: bool,
 }
 
 impl SegmentedConfig {
     pub(crate) fn from_config(config: &ConfigStorage) -> Self {
-        let metadata_path = config
-            .metadata_path
-            .clone()
-            .unwrap_or_else(|| config.path.join("meta").join("rocksdb"));
-        let segments_path = config
-            .segments_path
-            .clone()
-            .unwrap_or_else(|| config.path.join("segments"));
         Self {
-            metadata_path,
-            segments_path,
-            serialize_workers: config.serialize_workers.max(1),
+            metadata_path: config.path.join("metadata"),
+            segments_path: config.path.join("segments"),
             serialize_affinity: config.serialize_affinity.clone(),
             write_affinity: config.write_affinity.clone(),
             segment_target_size: config.segment_target_size,
             chunk_target_size: config.chunk_target_size,
-            chunk_flush_delay: config.chunk_flush_delay,
-            segment_fsync: config.segment_fsync,
-            metadata_fsync: config.metadata_fsync,
-            segment_zstd_level: config.segment_zstd_level,
+            chunk_compression: config.chunk_compression,
             recovery_rebuild_active: config.recovery_rebuild_active,
         }
     }
@@ -96,7 +81,7 @@ impl SegmentedStorage {
             format!("failed to create segments path: {:?}", config.segments_path)
         })?;
 
-        let metadata = MetadataDb::open(&config.metadata_path, config.metadata_fsync)?;
+        let metadata = MetadataDb::open(&config.metadata_path)?;
         let mut catalog = metadata.load_catalog()?;
 
         if catalog.state.active_segment_id == 0 {
@@ -125,7 +110,8 @@ impl SegmentedStorage {
         queue_metrics.publish_current();
         let (write_tx, write_rx) = kanal::unbounded();
         let (compression_tx, compression_rx) = kanal::unbounded();
-        let (compression_txs, mut threads) = spawn_serialize_workers(&config, compression_tx)?;
+        let (serialize_thread, compression_tx) = spawn_serialize_worker(&config, compression_tx)?;
+        let mut threads = vec![serialize_thread];
         let writer_config = config.clone();
         let writer_catalog = Arc::clone(&catalog);
         let writer_metadata = metadata.clone();
@@ -143,7 +129,7 @@ impl SegmentedStorage {
                     writer_metadata,
                     writer_catalog,
                     writer_queue_metrics,
-                    compression_txs,
+                    compression_tx,
                     compression_rx,
                     write_rx,
                 )
@@ -261,9 +247,7 @@ fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow
             created_unix_ms: segment.created_unix_ms,
         },
     )?;
-    if config.segment_fsync {
-        file.sync_data()?;
-    }
+    file.sync_data()?;
     Ok(())
 }
 
@@ -303,7 +287,7 @@ fn current_unix_ms() -> anyhow::Result<u64> {
 #[cfg(test)]
 mod tests {
     use {
-        super::{SegmentedStorage, dir_size_bytes, segment_file_name},
+        super::{ChunkCompression, SegmentedStorage, dir_size_bytes, segment_file_name},
         crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
         prost_types::Timestamp,
         richat_filter::message::{MessageParserEncoding, MessageSlot},
@@ -344,10 +328,7 @@ mod tests {
         assert_eq!(items[1].as_ref().unwrap().0, 1);
         assert_eq!(items[2].as_ref().unwrap().0, 2);
 
-        let segments_path = config
-            .segments_path
-            .clone()
-            .unwrap_or_else(|| root.join("segments"));
+        let segments_path = config.path.join("segments");
         let first_segment = segments_path.join(segment_file_name(1));
         assert!(first_segment.exists());
 
@@ -393,10 +374,7 @@ mod tests {
         drop(storage);
         join_threads(threads);
 
-        let segments_path = config
-            .segments_path
-            .clone()
-            .unwrap_or_else(|| root.join("segments"));
+        let segments_path = config.path.join("segments");
         let segment_path = segments_path.join(segment_file_name(active_segment_id));
         {
             let mut file = std::fs::OpenOptions::new()
@@ -446,18 +424,12 @@ mod tests {
     ) -> ConfigStorage {
         ConfigStorage {
             path: root.join("storage"),
-            metadata_path: Some(root.join("meta").join("rocksdb")),
-            segments_path: Some(root.join("segments")),
             max_slots: 1024,
-            serialize_workers: 2,
             serialize_affinity: None,
             write_affinity: None,
             segment_target_size,
             chunk_target_size,
-            chunk_flush_delay: Duration::from_millis(10),
-            segment_fsync: true,
-            metadata_fsync: true,
-            segment_zstd_level: 1,
+            chunk_compression: Some(ChunkCompression::Zstd(1)),
             recovery_rebuild_active: true,
             replay_inflight_max: 1,
             replay_threads: 1,

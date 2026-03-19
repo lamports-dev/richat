@@ -222,11 +222,10 @@ pub(crate) struct RotationCommit {
 #[derive(Debug, Clone)]
 pub(crate) struct MetadataDb {
     db: Arc<DB>,
-    fsync: bool,
 }
 
 impl MetadataDb {
-    pub(crate) fn open(path: &Path, fsync: bool) -> anyhow::Result<Self> {
+    pub(crate) fn open(path: &Path) -> anyhow::Result<Self> {
         std::fs::create_dir_all(path)
             .with_context(|| format!("failed to create metadata path: {path:?}"))?;
 
@@ -236,7 +235,7 @@ impl MetadataDb {
             DB::open_cf_descriptors(&db_options, path, cf_descriptors)
                 .with_context(|| format!("failed to open metadata rocksdb at {path:?}"))?,
         );
-        let db = Self { db, fsync };
+        let db = Self { db };
         db.ensure_state()?;
         Ok(db)
     }
@@ -451,7 +450,7 @@ impl MetadataDb {
 
     fn write_batch(&self, batch: WriteBatch) -> anyhow::Result<()> {
         let mut write_options = WriteOptions::default();
-        write_options.set_sync(self.fsync);
+        write_options.set_sync(true);
         self.db.write_opt(batch, &write_options)?;
         Ok(())
     }

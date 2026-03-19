@@ -1,7 +1,7 @@
 use {
     crate::{
         grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub,
-        richat::config::ConfigAppsRichat,
+        richat::config::ConfigAppsRichat, storage::ChunkCompression,
     },
     futures::future::{TryFutureExt, ready, try_join_all},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
@@ -234,81 +234,60 @@ impl Default for ConfigChannelInner {
 #[serde(deny_unknown_fields)]
 pub struct ConfigStorage {
     /// Root directory for replay storage.
+    /// Metadata RocksDB is stored at `<path>/metadata` and segment files at
+    /// `<path>/segments`.
     pub path: PathBuf,
-    /// Optional override for the metadata RocksDB path.
-    #[serde(default)]
-    pub metadata_path: Option<PathBuf>,
-    /// Optional override for the append-only payload segment directory.
-    #[serde(default)]
-    pub segments_path: Option<PathBuf>,
+    /// Retention target in slots; trim remains whole-segment approximate.
     #[serde(
         default = "ConfigStorage::default_max_slots",
         deserialize_with = "deserialize_num_str"
     )]
-    /// Retention target in slots; trim remains whole-segment approximate.
     pub max_slots: usize,
-    #[serde(
-        default = "ConfigStorage::default_serialize_workers",
-        deserialize_with = "deserialize_num_str"
-    )]
-    /// Number of chunk serialization / compression workers.
-    pub serialize_workers: usize,
-    /// CPU affinity for serialization before chunk compression.
+    /// CPU affinity for the chunk serialization / compression thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
     /// CPU affinity for the segment writer thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub write_affinity: Option<Vec<usize>>,
+    /// Rotate to a new segment file when the active one reaches this size.
     #[serde(
         default = "ConfigStorage::default_segment_target_size",
         deserialize_with = "deserialize_humansize_usize"
     )]
-    /// Rotate to a new segment file when the active one reaches this size.
     pub segment_target_size: usize,
+    /// Target uncompressed size for each independently compressed chunk.
     #[serde(
         default = "ConfigStorage::default_chunk_target_size",
         deserialize_with = "deserialize_humansize_usize"
     )]
-    /// Target uncompressed size for each independently compressed chunk.
     pub chunk_target_size: usize,
-    #[serde(
-        default = "ConfigStorage::default_chunk_flush_delay",
-        with = "humantime_serde"
-    )]
-    /// Max time to keep a partial chunk buffered before flushing.
-    pub chunk_flush_delay: Duration,
-    /// Whether payload segment writes are fsynced after each flushed chunk.
-    #[serde(default = "ConfigStorage::default_segment_fsync")]
-    pub segment_fsync: bool,
-    /// Whether metadata RocksDB batches are synced to disk.
-    #[serde(default = "ConfigStorage::default_metadata_fsync")]
-    pub metadata_fsync: bool,
-    /// zstd compression level used for payload chunks.
-    #[serde(default = "ConfigStorage::default_segment_zstd_level")]
-    pub segment_zstd_level: i32,
+    /// Optional compression for chunk payloads (e.g. "zstd-3").
+    /// Omit or set to null to disable compression.
+    #[serde(default, deserialize_with = "deserialize_chunk_compression")]
+    pub chunk_compression: Option<ChunkCompression>,
     /// Whether startup rebuilds metadata from the active segment tail.
     #[serde(default = "ConfigStorage::default_recovery_rebuild_active")]
     pub recovery_rebuild_active: bool,
+    /// Maximum number of in-flight replay-from-disk requests.
     #[serde(
         default = "ConfigStorage::default_replay_channel_capacity",
         deserialize_with = "deserialize_num_str"
     )]
-    /// Maximum number of in-flight replay-from-disk requests.
     pub replay_inflight_max: usize,
+    /// Worker threads serving replay reads from segmented storage.
     #[serde(
         default = "ConfigStorage::default_replay_threads",
         deserialize_with = "deserialize_num_str"
     )]
-    /// Worker threads serving replay reads from segmented storage.
     pub replay_threads: usize,
     /// CPU affinity for replay worker threads.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub replay_affinity: Option<Vec<usize>>,
+    /// Maximum decoded records each replay worker loads per cycle.
     #[serde(
         default = "ConfigStorage::default_replay_decode_per_tick",
         deserialize_with = "deserialize_num_str"
     )]
-    /// Maximum decoded records each replay worker loads per cycle.
     pub replay_decode_per_tick: usize,
 }
 
@@ -317,32 +296,12 @@ impl ConfigStorage {
         1024
     }
 
-    const fn default_serialize_workers() -> usize {
-        4
-    }
-
     const fn default_segment_target_size() -> usize {
         4 * 1024 * 1024 * 1024
     }
 
     const fn default_chunk_target_size() -> usize {
         4 * 1024 * 1024
-    }
-
-    const fn default_chunk_flush_delay() -> Duration {
-        Duration::from_millis(50)
-    }
-
-    const fn default_segment_fsync() -> bool {
-        true
-    }
-
-    const fn default_metadata_fsync() -> bool {
-        true
-    }
-
-    const fn default_segment_zstd_level() -> i32 {
-        3
     }
 
     const fn default_recovery_rebuild_active() -> bool {
@@ -449,5 +408,32 @@ impl ConfigAppsWorkers {
         });
 
         Ok(jh.map_err(anyhow::Error::new).and_then(ready))
+    }
+}
+
+fn deserialize_chunk_compression<'de, D>(
+    deserializer: D,
+) -> Result<Option<ChunkCompression>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(s) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let Some((algo, level)) = s.rsplit_once('-') else {
+        return Err(de::Error::custom(format!(
+            "invalid chunk_compression format: expected \"<algo>-<level>\" (e.g. \"zstd-3\"), got \"{s}\""
+        )));
+    };
+    match algo {
+        "zstd" => {
+            let level: i32 = level.parse().map_err(|_| {
+                de::Error::custom(format!("invalid zstd compression level: \"{level}\""))
+            })?;
+            Ok(Some(ChunkCompression::Zstd(level)))
+        }
+        other => Err(de::Error::custom(format!(
+            "unsupported compression algorithm: \"{other}\""
+        ))),
     }
 }

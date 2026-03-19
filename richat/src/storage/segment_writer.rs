@@ -5,8 +5,8 @@ use {
             RotationCommit, SegmentMeta, SlotMeta,
         },
         segment_format::{
-            CHUNK_HEADER_LEN, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader, append_record,
-            chunk_crc32, segment_file_name, write_segment_header,
+            CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
+            append_record, chunk_crc32, segment_file_name, write_segment_header,
         },
         segmented::SegmentedConfig,
     },
@@ -24,15 +24,14 @@ use {
             STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
             STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
-        util::SpawnedThreads,
     },
     ::metrics::{counter, gauge},
     anyhow::{Context, anyhow},
-    kanal::{ReceiveError, ReceiveErrorTimeout},
+    kanal::ReceiveError,
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
     std::{
-        collections::{BTreeMap, HashSet},
+        collections::HashSet,
         fs::{File, OpenOptions},
         io::{Seek, SeekFrom, Write},
         sync::{
@@ -167,7 +166,6 @@ struct PendingRecord {
 
 #[derive(Debug)]
 struct PendingChunk {
-    started_at: Instant,
     estimated_uncompressed_size: usize,
     first_index: u64,
     last_index: u64,
@@ -181,7 +179,6 @@ struct PendingChunk {
 impl PendingChunk {
     fn new(slot: Slot, index: u64) -> Self {
         Self {
-            started_at: Instant::now(),
             estimated_uncompressed_size: 0,
             first_index: index,
             last_index: index,
@@ -221,13 +218,8 @@ impl PendingChunk {
         self.estimated_uncompressed_size >= target_size
     }
 
-    fn is_flush_due(&self, delay: Duration) -> bool {
-        self.started_at.elapsed() >= delay
-    }
-
-    fn into_job(self, chunk_id: u64) -> CompressionJob {
+    fn into_job(self) -> CompressionJob {
         CompressionJob {
-            chunk_id,
             first_index: self.first_index,
             last_index: self.last_index,
             first_slot: self.first_slot,
@@ -242,7 +234,6 @@ impl PendingChunk {
 
 #[derive(Debug)]
 pub(crate) struct CompressionJob {
-    chunk_id: u64,
     first_index: u64,
     last_index: u64,
     first_slot: Slot,
@@ -255,14 +246,14 @@ pub(crate) struct CompressionJob {
 
 #[derive(Debug)]
 pub(crate) struct CompressedChunk {
-    chunk_id: u64,
+    compression: u8,
     first_index: u64,
     last_index: u64,
     first_slot: Slot,
     last_slot: Slot,
     record_count: u32,
     uncompressed_size: u32,
-    compressed: Vec<u8>,
+    payload: Vec<u8>,
     crc32: u32,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
@@ -271,8 +262,7 @@ pub(crate) struct CompressedChunk {
 /// Long-lived state for the ordered storage append path.
 ///
 /// It batches records into chunks, sends chunk serialization / compression to a
-/// worker pool, and appends completed chunks to the active segment strictly in
-/// chunk-id order.
+/// single worker thread, and appends completed chunks to the active segment.
 pub(crate) struct SegmentWriter {
     config: SegmentedConfig,
     metadata: MetadataDb,
@@ -280,52 +270,43 @@ pub(crate) struct SegmentWriter {
     active_segment: SegmentMeta,
     active_file: File,
     pending_chunk: Option<PendingChunk>,
-    compression_txs: Vec<kanal::Sender<CompressionJob>>,
+    compression_tx: kanal::Sender<CompressionJob>,
     compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
-    ready_chunks: BTreeMap<u64, CompressedChunk>,
-    next_worker: usize,
-    next_chunk_id: u64,
-    next_append_chunk_id: u64,
     inflight_chunks: usize,
 }
 
-pub(crate) fn spawn_serialize_workers(
+pub(crate) fn spawn_serialize_worker(
     config: &SegmentedConfig,
     results_tx: kanal::Sender<anyhow::Result<CompressedChunk>>,
-) -> anyhow::Result<(Vec<kanal::Sender<CompressionJob>>, SpawnedThreads)> {
-    let workers = config.serialize_workers.max(1);
-    let mut job_txs = Vec::with_capacity(workers);
-    let mut threads = Vec::with_capacity(workers);
-
-    for index in 0..workers {
-        let (job_tx, job_rx) = kanal::unbounded();
-        let results_tx = results_tx.clone();
-        let cpus = thread_affinity_for_worker(&config.serialize_affinity, workers, index);
-        let th_name = format!("richatStrgSer{index:02}");
-        let segment_zstd_level = config.segment_zstd_level;
-        let jh = thread::Builder::new()
-            .name(th_name.clone())
-            .spawn(move || {
-                if let Some(cpus) = cpus {
-                    affinity_linux::set_thread_affinity(cpus.into_iter())
-                        .expect("failed to set affinity");
-                }
-                run_serialize_worker(segment_zstd_level, job_rx, results_tx)
-            })?;
-        job_txs.push(job_tx);
-        threads.push((th_name, Some(jh)));
-    }
-
-    Ok((job_txs, threads))
+) -> anyhow::Result<(crate::util::SpawnedThread, kanal::Sender<CompressionJob>)> {
+    let (job_tx, job_rx) = kanal::unbounded();
+    let th_name = "richatStrgSer".to_owned();
+    let chunk_compression = config.chunk_compression;
+    let affinity = config.serialize_affinity.clone();
+    let jh = thread::Builder::new()
+        .name(th_name.clone())
+        .spawn(move || {
+            if let Some(cpus) = affinity {
+                affinity_linux::set_thread_affinity(cpus.into_iter())
+                    .expect("failed to set affinity");
+            }
+            run_serialize_worker(chunk_compression, job_rx, results_tx)
+        })?;
+    Ok(((th_name, Some(jh)), job_tx))
 }
 
 fn run_serialize_worker(
-    segment_zstd_level: i32,
+    chunk_compression: Option<ChunkCompression>,
     rx: kanal::Receiver<CompressionJob>,
     tx: kanal::Sender<anyhow::Result<CompressedChunk>>,
 ) -> anyhow::Result<()> {
-    let mut compressor =
-        Compressor::new(segment_zstd_level).context("failed to create zstd compressor")?;
+    let mut compressor = match chunk_compression {
+        Some(ChunkCompression::Zstd(level)) => {
+            Some(Compressor::new(level).context("failed to create zstd compressor")?)
+        }
+        _ => None,
+    };
+    let compression_tag = chunk_compression.unwrap_or(ChunkCompression::None).tag();
     let mut record_buf = Vec::with_capacity(256 * 1024);
     let mut chunk_buf = Vec::with_capacity(4 * 1024 * 1024);
 
@@ -350,29 +331,37 @@ fn run_serialize_worker(
         counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL)
             .increment(duration_as_micros(serialize_started_at.elapsed()));
 
-        let compress_started_at = Instant::now();
-        let compressed = match compressor.compress(&chunk_buf) {
-            Ok(compressed) => compressed,
-            Err(error) => {
-                let _ = tx.send(Err(error).context("failed to compress chunk"));
-                break;
-            }
+        let crc32 = chunk_crc32(&chunk_buf);
+        let uncompressed_size = chunk_buf.len() as u32;
+
+        let payload = if let Some(compressor) = compressor.as_mut() {
+            let compress_started_at = Instant::now();
+            let compressed = match compressor.compress(&chunk_buf) {
+                Ok(compressed) => compressed,
+                Err(error) => {
+                    let _ = tx.send(Err(error).context("failed to compress chunk"));
+                    break;
+                }
+            };
+            counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL)
+                .increment(duration_as_micros(compress_started_at.elapsed()));
+            compressed
+        } else {
+            chunk_buf.clone()
         };
-        counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL)
-            .increment(duration_as_micros(compress_started_at.elapsed()));
-        counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL).increment(chunk_buf.len() as u64);
-        counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL).increment(compressed.len() as u64);
+        counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL).increment(uncompressed_size as u64);
+        counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
 
         let result = CompressedChunk {
-            chunk_id: job.chunk_id,
+            compression: compression_tag,
             first_index: job.first_index,
             last_index: job.last_index,
             first_slot: job.first_slot,
             last_slot: job.last_slot,
             record_count: job.records.len() as u32,
-            uncompressed_size: chunk_buf.len() as u32,
-            crc32: chunk_crc32(&chunk_buf),
-            compressed,
+            uncompressed_size,
+            crc32,
+            payload,
             pending_slots: job.pending_slots,
             pending_finalized: job.pending_finalized,
         };
@@ -390,40 +379,26 @@ pub(crate) fn spawn_writer(
     metadata: MetadataDb,
     catalog: Arc<RwLock<MetadataCatalog>>,
     queue_metrics: Arc<StorageWriteQueueMetrics>,
-    compression_txs: Vec<kanal::Sender<CompressionJob>>,
+    compression_tx: kanal::Sender<CompressionJob>,
     compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
     rx: kanal::Receiver<WriterCommand>,
 ) -> anyhow::Result<()> {
     let mut writer =
-        SegmentWriter::open(config, metadata, catalog, compression_txs, compression_rx)?;
+        SegmentWriter::open(config, metadata, catalog, compression_tx, compression_rx)?;
 
     loop {
         writer.drain_completed_chunks()?;
-        if writer.is_flush_due() {
-            writer.dispatch_chunk()?;
-            continue;
-        }
 
-        let wait = writer.next_wait_duration();
-        let received = match wait {
-            Some(duration) => match rx.recv_timeout(duration) {
-                Ok(command) => Some(command),
-                Err(ReceiveErrorTimeout::Timeout) => None,
-                Err(ReceiveErrorTimeout::SendClosed | ReceiveErrorTimeout::Closed) => {
-                    writer.dispatch_chunk()?;
-                    writer.finish_all_chunks()?;
-                    break;
-                }
-            },
-            None => match rx.recv() {
-                Ok(command) => Some(command),
-                Err(_) => break,
-            },
-        };
-
-        if let Some(command) = received {
-            queue_metrics.record_dequeue(&command);
-            writer.handle(command.into_kind())?;
+        match rx.recv() {
+            Ok(command) => {
+                queue_metrics.record_dequeue(&command);
+                writer.handle(command.into_kind())?;
+            }
+            Err(_) => {
+                writer.dispatch_chunk()?;
+                writer.finish_all_chunks()?;
+                break;
+            }
         }
     }
 
@@ -435,7 +410,7 @@ impl SegmentWriter {
         config: SegmentedConfig,
         metadata: MetadataDb,
         catalog: Arc<RwLock<MetadataCatalog>>,
-        compression_txs: Vec<kanal::Sender<CompressionJob>>,
+        compression_tx: kanal::Sender<CompressionJob>,
         compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
     ) -> anyhow::Result<Self> {
         let active_segment = {
@@ -463,12 +438,8 @@ impl SegmentWriter {
             active_segment,
             active_file,
             pending_chunk: None,
-            compression_txs,
+            compression_tx,
             compression_rx,
-            ready_chunks: BTreeMap::new(),
-            next_worker: 0,
-            next_chunk_id: 0,
-            next_append_chunk_id: 0,
             inflight_chunks: 0,
         })
     }
@@ -545,13 +516,8 @@ impl SegmentWriter {
             return Ok(());
         };
 
-        let chunk_id = self.next_chunk_id;
-        self.next_chunk_id += 1;
-
-        let worker_index = self.next_worker % self.compression_txs.len();
-        self.next_worker += 1;
-        self.compression_txs[worker_index]
-            .send(pending_chunk.into_job(chunk_id))
+        self.compression_tx
+            .send(pending_chunk.into_job())
             .map_err(|error| anyhow!("failed to send chunk to serialize worker: {error}"))?;
 
         self.inflight_chunks += 1;
@@ -561,12 +527,15 @@ impl SegmentWriter {
     fn drain_completed_chunks(&mut self) -> anyhow::Result<()> {
         loop {
             match self.compression_rx.try_recv() {
-                Ok(Some(result)) => self.handle_compression_result(result)?,
+                Ok(Some(result)) => {
+                    self.inflight_chunks -= 1;
+                    self.append_chunk(result?)?;
+                }
                 Ok(None) => break,
                 Err(ReceiveError::SendClosed) => {
                     anyhow::ensure!(
                         self.inflight_chunks == 0,
-                        "compression workers closed with {} chunks still in flight",
+                        "compression worker closed with {} chunks still in flight",
                         self.inflight_chunks
                     );
                     break;
@@ -574,7 +543,7 @@ impl SegmentWriter {
                 Err(ReceiveError::Closed) => break,
             }
         }
-        self.append_ready_chunks()
+        Ok(())
     }
 
     fn finish_all_chunks(&mut self) -> anyhow::Result<()> {
@@ -583,32 +552,8 @@ impl SegmentWriter {
                 .compression_rx
                 .recv()
                 .map_err(|error| anyhow!("failed to receive compressed chunk: {error}"))?;
-            self.handle_compression_result(result)?;
-            self.append_ready_chunks()?;
-        }
-        Ok(())
-    }
-
-    fn handle_compression_result(
-        &mut self,
-        result: anyhow::Result<CompressedChunk>,
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.inflight_chunks > 0,
-            "compression result without inflight chunk"
-        );
-        self.inflight_chunks -= 1;
-
-        let chunk = result?;
-        let prev = self.ready_chunks.insert(chunk.chunk_id, chunk);
-        anyhow::ensure!(prev.is_none(), "duplicate compressed chunk id");
-        Ok(())
-    }
-
-    fn append_ready_chunks(&mut self) -> anyhow::Result<()> {
-        while let Some(chunk) = self.ready_chunks.remove(&self.next_append_chunk_id) {
-            self.append_chunk(chunk)?;
-            self.next_append_chunk_id += 1;
+            self.inflight_chunks -= 1;
+            self.append_chunk(result?)?;
         }
         Ok(())
     }
@@ -616,13 +561,14 @@ impl SegmentWriter {
     fn append_chunk(&mut self, chunk: CompressedChunk) -> anyhow::Result<()> {
         let chunk_ordinal = self.active_segment.chunk_count;
         let chunk_header = ChunkHeader {
+            compression: chunk.compression,
             chunk_ordinal,
             first_index: chunk.first_index,
             last_index: chunk.last_index,
             first_slot: chunk.first_slot,
             last_slot: chunk.last_slot,
             record_count: chunk.record_count,
-            compressed_size: chunk.compressed.len() as u32,
+            compressed_size: chunk.payload.len() as u32,
             uncompressed_size: chunk.uncompressed_size,
             crc32: chunk.crc32,
         };
@@ -644,16 +590,14 @@ impl SegmentWriter {
         self.active_file
             .seek(SeekFrom::Start(self.active_segment.file_len))?;
         self.active_file.write_all(&chunk_header.encode())?;
-        self.active_file.write_all(&chunk.compressed)?;
+        self.active_file.write_all(&chunk.payload)?;
         counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL)
             .increment(duration_as_micros(append_started_at.elapsed()));
 
-        if self.config.segment_fsync {
-            let fsync_started_at = Instant::now();
-            self.active_file.sync_data()?;
-            counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL)
-                .increment(duration_as_micros(fsync_started_at.elapsed()));
-        }
+        let fsync_started_at = Instant::now();
+        self.active_file.sync_data()?;
+        counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL)
+            .increment(duration_as_micros(fsync_started_at.elapsed()));
 
         let metadata_started_at = Instant::now();
         let commit = {
@@ -682,28 +626,6 @@ impl SegmentWriter {
             self.rotate_segment()?;
         }
         Ok(())
-    }
-
-    fn is_flush_due(&self) -> bool {
-        self.pending_chunk
-            .as_ref()
-            .is_some_and(|chunk| chunk.is_flush_due(self.config.chunk_flush_delay))
-    }
-
-    fn next_wait_duration(&self) -> Option<Duration> {
-        const POLL_INTERVAL: Duration = Duration::from_millis(1);
-
-        if let Some(chunk) = &self.pending_chunk {
-            let remaining = self
-                .config
-                .chunk_flush_delay
-                .saturating_sub(chunk.started_at.elapsed());
-            Some(remaining.min(POLL_INTERVAL))
-        } else if self.inflight_chunks > 0 {
-            Some(POLL_INTERVAL)
-        } else {
-            None
-        }
     }
 
     fn rotate_segment(&mut self) -> anyhow::Result<()> {
@@ -742,9 +664,7 @@ impl SegmentWriter {
                 created_unix_ms: new_segment.created_unix_ms,
             },
         )?;
-        if self.config.segment_fsync {
-            new_file.sync_data()?;
-        }
+        new_file.sync_data()?;
 
         let sealed_segment = SegmentMeta {
             sealed: true,
@@ -866,20 +786,6 @@ fn build_trim_commit(
 
 fn estimate_record_size(_slot: Slot, message: &ParsedMessage) -> usize {
     message.size().saturating_add(16)
-}
-
-fn thread_affinity_for_worker(
-    affinity: &Option<Vec<usize>>,
-    workers: usize,
-    index: usize,
-) -> Option<Vec<usize>> {
-    affinity.as_ref().map(|cpus| {
-        if cpus.len() >= workers {
-            vec![cpus[index]]
-        } else {
-            cpus.clone()
-        }
-    })
 }
 
 fn duration_as_micros(duration: Duration) -> u64 {

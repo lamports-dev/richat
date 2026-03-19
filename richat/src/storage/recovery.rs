@@ -3,8 +3,8 @@ use {
         MessageRecordCodec,
         metadata::{ChunkMeta, MetadataCatalog, RecoveryCommit, SegmentMeta, SlotMeta},
         segment_format::{
-            CHUNK_HEADER_LEN, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader, chunk_crc32,
-            next_record, read_segment_header, segment_file_name, write_segment_header,
+            CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
+            chunk_crc32, next_record, read_segment_header, segment_file_name, write_segment_header,
         },
         segmented::SegmentedConfig,
     },
@@ -54,9 +54,7 @@ pub(crate) fn recover_active_segment(
                 created_unix_ms: active_segment.created_unix_ms,
             };
             write_segment_header(&mut file, header)?;
-            if config.segment_fsync {
-                file.sync_data()?;
-            }
+            file.sync_data()?;
             header
         }
     };
@@ -76,17 +74,31 @@ pub(crate) fn recover_active_segment(
             Err(_error) => break,
         };
 
-        let Some(compressed) = read_exact_or_eof(&mut file, chunk_header.compressed_size as usize)?
+        let Some(payload) = read_exact_or_eof(&mut file, chunk_header.compressed_size as usize)?
         else {
             break;
         };
-        let uncompressed = match decompressor
-            .decompress(&compressed, chunk_header.uncompressed_size as usize)
-        {
-            Ok(uncompressed) if uncompressed.len() == chunk_header.uncompressed_size as usize => {
-                uncompressed
+        let compression = match ChunkCompression::from_tag(chunk_header.compression) {
+            Ok(c) => c,
+            Err(_) => break,
+        };
+        let uncompressed = match compression {
+            ChunkCompression::None => {
+                if payload.len() != chunk_header.uncompressed_size as usize {
+                    break;
+                }
+                payload
             }
-            _ => break,
+            ChunkCompression::Zstd(_) => {
+                match decompressor.decompress(&payload, chunk_header.uncompressed_size as usize) {
+                    Ok(uncompressed)
+                        if uncompressed.len() == chunk_header.uncompressed_size as usize =>
+                    {
+                        uncompressed
+                    }
+                    _ => break,
+                }
+            }
         };
         if chunk_crc32(&uncompressed) != chunk_header.crc32 {
             break;
@@ -152,9 +164,7 @@ pub(crate) fn recover_active_segment(
     let file_len = file.metadata()?.len();
     if file_len != valid_end {
         file.set_len(valid_end)?;
-        if config.segment_fsync {
-            file.sync_data()?;
-        }
+        file.sync_data()?;
     }
 
     let segment = if let Some(last_chunk) = chunks.last().copied() {

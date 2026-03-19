@@ -16,6 +16,38 @@ pub(crate) const SEGMENT_FORMAT_VERSION: u16 = 1;
 pub(crate) const SEGMENT_HEADER_LEN: usize = 32;
 pub(crate) const CHUNK_HEADER_LEN: usize = 60;
 
+/// Compression algorithm used for a chunk payload.
+///
+/// Stored as a single byte in the chunk header (offset 6).  The
+/// writer picks the algorithm from config; the reader uses the tag
+/// stored on disk so it can always decode regardless of the current
+/// config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkCompression {
+    None,
+    Zstd(i32),
+}
+
+impl ChunkCompression {
+    const TAG_NONE: u8 = 0;
+    const TAG_ZSTD: u8 = 1;
+
+    pub(crate) const fn tag(self) -> u8 {
+        match self {
+            Self::None => Self::TAG_NONE,
+            Self::Zstd(_) => Self::TAG_ZSTD,
+        }
+    }
+
+    pub(crate) fn from_tag(tag: u8) -> anyhow::Result<Self> {
+        match tag {
+            Self::TAG_NONE => Ok(Self::None),
+            Self::TAG_ZSTD => Ok(Self::Zstd(0)),
+            other => anyhow::bail!("unsupported chunk compression tag: {other}"),
+        }
+    }
+}
+
 /// Fixed header stored at the start of every segment file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SegmentHeader {
@@ -23,9 +55,10 @@ pub(crate) struct SegmentHeader {
     pub(crate) created_unix_ms: u64,
 }
 
-/// Fixed header stored in front of every compressed chunk payload.
+/// Fixed header stored in front of every chunk payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ChunkHeader {
+    pub(crate) compression: u8,
     pub(crate) chunk_ordinal: u32,
     pub(crate) first_index: u64,
     pub(crate) last_index: u64,
@@ -71,6 +104,7 @@ impl ChunkHeader {
         let mut buf = [0u8; CHUNK_HEADER_LEN];
         buf[..4].copy_from_slice(&CHUNK_MAGIC);
         buf[4..6].copy_from_slice(&(CHUNK_HEADER_LEN as u16).to_be_bytes());
+        buf[6] = self.compression;
         buf[8..12].copy_from_slice(&self.chunk_ordinal.to_be_bytes());
         buf[12..20].copy_from_slice(&self.first_index.to_be_bytes());
         buf[20..28].copy_from_slice(&self.last_index.to_be_bytes());
@@ -96,6 +130,7 @@ impl ChunkHeader {
             "unsupported chunk header length: {header_len}"
         );
         Ok(Self {
+            compression: bytes[6],
             chunk_ordinal: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
             first_index: u64::from_be_bytes(bytes[12..20].try_into().unwrap()),
             last_index: u64::from_be_bytes(bytes[20..28].try_into().unwrap()),
@@ -154,7 +189,8 @@ pub(crate) fn segment_file_name(segment_id: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CHUNK_HEADER_LEN, ChunkHeader, SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_LEN, SegmentHeader,
+        CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_FORMAT_VERSION,
+        SEGMENT_HEADER_LEN, SegmentHeader,
     };
 
     #[test]
@@ -169,6 +205,7 @@ mod tests {
     #[test]
     fn chunk_header_roundtrip() {
         let header = ChunkHeader {
+            compression: ChunkCompression::Zstd(0).tag(),
             chunk_ordinal: 1,
             first_index: 10,
             last_index: 20,

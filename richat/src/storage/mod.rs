@@ -5,6 +5,7 @@ mod segment_reader;
 mod segment_writer;
 mod segmented;
 
+pub use segment_format::ChunkCompression;
 use {
     crate::{
         channel::{IndexLocation, ParsedMessage, SharedChannel},

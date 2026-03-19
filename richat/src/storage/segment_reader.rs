@@ -3,14 +3,13 @@ use {
         MessageRecordCodec,
         metadata::ChunkMeta,
         segment_format::{
-            CHUNK_HEADER_LEN, ChunkHeader, chunk_crc32, next_record, read_segment_header,
-            segment_file_name,
+            CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, chunk_crc32,
+            next_record, read_segment_header, segment_file_name,
         },
     },
     crate::{
         channel::ParsedMessage,
         metrics::{STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL, STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL},
-        storage::segment_format::SEGMENT_HEADER_LEN,
     },
     ::metrics::counter,
     anyhow::Context,
@@ -85,14 +84,19 @@ impl SegmentReader {
             "chunk header does not match metadata"
         );
 
-        let mut compressed = vec![0; header.compressed_size as usize];
-        file.read_exact(&mut compressed)?;
-        counter!(STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL).increment(compressed.len() as u64);
+        let mut payload = vec![0; header.compressed_size as usize];
+        file.read_exact(&mut payload)?;
+        counter!(STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
 
-        let uncompressed = self
-            .decompressor
-            .decompress(&compressed, header.uncompressed_size as usize)
-            .context("failed to decompress chunk")?;
+        let compression = ChunkCompression::from_tag(header.compression)
+            .context("unsupported chunk compression")?;
+        let uncompressed = match compression {
+            ChunkCompression::None => payload,
+            ChunkCompression::Zstd(_) => self
+                .decompressor
+                .decompress(&payload, header.uncompressed_size as usize)
+                .context("failed to decompress chunk")?,
+        };
         anyhow::ensure!(
             uncompressed.len() == header.uncompressed_size as usize,
             "unexpected uncompressed size: {}",

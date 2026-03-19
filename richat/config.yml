@@ -61,23 +61,15 @@ channel:
     max_bytes: 16GiB
 
     # storage:
-      # Root directory for replay storage. If the paths below are null, richat
-      # uses:
-      #   <path>/meta/rocksdb
-      #   <path>/segments
+      # Root directory for replay storage. Metadata RocksDB is stored at
+      # <path>/metadata and segment files at <path>/segments.
       # path: ./db
-      # metadata_path: null # optional override for metadata RocksDB location
-      # segments_path: null # optional override for append-only payload segment files
       # max_slots: 1024 # retention target in slots; trim is approximate to whole segments
-      # serialize_workers: 4 # number of chunk serialization / compression workers
-      # serialize_affinity: null # CPU affinity for chunk serialization / compression workers
+      # serialize_affinity: null # CPU affinity for the chunk serialization / compression thread
       # write_affinity: null # CPU affinity for the ordered segment appender / metadata writer
       # segment_target_size: 4GiB # rotate to a new .seg file when the active one reaches this size
       # chunk_target_size: 4MiB # flush buffered records into one compressed chunk around this size
-      # chunk_flush_delay: 50ms # flush a partial chunk after this delay even if size target is not hit
-      # segment_fsync: true # fsync segment payloads after each flushed chunk
-      # metadata_fsync: true # fsync metadata RocksDB writes for chunk/slot/segment state
-      # segment_zstd_level: 3 # zstd compression level for chunk payloads
+      # chunk_compression: zstd-3 # optional compression for chunk payloads (e.g. "zstd-3"); omit for no compression
       # recovery_rebuild_active: true # scan/truncate/rebuild the active segment on startup
       # replay_inflight_max: 1024 # max concurrent replay-from-disk requests
       # replay_threads: 4 # worker threads serving disk replay to subscribers
