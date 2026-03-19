@@ -1,6 +1,6 @@
 use {
     super::{
-        api::MessageRecordCodec,
+        MessageRecordCodec,
         metadata::ChunkMeta,
         segment_format::{
             CHUNK_HEADER_LEN, ChunkHeader, chunk_crc32, next_record, read_segment_header,

@@ -1,6 +1,6 @@
 use {
     super::{
-        api::SlotIndexValue,
+        SlotIndexValue,
         metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
         recovery::recover_active_segment,
         segment_format::{

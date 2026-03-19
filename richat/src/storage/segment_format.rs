@@ -1,5 +1,5 @@
 use {
-    super::api::MessageRecordCodec,
+    super::MessageRecordCodec,
     crate::channel::ParsedMessage,
     anyhow::Context,
     prost::encoding::decode_varint,
