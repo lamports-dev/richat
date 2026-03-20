@@ -1,15 +1,15 @@
 use {
-    super::{
-        MessageRecordCodec,
-        metadata::ChunkMeta,
-        segment_format::{
-            CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, chunk_crc32,
-            next_record, read_segment_header, segment_file_name,
-        },
-    },
     crate::{
         channel::ParsedMessage,
         metrics::{STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL, STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL},
+        storage::{
+            MessageRecordCodec,
+            metadata::ChunkMeta,
+            segment_format::{
+                CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, chunk_crc32,
+                next_record, read_segment_header, segment_file_name,
+            },
+        },
     },
     ::metrics::counter,
     anyhow::Context,

@@ -1,6 +1,5 @@
 use {
-    super::MessageRecordCodec,
-    crate::channel::ParsedMessage,
+    crate::{channel::ParsedMessage, storage::MessageRecordCodec},
     anyhow::Context,
     prost::encoding::decode_varint,
     solana_clock::Slot,

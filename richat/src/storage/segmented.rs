@@ -1,17 +1,21 @@
 use {
-    super::{
-        SlotIndexValue,
-        metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
-        segment_format::{
-            ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
-            write_segment_header,
+    crate::{
+        channel::ParsedMessage,
+        config::ConfigStorage,
+        storage::{
+            SlotIndexValue,
+            metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
+            segment_format::{
+                ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
+                write_segment_header,
+            },
+            segment_reader::SegmentReader,
+            segment_writer::{
+                StorageWriteQueueMetrics, WriterCommand, spawn_serialize_worker, spawn_writer,
+            },
         },
-        segment_reader::SegmentReader,
-        segment_writer::{
-            StorageWriteQueueMetrics, WriterCommand, spawn_serialize_worker, spawn_writer,
-        },
+        util::SpawnedThreads,
     },
-    crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     solana_clock::Slot,

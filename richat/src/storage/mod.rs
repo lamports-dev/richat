@@ -232,9 +232,6 @@ impl Storage {
                         Ok(item) => {
                             req.state.messages.push_back(item);
                             messages_decoded += 1;
-                            if messages_decoded >= messages_decode_per_tick {
-                                break;
-                            }
                         }
                         Err(error) => {
                             req.state.read_error = Some(Status::internal(error.to_string()));

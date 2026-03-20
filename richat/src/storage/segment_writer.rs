@@ -1,15 +1,4 @@
 use {
-    super::{
-        metadata::{
-            ChunkMeta, MetadataCatalog, MetadataChunkCommit, MetadataDb, MetadataTrimCommit,
-            RotationCommit, SegmentMeta, SlotMeta,
-        },
-        segment_format::{
-            CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
-            append_record, chunk_crc32, segment_file_name, write_segment_header,
-        },
-        segmented::{SegmentedConfig, dir_size_bytes},
-    },
     crate::{
         channel::ParsedMessage,
         metrics::{
@@ -23,6 +12,17 @@ use {
             STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
             STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
             STORAGE_WRITE_TRIM_MICROS_TOTAL,
+        },
+        storage::{
+            metadata::{
+                ChunkMeta, MetadataCatalog, MetadataChunkCommit, MetadataDb, MetadataTrimCommit,
+                RotationCommit, SegmentMeta, SlotMeta,
+            },
+            segment_format::{
+                CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
+                append_record, chunk_crc32, segment_file_name, write_segment_header,
+            },
+            segmented::{SegmentedConfig, dir_size_bytes},
         },
     },
     ::metrics::{counter, gauge},
