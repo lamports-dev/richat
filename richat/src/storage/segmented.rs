@@ -11,7 +11,8 @@ use {
             },
             segment_reader::SegmentReader,
             segment_writer::{
-                StorageWriteQueueMetrics, WriterCommand, spawn_serialize_worker, spawn_writer,
+                StorageWriteQueueMetrics, WriterCommand, spawn_collector, spawn_compressor,
+                spawn_writer,
             },
         },
         util::SpawnedThreads,
@@ -96,17 +97,26 @@ impl SegmentedStorage {
         let catalog = Arc::new(RwLock::new(catalog));
         let queue_metrics = Arc::new(StorageWriteQueueMetrics::default());
         queue_metrics.publish_current();
-        let (write_tx, write_rx) = kanal::unbounded();
-        let (compression_tx, compression_rx) = kanal::unbounded();
-        let (serialize_thread, compression_tx) = spawn_serialize_worker(&config, compression_tx)?;
-        let mut threads = vec![serialize_thread];
+        let (write_tx, write_rx) = kanal::bounded(32);
+        let (collector_tx, collector_rx) = kanal::bounded(2);
+        let (compressor_tx, compressor_rx) = kanal::bounded(2);
+
+        let collector_thread = spawn_collector(
+            config.chunk_target_size,
+            config.serialize_affinity.clone(),
+            Arc::clone(&queue_metrics),
+            write_rx,
+            collector_tx,
+        )?;
+        let compressor_thread =
+            spawn_compressor(config.chunk_compression, collector_rx, compressor_tx)?;
+
         let writer_config = config.clone();
         let writer_catalog = Arc::clone(&catalog);
         let writer_metadata = metadata.clone();
-        let writer_queue_metrics = Arc::clone(&queue_metrics);
         let writer_affinity = config.write_affinity.clone();
         let writer_jh = thread::Builder::new()
-            .name("richatStrgSeg".to_owned())
+            .name("richatStrgWrt".to_owned())
             .spawn(move || {
                 if let Some(cpus) = writer_affinity {
                     affinity_linux::set_thread_affinity(cpus.into_iter())
@@ -116,13 +126,14 @@ impl SegmentedStorage {
                     writer_config,
                     writer_metadata,
                     writer_catalog,
-                    writer_queue_metrics,
-                    compression_tx,
-                    compression_rx,
-                    write_rx,
+                    compressor_rx,
                 )
             })?;
-        threads.push(("richatStrgSeg".to_owned(), Some(writer_jh)));
+        let threads = vec![
+            collector_thread,
+            compressor_thread,
+            ("richatStrgWrt".to_owned(), Some(writer_jh)),
+        ];
 
         let storage = Self {
             config,

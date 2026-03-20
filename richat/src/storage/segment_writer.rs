@@ -27,7 +27,6 @@ use {
     },
     ::metrics::{counter, gauge},
     anyhow::{Context, anyhow},
-    kanal::ReceiveError,
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
     std::{
@@ -139,7 +138,7 @@ impl StorageWriteQueueMetrics {
         gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
     }
 
-    pub(crate) fn record_dequeue(&self, command: &WriterCommand) {
+    fn record_dequeue(&self, command: &WriterCommand) {
         let approx_bytes = command.approx_bytes() as u64;
         let queued_bytes =
             self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
@@ -159,44 +158,38 @@ struct PendingSlot {
 }
 
 #[derive(Debug)]
-struct PendingRecord {
-    slot: Slot,
-    message: ParsedMessage,
-}
-
-#[derive(Debug)]
-struct PendingChunk {
+struct PendingChunkMeta {
     estimated_uncompressed_size: usize,
+    record_count: u32,
     first_index: u64,
     last_index: u64,
     first_slot: Slot,
     last_slot: Slot,
-    records: Vec<PendingRecord>,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
 }
 
-impl PendingChunk {
+impl PendingChunkMeta {
     fn new(slot: Slot, index: u64) -> Self {
         Self {
             estimated_uncompressed_size: 0,
+            record_count: 0,
             first_index: index,
             last_index: index,
             first_slot: slot,
             last_slot: slot,
-            records: Vec::new(),
             pending_slots: Vec::new(),
             pending_finalized: HashSet::new(),
         }
     }
 
-    fn push(&mut self, init: bool, slot: Slot, head: u64, index: u64, message: ParsedMessage) {
-        let record_ordinal = self.records.len() as u32;
+    fn push(&mut self, init: bool, slot: Slot, head: u64, index: u64, message: &ParsedMessage) {
+        let record_ordinal = self.record_count;
         self.last_index = index;
         self.last_slot = slot;
         self.estimated_uncompressed_size = self
             .estimated_uncompressed_size
-            .saturating_add(estimate_record_size(slot, &message));
+            .saturating_add(estimate_record_size(slot, message));
 
         if init {
             self.pending_slots.push(PendingSlot {
@@ -205,43 +198,40 @@ impl PendingChunk {
                 record_ordinal,
             });
         }
-        if let ParsedMessage::Slot(message) = &message {
+        if let ParsedMessage::Slot(message) = message {
             if message.status() == SlotStatus::SlotFinalized {
                 self.pending_finalized.insert(slot);
             }
         }
 
-        self.records.push(PendingRecord { slot, message });
+        self.record_count += 1;
     }
 
     const fn should_flush(&self, target_size: usize) -> bool {
         self.estimated_uncompressed_size >= target_size
     }
-
-    fn into_job(self) -> CompressionJob {
-        CompressionJob {
-            first_index: self.first_index,
-            last_index: self.last_index,
-            first_slot: self.first_slot,
-            last_slot: self.last_slot,
-            records: self.records,
-            pending_slots: self.pending_slots,
-            pending_finalized: self.pending_finalized,
-            estimated_uncompressed_size: self.estimated_uncompressed_size,
-        }
-    }
 }
 
-#[derive(Debug)]
-pub(crate) struct CompressionJob {
+pub(crate) enum CollectorOutput {
+    SerializedChunk(SerializedChunk),
+    Trim { slot: Slot, until: Option<u64> },
+}
+
+pub(crate) struct SerializedChunk {
     first_index: u64,
     last_index: u64,
     first_slot: Slot,
     last_slot: Slot,
-    records: Vec<PendingRecord>,
+    record_count: u32,
+    uncompressed_payload: Vec<u8>,
+    crc32: u32,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
-    estimated_uncompressed_size: usize,
+}
+
+pub(crate) enum CompressorOutput {
+    CompressedChunk(CompressedChunk),
+    Trim { slot: Slot, until: Option<u64> },
 }
 
 #[derive(Debug)]
@@ -259,46 +249,127 @@ pub(crate) struct CompressedChunk {
     pending_finalized: HashSet<Slot>,
 }
 
-/// Long-lived state for the ordered storage append path.
-///
-/// It batches records into chunks, sends chunk serialization / compression to a
-/// single worker thread, and appends completed chunks to the active segment.
-pub(crate) struct SegmentWriter {
-    config: SegmentedConfig,
-    metadata: MetadataDb,
-    catalog: Arc<RwLock<MetadataCatalog>>,
-    active_segment: SegmentMeta,
-    active_file: File,
-    pending_chunk: Option<PendingChunk>,
-    compression_tx: kanal::Sender<CompressionJob>,
-    compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
-    inflight_chunks: usize,
-}
+// ── Collector thread ───────────────────────────────────────────────
 
-pub(crate) fn spawn_serialize_worker(
-    config: &SegmentedConfig,
-    results_tx: kanal::Sender<anyhow::Result<CompressedChunk>>,
-) -> anyhow::Result<(crate::util::SpawnedThread, kanal::Sender<CompressionJob>)> {
-    let (job_tx, job_rx) = kanal::unbounded();
-    let th_name = "richatStrgSer".to_owned();
-    let chunk_compression = config.chunk_compression;
-    let affinity = config.serialize_affinity.clone();
+pub(crate) fn spawn_collector(
+    chunk_target_size: usize,
+    serialize_affinity: Option<Vec<usize>>,
+    queue_metrics: Arc<StorageWriteQueueMetrics>,
+    rx: kanal::Receiver<WriterCommand>,
+    tx: kanal::Sender<CollectorOutput>,
+) -> anyhow::Result<crate::util::SpawnedThread> {
+    let th_name = "richatStrgCol".to_owned();
     let jh = thread::Builder::new()
         .name(th_name.clone())
         .spawn(move || {
-            if let Some(cpus) = affinity {
+            if let Some(cpus) = serialize_affinity {
                 affinity_linux::set_thread_affinity(cpus.into_iter())
                     .expect("failed to set affinity");
             }
-            run_serialize_worker(chunk_compression, job_rx, results_tx)
+            run_collector(chunk_target_size, queue_metrics, rx, tx)
         })?;
-    Ok(((th_name, Some(jh)), job_tx))
+    Ok((th_name, Some(jh)))
 }
 
-fn run_serialize_worker(
+fn run_collector(
+    chunk_target_size: usize,
+    queue_metrics: Arc<StorageWriteQueueMetrics>,
+    rx: kanal::Receiver<WriterCommand>,
+    tx: kanal::Sender<CollectorOutput>,
+) -> anyhow::Result<()> {
+    let mut record_buf = Vec::with_capacity(256 * 1024);
+    let mut chunk_buf = Vec::with_capacity(4 * 1024 * 1024);
+    let mut pending_chunk: Option<PendingChunkMeta> = None;
+
+    loop {
+        match rx.recv() {
+            Ok(command) => {
+                queue_metrics.record_dequeue(&command);
+                match command.into_kind() {
+                    WriterCommandKind::PushMessage {
+                        init,
+                        slot,
+                        head,
+                        index,
+                        message,
+                    } => {
+                        let pending =
+                            pending_chunk.get_or_insert_with(|| PendingChunkMeta::new(slot, index));
+
+                        let serialize_started_at = Instant::now();
+                        append_record(slot, &message, &mut record_buf, &mut chunk_buf);
+                        counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL)
+                            .increment(duration_as_micros(serialize_started_at.elapsed()));
+
+                        pending.push(init, slot, head, index, &message);
+                        counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
+
+                        if pending.should_flush(chunk_target_size) {
+                            flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
+                        }
+                    }
+                    WriterCommandKind::RemoveReplay { slot, until } => {
+                        flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
+                        tx.send(CollectorOutput::Trim { slot, until })
+                            .map_err(|_| anyhow!("collector output channel closed"))?;
+                    }
+                }
+            }
+            Err(_) => {
+                flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn flush_pending_chunk(
+    pending_chunk: &mut Option<PendingChunkMeta>,
+    chunk_buf: &mut Vec<u8>,
+    tx: &kanal::Sender<CollectorOutput>,
+) -> anyhow::Result<()> {
+    let Some(pending) = pending_chunk.take() else {
+        return Ok(());
+    };
+    let crc32 = chunk_crc32(chunk_buf);
+    counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL).increment(chunk_buf.len() as u64);
+
+    let serialized = SerializedChunk {
+        first_index: pending.first_index,
+        last_index: pending.last_index,
+        first_slot: pending.first_slot,
+        last_slot: pending.last_slot,
+        record_count: pending.record_count,
+        uncompressed_payload: std::mem::take(chunk_buf),
+        crc32,
+        pending_slots: pending.pending_slots,
+        pending_finalized: pending.pending_finalized,
+    };
+    tx.send(CollectorOutput::SerializedChunk(serialized))
+        .map_err(|_| anyhow!("collector output channel closed"))?;
+    Ok(())
+}
+
+// ── Compressor thread ──────────────────────────────────────────────
+
+pub(crate) fn spawn_compressor(
     chunk_compression: Option<ChunkCompression>,
-    rx: kanal::Receiver<CompressionJob>,
-    tx: kanal::Sender<anyhow::Result<CompressedChunk>>,
+    rx: kanal::Receiver<CollectorOutput>,
+    tx: kanal::Sender<CompressorOutput>,
+) -> anyhow::Result<crate::util::SpawnedThread> {
+    let th_name = "richatStrgCmp".to_owned();
+    let jh = thread::Builder::new()
+        .name(th_name.clone())
+        .spawn(move || run_compressor(chunk_compression, rx, tx))?;
+    Ok((th_name, Some(jh)))
+}
+
+fn run_compressor(
+    chunk_compression: Option<ChunkCompression>,
+    rx: kanal::Receiver<CollectorOutput>,
+    tx: kanal::Sender<CompressorOutput>,
 ) -> anyhow::Result<()> {
     let mut compressor = match chunk_compression {
         Some(ChunkCompression::Zstd(level)) => {
@@ -307,98 +378,83 @@ fn run_serialize_worker(
         _ => None,
     };
     let compression_tag = chunk_compression.unwrap_or(ChunkCompression::None).tag();
-    let mut record_buf = Vec::with_capacity(256 * 1024);
-    let mut chunk_buf = Vec::with_capacity(4 * 1024 * 1024);
 
     loop {
-        let job = match rx.recv() {
-            Ok(job) => job,
-            Err(_) => break,
-        };
+        match rx.recv() {
+            Ok(CollectorOutput::SerializedChunk(chunk)) => {
+                let uncompressed_size = chunk.uncompressed_payload.len() as u32;
 
-        chunk_buf.clear();
-        chunk_buf.reserve(job.estimated_uncompressed_size);
+                let payload = if let Some(compressor) = compressor.as_mut() {
+                    let compress_started_at = Instant::now();
+                    let compressed = compressor
+                        .compress(&chunk.uncompressed_payload)
+                        .context("failed to compress chunk")?;
+                    counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL)
+                        .increment(duration_as_micros(compress_started_at.elapsed()));
+                    compressed
+                } else {
+                    chunk.uncompressed_payload
+                };
+                counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL)
+                    .increment(payload.len() as u64);
 
-        let serialize_started_at = Instant::now();
-        for record in &job.records {
-            append_record(
-                record.slot,
-                &record.message,
-                &mut record_buf,
-                &mut chunk_buf,
-            );
-        }
-        counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL)
-            .increment(duration_as_micros(serialize_started_at.elapsed()));
+                let compressed = CompressedChunk {
+                    compression: compression_tag,
+                    first_index: chunk.first_index,
+                    last_index: chunk.last_index,
+                    first_slot: chunk.first_slot,
+                    last_slot: chunk.last_slot,
+                    record_count: chunk.record_count,
+                    uncompressed_size,
+                    payload,
+                    crc32: chunk.crc32,
+                    pending_slots: chunk.pending_slots,
+                    pending_finalized: chunk.pending_finalized,
+                };
 
-        let crc32 = chunk_crc32(&chunk_buf);
-        let uncompressed_size = chunk_buf.len() as u32;
-
-        let payload = if let Some(compressor) = compressor.as_mut() {
-            let compress_started_at = Instant::now();
-            let compressed = match compressor.compress(&chunk_buf) {
-                Ok(compressed) => compressed,
-                Err(error) => {
-                    let _ = tx.send(Err(error).context("failed to compress chunk"));
+                if tx
+                    .send(CompressorOutput::CompressedChunk(compressed))
+                    .is_err()
+                {
                     break;
                 }
-            };
-            counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL)
-                .increment(duration_as_micros(compress_started_at.elapsed()));
-            compressed
-        } else {
-            chunk_buf.clone()
-        };
-        counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL).increment(uncompressed_size as u64);
-        counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
-
-        let result = CompressedChunk {
-            compression: compression_tag,
-            first_index: job.first_index,
-            last_index: job.last_index,
-            first_slot: job.first_slot,
-            last_slot: job.last_slot,
-            record_count: job.records.len() as u32,
-            uncompressed_size,
-            crc32,
-            payload,
-            pending_slots: job.pending_slots,
-            pending_finalized: job.pending_finalized,
-        };
-
-        if tx.send(Ok(result)).is_err() {
-            break;
+            }
+            Ok(CollectorOutput::Trim { slot, until }) => {
+                if tx.send(CompressorOutput::Trim { slot, until }).is_err() {
+                    break;
+                }
+            }
+            Err(_) => break,
         }
     }
 
     Ok(())
 }
 
+// ── Writer thread ──────────────────────────────────────────────────
+
+/// Long-lived state for the ordered storage append path.
+pub(crate) struct SegmentWriter {
+    config: SegmentedConfig,
+    metadata: MetadataDb,
+    catalog: Arc<RwLock<MetadataCatalog>>,
+    active_segment: SegmentMeta,
+    active_file: File,
+}
+
 pub(crate) fn spawn_writer(
     config: SegmentedConfig,
     metadata: MetadataDb,
     catalog: Arc<RwLock<MetadataCatalog>>,
-    queue_metrics: Arc<StorageWriteQueueMetrics>,
-    compression_tx: kanal::Sender<CompressionJob>,
-    compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
-    rx: kanal::Receiver<WriterCommand>,
+    rx: kanal::Receiver<CompressorOutput>,
 ) -> anyhow::Result<()> {
-    let mut writer =
-        SegmentWriter::open(config, metadata, catalog, compression_tx, compression_rx)?;
+    let mut writer = SegmentWriter::open(config, metadata, catalog)?;
 
     loop {
-        writer.drain_completed_chunks()?;
-
         match rx.recv() {
-            Ok(command) => {
-                queue_metrics.record_dequeue(&command);
-                writer.handle(command.into_kind())?;
-            }
-            Err(_) => {
-                writer.dispatch_chunk()?;
-                writer.finish_all_chunks()?;
-                break;
-            }
+            Ok(CompressorOutput::CompressedChunk(chunk)) => writer.append_chunk(chunk)?,
+            Ok(CompressorOutput::Trim { slot, until }) => writer.handle_trim(slot, until)?,
+            Err(_) => break,
         }
     }
 
@@ -410,8 +466,6 @@ impl SegmentWriter {
         config: SegmentedConfig,
         metadata: MetadataDb,
         catalog: Arc<RwLock<MetadataCatalog>>,
-        compression_tx: kanal::Sender<CompressionJob>,
-        compression_rx: kanal::Receiver<anyhow::Result<CompressedChunk>>,
     ) -> anyhow::Result<Self> {
         let active_segment = {
             let catalog = catalog.read().expect("segment catalog poisoned");
@@ -437,50 +491,10 @@ impl SegmentWriter {
             catalog,
             active_segment,
             active_file,
-            pending_chunk: None,
-            compression_tx,
-            compression_rx,
-            inflight_chunks: 0,
         })
     }
 
-    fn handle(&mut self, command: WriterCommandKind) -> anyhow::Result<()> {
-        match command {
-            WriterCommandKind::PushMessage {
-                init,
-                slot,
-                head,
-                index,
-                message,
-            } => self.handle_push(init, slot, head, index, message),
-            WriterCommandKind::RemoveReplay { slot, until } => self.handle_trim(slot, until),
-        }
-    }
-
-    fn handle_push(
-        &mut self,
-        init: bool,
-        slot: Slot,
-        head: u64,
-        index: u64,
-        message: ParsedMessage,
-    ) -> anyhow::Result<()> {
-        let pending_chunk = self
-            .pending_chunk
-            .get_or_insert_with(|| PendingChunk::new(slot, index));
-        pending_chunk.push(init, slot, head, index, message);
-
-        counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
-        if pending_chunk.should_flush(self.config.chunk_target_size) {
-            self.dispatch_chunk()?;
-        }
-        Ok(())
-    }
-
     fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
-        self.dispatch_chunk()?;
-        self.finish_all_chunks()?;
-
         let trim_started_at = Instant::now();
         let commit = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
@@ -509,53 +523,6 @@ impl SegmentWriter {
         counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
             .increment(duration_as_micros(trim_started_at.elapsed()));
         self.publish_disk_size_metric();
-        Ok(())
-    }
-
-    fn dispatch_chunk(&mut self) -> anyhow::Result<()> {
-        let Some(pending_chunk) = self.pending_chunk.take() else {
-            return Ok(());
-        };
-
-        self.compression_tx
-            .send(pending_chunk.into_job())
-            .map_err(|error| anyhow!("failed to send chunk to serialize worker: {error}"))?;
-
-        self.inflight_chunks += 1;
-        Ok(())
-    }
-
-    fn drain_completed_chunks(&mut self) -> anyhow::Result<()> {
-        loop {
-            match self.compression_rx.try_recv() {
-                Ok(Some(result)) => {
-                    self.inflight_chunks -= 1;
-                    self.append_chunk(result?)?;
-                }
-                Ok(None) => break,
-                Err(ReceiveError::SendClosed) => {
-                    anyhow::ensure!(
-                        self.inflight_chunks == 0,
-                        "compression worker closed with {} chunks still in flight",
-                        self.inflight_chunks
-                    );
-                    break;
-                }
-                Err(ReceiveError::Closed) => break,
-            }
-        }
-        Ok(())
-    }
-
-    fn finish_all_chunks(&mut self) -> anyhow::Result<()> {
-        while self.inflight_chunks > 0 {
-            let result = self
-                .compression_rx
-                .recv()
-                .map_err(|error| anyhow!("failed to receive compressed chunk: {error}"))?;
-            self.inflight_chunks -= 1;
-            self.append_chunk(result?)?;
-        }
         Ok(())
     }
 
