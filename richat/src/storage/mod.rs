@@ -1,5 +1,4 @@
 mod metadata;
-mod recovery;
 mod segment_format;
 mod segment_reader;
 mod segment_writer;
@@ -98,7 +97,7 @@ impl Storage {
         let replay_affinity = config.replay_affinity.clone();
         let replay_decode_per_tick = config.replay_decode_per_tick;
 
-        let (inner, mut threads) = SegmentedStorage::open(config, parser)?;
+        let (inner, mut threads) = SegmentedStorage::open(config)?;
 
         let storage = Self {
             inner: Arc::new(inner),

@@ -145,27 +145,6 @@ impl MetadataCatalog {
         self.state = commit.state;
     }
 
-    pub(crate) fn apply_recovery_commit(&mut self, commit: &RecoveryCommit) {
-        for slot in &commit.deleted_slots {
-            self.slots.remove(slot);
-        }
-        self.chunks.retain(|chunk| {
-            !commit
-                .deleted_chunks
-                .contains(&(chunk.segment_id, chunk.chunk_ordinal))
-        });
-        self.segments
-            .insert(commit.segment.segment_id, commit.segment);
-        for slot in &commit.slots {
-            self.slots.insert(slot.slot, *slot);
-        }
-        for chunk in &commit.chunks {
-            self.chunks.push(*chunk);
-        }
-        self.chunks.sort_by_key(|chunk| chunk.first_index);
-        self.state = commit.state;
-    }
-
     pub(crate) fn apply_rotation_commit(&mut self, commit: RotationCommit) {
         self.segments
             .insert(commit.sealed_segment.segment_id, commit.sealed_segment);
@@ -192,17 +171,6 @@ pub(crate) struct MetadataTrimCommit {
     pub(crate) deleted_slots: Vec<Slot>,
     pub(crate) deleted_segments: Vec<u64>,
     pub(crate) deleted_chunks: Vec<(u64, u32)>,
-    pub(crate) state: GlobalState,
-}
-
-/// Atomic metadata update produced by rebuilding the active segment on startup.
-#[derive(Debug, Clone)]
-pub(crate) struct RecoveryCommit {
-    pub(crate) deleted_slots: Vec<Slot>,
-    pub(crate) deleted_chunks: Vec<(u64, u32)>,
-    pub(crate) segment: SegmentMeta,
-    pub(crate) slots: Vec<SlotMeta>,
-    pub(crate) chunks: Vec<ChunkMeta>,
     pub(crate) state: GlobalState,
 }
 
@@ -341,44 +309,6 @@ impl MetadataDb {
             batch.delete_cf(
                 Self::cf_handle::<SegmentsCf>(&self.db),
                 encode_u64_key(*segment_id),
-            );
-        }
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
-        self.write_batch(batch)
-    }
-
-    pub(crate) fn apply_recovery_commit(&self, commit: &RecoveryCommit) -> anyhow::Result<()> {
-        let mut batch = WriteBatch::new();
-        for slot in &commit.deleted_slots {
-            batch.delete_cf(Self::cf_handle::<SlotsCf>(&self.db), encode_u64_key(*slot));
-        }
-        for (segment_id, chunk_ordinal) in &commit.deleted_chunks {
-            batch.delete_cf(
-                Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(*segment_id, *chunk_ordinal),
-            );
-        }
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(commit.segment.segment_id),
-            commit.segment.encode(),
-        );
-        for slot in &commit.slots {
-            batch.put_cf(
-                Self::cf_handle::<SlotsCf>(&self.db),
-                encode_u64_key(slot.slot),
-                slot.encode(),
-            );
-        }
-        for chunk in &commit.chunks {
-            batch.put_cf(
-                Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(chunk.segment_id, chunk.chunk_ordinal),
-                chunk.encode(),
             );
         }
         batch.put_cf(

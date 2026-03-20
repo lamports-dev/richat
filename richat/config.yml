@@ -70,7 +70,6 @@ channel:
       # segment_target_size: 4GiB # rotate to a new .seg file when the active one reaches this size
       # chunk_target_size: 4MiB # flush buffered records into one compressed chunk around this size
       # chunk_compression: zstd-3 # optional compression for chunk payloads (e.g. "zstd-3"); omit for no compression
-      # recovery_rebuild_active: true # scan/truncate/rebuild the active segment on startup
       # replay_inflight_max: 1024 # max concurrent replay-from-disk requests
       # replay_threads: 4 # worker threads serving disk replay to subscribers
       # replay_affinity: null # CPU affinity for replay worker threads

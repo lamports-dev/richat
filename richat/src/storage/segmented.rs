@@ -2,7 +2,6 @@ use {
     super::{
         SlotIndexValue,
         metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
-        recovery::recover_active_segment,
         segment_format::{
             ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
             write_segment_header,
@@ -12,10 +11,7 @@ use {
             StorageWriteQueueMetrics, WriterCommand, spawn_serialize_worker, spawn_writer,
         },
     },
-    crate::{
-        channel::ParsedMessage, config::ConfigStorage,
-        util::SpawnedThreads,
-    },
+    crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     solana_clock::Slot,
@@ -40,7 +36,6 @@ pub(crate) struct SegmentedConfig {
     pub(crate) segment_target_size: usize,
     pub(crate) chunk_target_size: usize,
     pub(crate) chunk_compression: Option<ChunkCompression>,
-    pub(crate) recovery_rebuild_active: bool,
 }
 
 impl SegmentedConfig {
@@ -53,7 +48,6 @@ impl SegmentedConfig {
             segment_target_size: config.segment_target_size,
             chunk_target_size: config.chunk_target_size,
             chunk_compression: config.chunk_compression,
-            recovery_rebuild_active: config.recovery_rebuild_active,
         }
     }
 }
@@ -71,10 +65,7 @@ pub(crate) struct SegmentedStorage {
 }
 
 impl SegmentedStorage {
-    pub(crate) fn open(
-        config: ConfigStorage,
-        parser: MessageParserEncoding,
-    ) -> anyhow::Result<(Self, SpawnedThreads)> {
+    pub(crate) fn open(config: ConfigStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
         let config = SegmentedConfig::from_config(&config);
         std::fs::create_dir_all(&config.segments_path).with_context(|| {
             format!("failed to create segments path: {:?}", config.segments_path)
@@ -96,12 +87,6 @@ impl SegmentedStorage {
             create_segment_file(&config, segment)?;
             metadata.initialize_empty(state, segment)?;
             catalog = metadata.load_catalog()?;
-        }
-
-        if config.recovery_rebuild_active {
-            let recovery = recover_active_segment(&config, &catalog, parser)?;
-            metadata.apply_recovery_commit(&recovery)?;
-            catalog.apply_recovery_commit(&recovery);
         }
 
         let catalog = Arc::new(RwLock::new(catalog));
@@ -211,7 +196,6 @@ impl SegmentedStorage {
             Err(error) => Box::new(std::iter::once(Err(error))),
         }
     }
-
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow::Result<()> {
@@ -289,8 +273,7 @@ mod tests {
         let root = temp_dir("segmented-roundtrip");
         let config = test_config(&root, 1, 1);
 
-        let (storage, threads) =
-            SegmentedStorage::open(config.clone(), MessageParserEncoding::Prost).unwrap();
+        let (storage, threads) = SegmentedStorage::open(config.clone()).unwrap();
         storage.push_message(true, 10, 0, 0, slot_message(10, SlotStatus::SlotProcessed));
         storage.push_message(false, 10, 0, 1, slot_message(10, SlotStatus::SlotFinalized));
         storage.push_message(true, 11, 2, 2, slot_message(11, SlotStatus::SlotProcessed));
@@ -332,62 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn recovery_truncates_partial_tail_and_preserves_trim_floor() {
-        let root = temp_dir("segmented-recovery");
-        let config = test_config(&root, usize::MAX / 2, 1);
-
-        let (storage, threads) =
-            SegmentedStorage::open(config.clone(), MessageParserEncoding::Prost).unwrap();
-        storage.push_message(true, 20, 0, 0, slot_message(20, SlotStatus::SlotProcessed));
-        storage.push_message(true, 21, 1, 1, slot_message(21, SlotStatus::SlotProcessed));
-        wait_for(|| storage.read_slots().unwrap().len() == 2, "initial flush");
-
-        storage.remove_replay(20, Some(1));
-        wait_for(
-            || {
-                let slots = storage.read_slots().unwrap();
-                !slots.contains_key(&20) && slots.contains_key(&21)
-            },
-            "trim floor update",
-        );
-
-        let active_segment_id = {
-            let catalog = storage.catalog.read().expect("segment catalog poisoned");
-            catalog.state.active_segment_id
-        };
-        drop(storage);
-        join_threads(threads);
-
-        let segments_path = config.path.join("segments");
-        let segment_path = segments_path.join(segment_file_name(active_segment_id));
-        {
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&segment_path)
-                .unwrap();
-            use std::io::Write as _;
-            file.write_all(&[0xde, 0xad, 0xbe, 0xef]).unwrap();
-            file.sync_data().unwrap();
-        }
-
-        let (recovered, threads) =
-            SegmentedStorage::open(config.clone(), MessageParserEncoding::Prost).unwrap();
-        let slots = recovered.read_slots().unwrap();
-        assert!(!slots.contains_key(&20));
-        assert_eq!(slots.get(&21).unwrap().head, 1);
-
-        let items = recovered
-            .read_messages_from_index(1, MessageParserEncoding::Prost)
-            .collect::<Vec<_>>();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].as_ref().unwrap().0, 1);
-
-        drop(recovered);
-        join_threads(threads);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn dir_size_bytes_sums_nested_files() {
         let root = temp_dir("dir-size");
         let nested = root.join("nested");
@@ -414,7 +341,6 @@ mod tests {
             segment_target_size,
             chunk_target_size,
             chunk_compression: Some(ChunkCompression::Zstd(1)),
-            recovery_rebuild_active: true,
             replay_inflight_max: 1,
             replay_threads: 1,
             replay_affinity: None,

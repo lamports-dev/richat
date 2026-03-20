@@ -13,7 +13,7 @@ use {
     crate::{
         channel::ParsedMessage,
         metrics::{
-            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
+            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX, STORAGE_DISK_SIZE_BYTES,
             STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_MICROS_TOTAL,
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
@@ -21,8 +21,8 @@ use {
             STORAGE_WRITE_QUEUE_BYTES, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
-            STORAGE_DISK_SIZE_BYTES, STORAGE_WRITE_ROTATE_MICROS_TOTAL,
-            STORAGE_WRITE_SERIALIZE_MICROS_TOTAL, STORAGE_WRITE_TRIM_MICROS_TOTAL,
+            STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
+            STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
     },
     ::metrics::{counter, gauge},
@@ -693,10 +693,9 @@ impl SegmentWriter {
     fn publish_disk_size_metric(&self) {
         let segment_bytes = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
-            catalog
-                .segments
-                .values()
-                .fold(0u64, |bytes, segment| bytes.saturating_add(segment.file_len))
+            catalog.segments.values().fold(0u64, |bytes, segment| {
+                bytes.saturating_add(segment.file_len)
+            })
         };
         let metadata_bytes = dir_size_bytes(&self.config.metadata_path).unwrap_or(0);
         gauge!(STORAGE_DISK_SIZE_BYTES).set(segment_bytes.saturating_add(metadata_bytes) as f64);

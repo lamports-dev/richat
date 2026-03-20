@@ -265,9 +265,6 @@ pub struct ConfigStorage {
     /// Omit or set to null to disable compression.
     #[serde(default, deserialize_with = "deserialize_chunk_compression")]
     pub chunk_compression: Option<ChunkCompression>,
-    /// Whether startup rebuilds metadata from the active segment tail.
-    #[serde(default = "ConfigStorage::default_recovery_rebuild_active")]
-    pub recovery_rebuild_active: bool,
     /// Maximum number of in-flight replay-from-disk requests.
     #[serde(
         default = "ConfigStorage::default_replay_channel_capacity",
@@ -302,10 +299,6 @@ impl ConfigStorage {
 
     const fn default_chunk_target_size() -> usize {
         4 * 1024 * 1024
-    }
-
-    const fn default_recovery_rebuild_active() -> bool {
-        true
     }
 
     const fn default_replay_channel_capacity() -> usize {
