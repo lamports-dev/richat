@@ -8,7 +8,7 @@ use {
             CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
             append_record, chunk_crc32, segment_file_name, write_segment_header,
         },
-        segmented::SegmentedConfig,
+        segmented::{SegmentedConfig, dir_size_bytes},
     },
     crate::{
         channel::ParsedMessage,
@@ -21,8 +21,8 @@ use {
             STORAGE_WRITE_QUEUE_BYTES, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL,
             STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
-            STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
-            STORAGE_WRITE_TRIM_MICROS_TOTAL,
+            STORAGE_DISK_SIZE_BYTES, STORAGE_WRITE_ROTATE_MICROS_TOTAL,
+            STORAGE_WRITE_SERIALIZE_MICROS_TOTAL, STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
     },
     ::metrics::{counter, gauge},
@@ -508,6 +508,7 @@ impl SegmentWriter {
         }
         counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
             .increment(duration_as_micros(trim_started_at.elapsed()));
+        self.publish_disk_size_metric();
         Ok(())
     }
 
@@ -625,6 +626,7 @@ impl SegmentWriter {
         if self.active_segment.file_len >= self.config.segment_target_size as u64 {
             self.rotate_segment()?;
         }
+        self.publish_disk_size_metric();
         Ok(())
     }
 
@@ -686,6 +688,18 @@ impl SegmentWriter {
         self.active_segment = new_segment;
         self.active_file = new_file;
         Ok(())
+    }
+
+    fn publish_disk_size_metric(&self) {
+        let segment_bytes = {
+            let catalog = self.catalog.read().expect("segment catalog poisoned");
+            catalog
+                .segments
+                .values()
+                .fold(0u64, |bytes, segment| bytes.saturating_add(segment.file_len))
+        };
+        let metadata_bytes = dir_size_bytes(&self.config.metadata_path).unwrap_or(0);
+        gauge!(STORAGE_DISK_SIZE_BYTES).set(segment_bytes.saturating_add(metadata_bytes) as f64);
     }
 }
 

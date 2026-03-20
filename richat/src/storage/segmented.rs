@@ -13,10 +13,9 @@ use {
         },
     },
     crate::{
-        channel::ParsedMessage, config::ConfigStorage, metrics::STORAGE_DISK_SIZE_BYTES,
+        channel::ParsedMessage, config::ConfigStorage,
         util::SpawnedThreads,
     },
-    ::metrics::gauge,
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     solana_clock::Slot,
@@ -213,21 +212,6 @@ impl SegmentedStorage {
         }
     }
 
-    pub(crate) fn publish_disk_size_metric(&self) -> anyhow::Result<()> {
-        gauge!(STORAGE_DISK_SIZE_BYTES).set(self.disk_size_bytes()? as f64);
-        Ok(())
-    }
-
-    fn disk_size_bytes(&self) -> anyhow::Result<u64> {
-        Ok(dir_size_bytes(&self.config.metadata_path)?.saturating_add(self.segment_bytes()))
-    }
-
-    fn segment_bytes(&self) -> u64 {
-        let catalog = self.catalog.read().expect("segment catalog poisoned");
-        catalog.segments.values().fold(0u64, |bytes, segment| {
-            bytes.saturating_add(segment.file_len)
-        })
-    }
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow::Result<()> {
@@ -251,7 +235,7 @@ fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow
     Ok(())
 }
 
-fn dir_size_bytes(path: &Path) -> anyhow::Result<u64> {
+pub(super) fn dir_size_bytes(path: &Path) -> anyhow::Result<u64> {
     let metadata = match std::fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
