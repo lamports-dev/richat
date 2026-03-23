@@ -11,8 +11,7 @@ use {
             },
             segment_reader::SegmentReader,
             segment_writer::{
-                StorageWriteQueueMetrics, WriterCommand, spawn_collector, spawn_compressor,
-                spawn_writer,
+                WriterCommand, spawn_collector, spawn_compressor, spawn_writer,
             },
         },
         util::SpawnedThreads,
@@ -65,8 +64,7 @@ impl SegmentedConfig {
 pub(crate) struct SegmentedStorage {
     config: SegmentedConfig,
     catalog: Arc<RwLock<MetadataCatalog>>,
-    queue_metrics: Arc<StorageWriteQueueMetrics>,
-    write_tx: kanal::Sender<WriterCommand>,
+    pub(crate) write_tx: kanal::Sender<WriterCommand>,
 }
 
 impl SegmentedStorage {
@@ -95,16 +93,13 @@ impl SegmentedStorage {
         }
 
         let catalog = Arc::new(RwLock::new(catalog));
-        let queue_metrics = Arc::new(StorageWriteQueueMetrics::default());
-        queue_metrics.publish_current();
-        let (write_tx, write_rx) = kanal::bounded(32);
+        let (write_tx, write_rx) = kanal::bounded(64);
         let (collector_tx, collector_rx) = kanal::bounded(2);
         let (compressor_tx, compressor_rx) = kanal::bounded(2);
 
         let collector_thread = spawn_collector(
             config.chunk_target_size,
             config.serialize_affinity.clone(),
-            Arc::clone(&queue_metrics),
             write_rx,
             collector_tx,
         )?;
@@ -138,39 +133,13 @@ impl SegmentedStorage {
         let storage = Self {
             config,
             catalog,
-            queue_metrics,
             write_tx,
         };
         Ok((storage, threads))
     }
 
-    pub(crate) fn push_message(
-        &self,
-        init: bool,
-        slot: Slot,
-        head: u64,
-        index: u64,
-        message: ParsedMessage,
-    ) {
-        let command = WriterCommand::push_message(init, slot, head, index, message);
-        let approx_bytes = command.approx_bytes();
-        self.queue_metrics.begin_enqueue(approx_bytes);
-        if self.write_tx.send(command).is_ok() {
-            self.queue_metrics.commit_enqueue(approx_bytes);
-        } else {
-            self.queue_metrics.cancel_enqueue(approx_bytes);
-        }
-    }
-
     pub(crate) fn remove_replay(&self, slot: Slot, until: Option<u64>) {
-        let command = WriterCommand::remove_replay(slot, until);
-        let approx_bytes = command.approx_bytes();
-        self.queue_metrics.begin_enqueue(approx_bytes);
-        if self.write_tx.send(command).is_ok() {
-            self.queue_metrics.commit_enqueue(approx_bytes);
-        } else {
-            self.queue_metrics.cancel_enqueue(approx_bytes);
-        }
+        let _ = self.write_tx.send(WriterCommand::RemoveReplay { slot, until });
     }
 
     pub(crate) fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
@@ -271,7 +240,10 @@ fn current_unix_ms() -> anyhow::Result<u64> {
 mod tests {
     use {
         super::{ChunkCompression, SegmentedStorage, dir_size_bytes, segment_file_name},
-        crate::{channel::ParsedMessage, config::ConfigStorage, util::SpawnedThreads},
+        crate::{
+            channel::ParsedMessage, config::ConfigStorage, storage::segment_writer::WriterCommand,
+            util::SpawnedThreads,
+        },
         prost_types::Timestamp,
         richat_filter::message::{MessageParserEncoding, MessageSlot},
         richat_proto::geyser::SlotStatus,
@@ -289,9 +261,27 @@ mod tests {
         let config = test_config(&root, 1, 1);
 
         let (storage, threads) = SegmentedStorage::open(config.clone()).unwrap();
-        storage.push_message(true, 10, 0, 0, slot_message(10, SlotStatus::SlotProcessed));
-        storage.push_message(false, 10, 0, 1, slot_message(10, SlotStatus::SlotFinalized));
-        storage.push_message(true, 11, 2, 2, slot_message(11, SlotStatus::SlotProcessed));
+        let _ = storage.write_tx.send(WriterCommand::PushMessage {
+            init: true,
+            slot: 10,
+            head: 0,
+            index: 0,
+            message: slot_message(10, SlotStatus::SlotProcessed),
+        });
+        let _ = storage.write_tx.send(WriterCommand::PushMessage {
+            init: false,
+            slot: 10,
+            head: 0,
+            index: 1,
+            message: slot_message(10, SlotStatus::SlotFinalized),
+        });
+        let _ = storage.write_tx.send(WriterCommand::PushMessage {
+            init: true,
+            slot: 11,
+            head: 2,
+            index: 2,
+            message: slot_message(11, SlotStatus::SlotProcessed),
+        });
 
         wait_for(
             || {

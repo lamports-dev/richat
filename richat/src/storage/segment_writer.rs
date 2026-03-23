@@ -7,10 +7,7 @@ use {
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
             STORAGE_WRITE_FSYNC_MICROS_TOTAL, STORAGE_WRITE_METADATA_MICROS_TOTAL,
-            STORAGE_WRITE_QUEUE_BYTES, STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL,
-            STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL,
-            STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL,
-            STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_SERIALIZE_MICROS_TOTAL,
+            STORAGE_WRITE_ROTATE_MICROS_TOTAL,
             STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
         storage::{
@@ -20,9 +17,10 @@ use {
             },
             segment_format::{
                 CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
-                append_record, chunk_crc32, segment_file_name, write_segment_header,
+                chunk_crc32, segment_file_name, write_segment_header,
             },
             segmented::{SegmentedConfig, dir_size_bytes},
+            MessageRecordCodec,
         },
     },
     ::metrics::{counter, gauge},
@@ -33,10 +31,7 @@ use {
         collections::HashSet,
         fs::{File, OpenOptions},
         io::{Seek, SeekFrom, Write},
-        sync::{
-            Arc, RwLock,
-            atomic::{AtomicU64, Ordering},
-        },
+        sync::{Arc, RwLock},
         thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     },
@@ -44,57 +39,7 @@ use {
 };
 
 #[derive(Debug)]
-pub(crate) struct WriterCommand {
-    enqueued_at: Instant,
-    approx_bytes: usize,
-    kind: WriterCommandKind,
-}
-
-impl WriterCommand {
-    pub(crate) fn push_message(
-        init: bool,
-        slot: Slot,
-        head: u64,
-        index: u64,
-        message: ParsedMessage,
-    ) -> Self {
-        let approx_bytes = message.size();
-        Self {
-            enqueued_at: Instant::now(),
-            approx_bytes,
-            kind: WriterCommandKind::PushMessage {
-                init,
-                slot,
-                head,
-                index,
-                message,
-            },
-        }
-    }
-
-    pub(crate) fn remove_replay(slot: Slot, until: Option<u64>) -> Self {
-        Self {
-            enqueued_at: Instant::now(),
-            approx_bytes: 0,
-            kind: WriterCommandKind::RemoveReplay { slot, until },
-        }
-    }
-
-    pub(crate) const fn approx_bytes(&self) -> usize {
-        self.approx_bytes
-    }
-
-    fn wait_micros(&self) -> u64 {
-        duration_as_micros(self.enqueued_at.elapsed())
-    }
-
-    fn into_kind(self) -> WriterCommandKind {
-        self.kind
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum WriterCommandKind {
+pub(crate) enum WriterCommand {
     PushMessage {
         init: bool,
         slot: Slot,
@@ -108,48 +53,6 @@ pub(crate) enum WriterCommandKind {
     },
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct StorageWriteQueueMetrics {
-    queued_bytes: AtomicU64,
-}
-
-impl StorageWriteQueueMetrics {
-    pub(crate) fn publish_current(&self) {
-        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(self.queued_bytes.load(Ordering::Relaxed) as f64);
-    }
-
-    pub(crate) fn begin_enqueue(&self, approx_bytes: usize) {
-        let approx_bytes = approx_bytes as u64;
-        let queued_bytes =
-            self.queued_bytes.fetch_add(approx_bytes, Ordering::Relaxed) + approx_bytes;
-        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
-    }
-
-    pub(crate) fn commit_enqueue(&self, approx_bytes: usize) {
-        let approx_bytes = approx_bytes as u64;
-        counter!(STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL).increment(1);
-        counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL).increment(approx_bytes);
-    }
-
-    pub(crate) fn cancel_enqueue(&self, approx_bytes: usize) {
-        let approx_bytes = approx_bytes as u64;
-        let queued_bytes =
-            self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
-        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
-    }
-
-    fn record_dequeue(&self, command: &WriterCommand) {
-        let approx_bytes = command.approx_bytes() as u64;
-        let queued_bytes =
-            self.queued_bytes.fetch_sub(approx_bytes, Ordering::Relaxed) - approx_bytes;
-
-        counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL).increment(1);
-        counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL).increment(approx_bytes);
-        counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL).increment(command.wait_micros());
-        gauge!(STORAGE_WRITE_QUEUE_BYTES).set(queued_bytes as f64);
-    }
-}
-
 #[derive(Debug)]
 struct PendingSlot {
     slot: Slot,
@@ -157,7 +60,7 @@ struct PendingSlot {
     record_ordinal: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct PendingChunkMeta {
     estimated_uncompressed_size: usize,
     record_count: u32,
@@ -170,20 +73,11 @@ struct PendingChunkMeta {
 }
 
 impl PendingChunkMeta {
-    fn new(slot: Slot, index: u64) -> Self {
-        Self {
-            estimated_uncompressed_size: 0,
-            record_count: 0,
-            first_index: index,
-            last_index: index,
-            first_slot: slot,
-            last_slot: slot,
-            pending_slots: Vec::new(),
-            pending_finalized: HashSet::new(),
-        }
-    }
-
     fn push(&mut self, init: bool, slot: Slot, head: u64, index: u64, message: &ParsedMessage) {
+        if self.record_count == 0 {
+            self.first_index = index;
+            self.first_slot = slot;
+        }
         let record_ordinal = self.record_count;
         self.last_index = index;
         self.last_slot = slot;
@@ -209,6 +103,10 @@ impl PendingChunkMeta {
 
     const fn should_flush(&self, target_size: usize) -> bool {
         self.estimated_uncompressed_size >= target_size
+    }
+
+    const fn is_empty(&self) -> bool {
+        self.record_count == 0
     }
 }
 
@@ -254,7 +152,6 @@ pub(crate) struct CompressedChunk {
 pub(crate) fn spawn_collector(
     chunk_target_size: usize,
     serialize_affinity: Option<Vec<usize>>,
-    queue_metrics: Arc<StorageWriteQueueMetrics>,
     rx: kanal::Receiver<WriterCommand>,
     tx: kanal::Sender<CollectorOutput>,
 ) -> anyhow::Result<crate::util::SpawnedThread> {
@@ -266,89 +163,82 @@ pub(crate) fn spawn_collector(
                 affinity_linux::set_thread_affinity(cpus.into_iter())
                     .expect("failed to set affinity");
             }
-            run_collector(chunk_target_size, queue_metrics, rx, tx)
+            run_collector(chunk_target_size, rx, tx)
         })?;
     Ok((th_name, Some(jh)))
 }
 
 fn run_collector(
     chunk_target_size: usize,
-    queue_metrics: Arc<StorageWriteQueueMetrics>,
     rx: kanal::Receiver<WriterCommand>,
     tx: kanal::Sender<CollectorOutput>,
 ) -> anyhow::Result<()> {
-    let mut record_buf = Vec::with_capacity(256 * 1024);
-    let mut chunk_buf = Vec::with_capacity(4 * 1024 * 1024);
-    let mut pending_chunk: Option<PendingChunkMeta> = None;
+     // 11MiB should be enough for all types of messages
+    let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
+    let mut chunk_buf = Vec::with_capacity(chunk_target_size);
+    let mut pending = PendingChunkMeta::default();
 
-    loop {
-        match rx.recv() {
+    let mut closed = false;
+    while !closed {
+        let mut should_flush = false;
+        let mut trim = None;
+
+        closed = match rx.recv() {
             Ok(command) => {
-                queue_metrics.record_dequeue(&command);
-                match command.into_kind() {
-                    WriterCommandKind::PushMessage {
+                match command {
+                    WriterCommand::PushMessage {
                         init,
                         slot,
                         head,
                         index,
                         message,
                     } => {
-                        let pending =
-                            pending_chunk.get_or_insert_with(|| PendingChunkMeta::new(slot, index));
-
-                        let serialize_started_at = Instant::now();
-                        append_record(slot, &message, &mut record_buf, &mut chunk_buf);
-                        counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL)
-                            .increment(duration_as_micros(serialize_started_at.elapsed()));
+                        record_buf.clear();
+                        MessageRecordCodec::encode(slot, &message, &mut record_buf);
+                        prost::encoding::encode_varint(record_buf.len() as u64, &mut chunk_buf);
+                        chunk_buf.extend_from_slice(&record_buf);
 
                         pending.push(init, slot, head, index, &message);
                         counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
 
-                        if pending.should_flush(chunk_target_size) {
-                            flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
-                        }
+                        should_flush = pending.should_flush(chunk_target_size);
                     }
-                    WriterCommandKind::RemoveReplay { slot, until } => {
-                        flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
-                        tx.send(CollectorOutput::Trim { slot, until })
-                            .map_err(|_| anyhow!("collector output channel closed"))?;
+                    WriterCommand::RemoveReplay { slot, until } => {
+                        should_flush = true;
+                        trim = Some((slot, until));
                     }
                 }
+                false
             }
-            Err(_) => {
-                flush_pending_chunk(&mut pending_chunk, &mut chunk_buf, &tx)?;
-                break;
-            }
+            Err(_error) => true,
+        };
+
+        if (should_flush || closed) && !pending.is_empty() {
+            let flushed = std::mem::take(&mut pending);
+            let crc32 = chunk_crc32(&chunk_buf);
+            counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
+                .increment(chunk_buf.len() as u64);
+
+            tx.send(CollectorOutput::SerializedChunk(SerializedChunk {
+                first_index: flushed.first_index,
+                last_index: flushed.last_index,
+                first_slot: flushed.first_slot,
+                last_slot: flushed.last_slot,
+                record_count: flushed.record_count,
+                uncompressed_payload: std::mem::replace(&mut chunk_buf, Vec::with_capacity(chunk_target_size)),
+                crc32,
+                pending_slots: flushed.pending_slots,
+                pending_finalized: flushed.pending_finalized,
+            }))
+            .map_err(|_| anyhow!("collector output channel closed"))?;
+        }
+
+        if let Some((slot, until)) = trim {
+            tx.send(CollectorOutput::Trim { slot, until })
+                .map_err(|_| anyhow!("collector output channel closed"))?;
         }
     }
 
-    Ok(())
-}
-
-fn flush_pending_chunk(
-    pending_chunk: &mut Option<PendingChunkMeta>,
-    chunk_buf: &mut Vec<u8>,
-    tx: &kanal::Sender<CollectorOutput>,
-) -> anyhow::Result<()> {
-    let Some(pending) = pending_chunk.take() else {
-        return Ok(());
-    };
-    let crc32 = chunk_crc32(chunk_buf);
-    counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL).increment(chunk_buf.len() as u64);
-
-    let serialized = SerializedChunk {
-        first_index: pending.first_index,
-        last_index: pending.last_index,
-        first_slot: pending.first_slot,
-        last_slot: pending.last_slot,
-        record_count: pending.record_count,
-        uncompressed_payload: std::mem::take(chunk_buf),
-        crc32,
-        pending_slots: pending.pending_slots,
-        pending_finalized: pending.pending_finalized,
-    };
-    tx.send(CollectorOutput::SerializedChunk(serialized))
-        .map_err(|_| anyhow!("collector output channel closed"))?;
     Ok(())
 }
 

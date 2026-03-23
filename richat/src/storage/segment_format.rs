@@ -1,5 +1,4 @@
 use {
-    crate::{channel::ParsedMessage, storage::MessageRecordCodec},
     anyhow::Context,
     prost::encoding::decode_varint,
     solana_clock::Slot,
@@ -141,18 +140,6 @@ impl ChunkHeader {
             crc32: u32::from_be_bytes(bytes[56..60].try_into().unwrap()),
         })
     }
-}
-
-pub(crate) fn append_record(
-    slot: Slot,
-    message: &ParsedMessage,
-    record_buf: &mut Vec<u8>,
-    chunk_buf: &mut Vec<u8>,
-) {
-    record_buf.clear();
-    MessageRecordCodec::encode(slot, message, record_buf);
-    prost::encoding::encode_varint(record_buf.len() as u64, chunk_buf);
-    chunk_buf.extend_from_slice(record_buf);
 }
 
 pub(crate) fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {

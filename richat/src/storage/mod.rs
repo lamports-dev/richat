@@ -11,6 +11,7 @@ use {
         config::ConfigStorage,
         grpc::server::SubscribeClient,
         metrics::GrpcSubscribeMessage,
+        storage::segment_writer::WriterCommand,
         util::SpawnedThreads,
     },
     ::metrics::Gauge,
@@ -261,7 +262,9 @@ impl Storage {
         index: u64,
         message: ParsedMessage,
     ) {
-        self.inner.push_message(init, slot, head, index, message);
+        let _ = self.inner.write_tx.send(WriterCommand::PushMessage {
+            init, slot, head, index, message,
+        });
     }
 
     pub fn remove_replay(&self, slot: Slot, until: Option<u64>) {
