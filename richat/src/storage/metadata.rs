@@ -83,7 +83,7 @@ pub struct SegmentMeta {
 }
 
 impl SegmentMeta {
-    pub(crate) const fn empty(segment_id: u64, file_len: u64) -> Self {
+    pub const fn empty(segment_id: u64, file_len: u64) -> Self {
         Self {
             segment_id,
             last_index: 0,
@@ -151,32 +151,32 @@ impl ChunkMeta {
 
 /// Atomic metadata update produced by flushing one chunk.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataChunkCommit {
-    pub(crate) new_slots: Vec<SlotMeta>,
-    pub(crate) updated_slots: Vec<SlotMeta>,
-    pub(crate) chunk: ChunkMeta,
-    pub(crate) segment: SegmentMeta,
+pub struct MetadataChunkCommit {
+    pub new_slots: Vec<SlotMeta>,
+    pub updated_slots: Vec<SlotMeta>,
+    pub chunk: ChunkMeta,
+    pub segment: SegmentMeta,
 }
 
 /// Atomic metadata update produced by retention trimming.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataTrimCommit {
-    pub(crate) removed_slot: Slot,
-    pub(crate) deleted_slots: Vec<Slot>,
-    pub(crate) deleted_segments: Vec<u64>,
-    pub(crate) deleted_chunks: Vec<u64>,
-    pub(crate) trim_floor_slot: Slot,
-    pub(crate) trim_floor_index: u64,
+pub struct MetadataTrimCommit {
+    pub removed_slot: Slot,
+    pub deleted_slots: Vec<Slot>,
+    pub deleted_segments: Vec<u64>,
+    pub deleted_chunks: Vec<u64>,
+    pub trim_floor_slot: Slot,
+    pub trim_floor_index: u64,
 }
 
 /// Metadata update produced when the writer seals one segment and opens the
 /// next one.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RotationCommit {
-    pub(crate) sealed_segment: SegmentMeta,
-    pub(crate) new_segment: SegmentMeta,
-    pub(crate) next_segment_id: u64,
-    pub(crate) active_segment_id: u64,
+pub struct RotationCommit {
+    pub sealed_segment: SegmentMeta,
+    pub new_segment: SegmentMeta,
+    pub next_segment_id: u64,
+    pub active_segment_id: u64,
 }
 
 const STATE_FORMAT_VERSION: u16 = 1;
@@ -184,18 +184,18 @@ const STATE_FORMAT_VERSION: u16 = 1;
 /// In-memory view of the metadata DB used for fast replay lookups and trim
 /// decisions.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataCatalog {
-    pub(crate) slots: BTreeMap<Slot, SlotMeta>,
-    pub(crate) segments: BTreeMap<u64, SegmentMeta>,
-    pub(crate) chunks: Vec<ChunkMeta>,
-    pub(crate) next_segment_id: u64,
-    pub(crate) active_segment_id: u64,
-    pub(crate) trim_floor_slot: Slot,
-    pub(crate) trim_floor_index: u64,
+pub struct MetadataCatalog {
+    pub slots: BTreeMap<Slot, SlotMeta>,
+    pub segments: BTreeMap<u64, SegmentMeta>,
+    pub chunks: Vec<ChunkMeta>,
+    pub next_segment_id: u64,
+    pub active_segment_id: u64,
+    pub trim_floor_slot: Slot,
+    pub trim_floor_index: u64,
 }
 
 impl MetadataCatalog {
-    pub(crate) fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
+    pub fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
         for meta in &commit.new_slots {
             self.slots.insert(meta.slot, *meta);
         }
@@ -207,7 +207,7 @@ impl MetadataCatalog {
         self.chunks.push(commit.chunk);
     }
 
-    pub(crate) fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
+    pub fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
         self.slots.remove(&commit.removed_slot);
         for slot in &commit.deleted_slots {
             self.slots.remove(slot);
@@ -221,7 +221,7 @@ impl MetadataCatalog {
         self.trim_floor_index = commit.trim_floor_index;
     }
 
-    pub(crate) fn apply_rotation_commit(&mut self, commit: RotationCommit) {
+    pub fn apply_rotation_commit(&mut self, commit: RotationCommit) {
         self.segments
             .insert(commit.sealed_segment.segment_id, commit.sealed_segment);
         self.segments
@@ -230,7 +230,7 @@ impl MetadataCatalog {
         self.active_segment_id = commit.active_segment_id;
     }
 
-    pub(crate) fn encode_state(&self) -> Vec<u8> {
+    pub fn encode_state(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(34);
         buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
         buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
@@ -246,7 +246,7 @@ impl MetadataCatalog {
 /// Payload bytes are stored in segment files; this DB keeps the exact lookup
 /// state needed to find them again.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataDb {
+pub struct MetadataDb {
     db: Arc<DB>,
 }
 
