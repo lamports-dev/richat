@@ -28,7 +28,7 @@ use {
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
     std::{
-        collections::HashSet,
+        collections::{BTreeMap, HashSet},
         fs::{File, OpenOptions},
         io::{Seek, SeekFrom, Write},
         sync::{Arc, RwLock},
@@ -111,8 +111,8 @@ impl PendingChunkMeta {
 }
 
 pub(crate) enum CollectorOutput {
-    SerializedChunk(SerializedChunk),
-    Trim { slot: Slot, until: Option<u64> },
+    SerializedChunk { seq: u64, chunk: SerializedChunk },
+    Trim { seq: u64, slot: Slot, until: Option<u64> },
 }
 
 pub(crate) struct SerializedChunk {
@@ -128,8 +128,17 @@ pub(crate) struct SerializedChunk {
 }
 
 pub(crate) enum CompressorOutput {
-    CompressedChunk(CompressedChunk),
-    Trim { slot: Slot, until: Option<u64> },
+    CompressedChunk { seq: u64, chunk: CompressedChunk },
+    Trim { seq: u64, slot: Slot, until: Option<u64> },
+}
+
+impl CompressorOutput {
+    const fn seq(&self) -> u64 {
+        match self {
+            Self::CompressedChunk { seq, .. } => *seq,
+            Self::Trim { seq, .. } => *seq,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -177,6 +186,7 @@ fn run_collector(
     let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
     let mut chunk_buf = Vec::with_capacity(chunk_target_size);
     let mut pending = PendingChunkMeta::default();
+    let mut next_seq: u64 = 0;
 
     let mut closed = false;
     while !closed {
@@ -219,23 +229,28 @@ fn run_collector(
             counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
                 .increment(chunk_buf.len() as u64);
 
-            tx.send(CollectorOutput::SerializedChunk(SerializedChunk {
-                first_index: flushed.first_index,
-                last_index: flushed.last_index,
-                first_slot: flushed.first_slot,
-                last_slot: flushed.last_slot,
-                record_count: flushed.record_count,
-                uncompressed_payload: std::mem::replace(&mut chunk_buf, Vec::with_capacity(chunk_target_size)),
-                crc32,
-                pending_slots: flushed.pending_slots,
-                pending_finalized: flushed.pending_finalized,
-            }))
+            tx.send(CollectorOutput::SerializedChunk {
+                seq: next_seq,
+                chunk: SerializedChunk {
+                    first_index: flushed.first_index,
+                    last_index: flushed.last_index,
+                    first_slot: flushed.first_slot,
+                    last_slot: flushed.last_slot,
+                    record_count: flushed.record_count,
+                    uncompressed_payload: std::mem::replace(&mut chunk_buf, Vec::with_capacity(chunk_target_size)),
+                    crc32,
+                    pending_slots: flushed.pending_slots,
+                    pending_finalized: flushed.pending_finalized,
+                },
+            })
             .map_err(|_| anyhow!("collector output channel closed"))?;
+            next_seq += 1;
         }
 
         if let Some((slot, until)) = trim {
-            tx.send(CollectorOutput::Trim { slot, until })
+            tx.send(CollectorOutput::Trim { seq: next_seq, slot, until })
                 .map_err(|_| anyhow!("collector output channel closed"))?;
+            next_seq += 1;
         }
     }
 
@@ -244,16 +259,37 @@ fn run_collector(
 
 // ── Compressor thread ──────────────────────────────────────────────
 
-pub(crate) fn spawn_compressor(
+pub(crate) fn spawn_compressor_pool(
+    threads: usize,
     chunk_compression: Option<ChunkCompression>,
+    affinity: Option<Vec<usize>>,
     rx: kanal::Receiver<CollectorOutput>,
     tx: kanal::Sender<CompressorOutput>,
-) -> anyhow::Result<crate::util::SpawnedThread> {
-    let th_name = "richatStrgCmp".to_owned();
-    let jh = thread::Builder::new()
-        .name(th_name.clone())
-        .spawn(move || run_compressor(chunk_compression, rx, tx))?;
-    Ok((th_name, Some(jh)))
+) -> anyhow::Result<Vec<crate::util::SpawnedThread>> {
+    let mut handles = Vec::with_capacity(threads);
+    for i in 0..threads {
+        let th_name = format!("richatStrgCmp{i:02}");
+        let rx = rx.clone();
+        let tx = tx.clone();
+        let cpus = affinity.as_ref().map(|aff| {
+            if threads == aff.len() {
+                vec![aff[i]]
+            } else {
+                aff.clone()
+            }
+        });
+        let jh = thread::Builder::new()
+            .name(th_name.clone())
+            .spawn(move || {
+                if let Some(cpus) = cpus {
+                    affinity_linux::set_thread_affinity(cpus.into_iter())
+                        .expect("failed to set affinity");
+                }
+                run_compressor(chunk_compression, rx, tx)
+            })?;
+        handles.push((th_name, Some(jh)));
+    }
+    Ok(handles)
 }
 
 fn run_compressor(
@@ -271,7 +307,7 @@ fn run_compressor(
 
     loop {
         match rx.recv() {
-            Ok(CollectorOutput::SerializedChunk(chunk)) => {
+            Ok(CollectorOutput::SerializedChunk { seq, chunk }) => {
                 let uncompressed_size = chunk.uncompressed_payload.len() as u32;
 
                 let payload = if let Some(compressor) = compressor.as_mut() {
@@ -303,14 +339,14 @@ fn run_compressor(
                 };
 
                 if tx
-                    .send(CompressorOutput::CompressedChunk(compressed))
+                    .send(CompressorOutput::CompressedChunk { seq, chunk: compressed })
                     .is_err()
                 {
                     break;
                 }
             }
-            Ok(CollectorOutput::Trim { slot, until }) => {
-                if tx.send(CompressorOutput::Trim { slot, until }).is_err() {
+            Ok(CollectorOutput::Trim { seq, slot, until }) => {
+                if tx.send(CompressorOutput::Trim { seq, slot, until }).is_err() {
                     break;
                 }
             }
@@ -339,12 +375,21 @@ pub(crate) fn spawn_writer(
     rx: kanal::Receiver<CompressorOutput>,
 ) -> anyhow::Result<()> {
     let mut writer = SegmentWriter::open(config, metadata, catalog)?;
+    let mut next_seq: u64 = 0;
+    let mut pending: BTreeMap<u64, CompressorOutput> = BTreeMap::new();
 
-    loop {
-        match rx.recv() {
-            Ok(CompressorOutput::CompressedChunk(chunk)) => writer.append_chunk(chunk)?,
-            Ok(CompressorOutput::Trim { slot, until }) => writer.handle_trim(slot, until)?,
-            Err(_) => break,
+    while let Ok(output) = rx.recv() {
+        pending.insert(output.seq(), output);
+        while let Some(item) = pending.remove(&next_seq) {
+            match item {
+                CompressorOutput::CompressedChunk { chunk, .. } => {
+                    writer.append_chunk(chunk)?;
+                }
+                CompressorOutput::Trim { slot, until, .. } => {
+                    writer.handle_trim(slot, until)?;
+                }
+            }
+            next_seq += 1;
         }
     }
 

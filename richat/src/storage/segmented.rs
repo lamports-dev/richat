@@ -11,7 +11,7 @@ use {
             },
             segment_reader::SegmentReader,
             segment_writer::{
-                WriterCommand, spawn_collector, spawn_compressor, spawn_writer,
+                WriterCommand, spawn_collector, spawn_compressor_pool, spawn_writer,
             },
         },
         util::SpawnedThreads,
@@ -40,6 +40,11 @@ pub(crate) struct SegmentedConfig {
     pub(crate) segment_target_size: usize,
     pub(crate) chunk_target_size: usize,
     pub(crate) chunk_compression: Option<ChunkCompression>,
+    pub(crate) compressor_threads: usize,
+    pub(crate) compressor_affinity: Option<Vec<usize>>,
+    pub(crate) compressor_channel_size: usize,
+    pub(crate) collector_channel_size: usize,
+    pub(crate) writer_channel_size: usize,
 }
 
 impl SegmentedConfig {
@@ -52,6 +57,11 @@ impl SegmentedConfig {
             segment_target_size: config.segment_target_size,
             chunk_target_size: config.chunk_target_size,
             chunk_compression: config.chunk_compression,
+            compressor_threads: config.compressor_threads,
+            compressor_affinity: config.compressor_affinity.clone(),
+            compressor_channel_size: config.compressor_channel_size,
+            collector_channel_size: config.collector_channel_size,
+            writer_channel_size: config.writer_channel_size,
         }
     }
 }
@@ -93,9 +103,9 @@ impl SegmentedStorage {
         }
 
         let catalog = Arc::new(RwLock::new(catalog));
-        let (write_tx, write_rx) = kanal::bounded(64);
-        let (collector_tx, collector_rx) = kanal::bounded(2);
-        let (compressor_tx, compressor_rx) = kanal::bounded(2);
+        let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
+        let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
+        let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
 
         let collector_thread = spawn_collector(
             config.chunk_target_size,
@@ -103,8 +113,13 @@ impl SegmentedStorage {
             write_rx,
             collector_tx,
         )?;
-        let compressor_thread =
-            spawn_compressor(config.chunk_compression, collector_rx, compressor_tx)?;
+        let compressor_threads = spawn_compressor_pool(
+            config.compressor_threads,
+            config.chunk_compression,
+            config.compressor_affinity.clone(),
+            collector_rx,
+            compressor_tx,
+        )?;
 
         let writer_config = config.clone();
         let writer_catalog = Arc::clone(&catalog);
@@ -124,11 +139,9 @@ impl SegmentedStorage {
                     compressor_rx,
                 )
             })?;
-        let threads = vec![
-            collector_thread,
-            compressor_thread,
-            ("richatStrgWrt".to_owned(), Some(writer_jh)),
-        ];
+        let mut threads = vec![collector_thread];
+        threads.extend(compressor_threads);
+        threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
         let storage = Self {
             config,
@@ -350,6 +363,11 @@ mod tests {
             replay_threads: 1,
             replay_affinity: None,
             replay_decode_per_tick: 32,
+            compressor_threads: 1,
+            compressor_affinity: None,
+            compressor_channel_size: 2,
+            collector_channel_size: 64,
+            writer_channel_size: 2,
         }
     }
 

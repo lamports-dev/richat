@@ -74,6 +74,11 @@ channel:
       # replay_threads: 4 # worker threads serving disk replay to subscribers
       # replay_affinity: null # CPU affinity for replay worker threads
       # replay_decode_per_tick: 256 # max decoded messages pulled from disk per worker cycle
+      # compressor_threads: 1 # number of compression worker threads
+      # compressor_affinity: null # CPU affinity for compressor threads
+      # compressor_channel_size: 2 # bounded channel capacity for collector→compressor and compressor→writer stages
+      # collector_channel_size: 64 # bounded channel capacity for caller→collector stage
+      # writer_channel_size: 2 # bounded channel capacity for compressor→writer stage
 apps:
   tokio:
     worker_threads: null # by default number of cpus

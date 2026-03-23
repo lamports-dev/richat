@@ -286,6 +286,33 @@ pub struct ConfigStorage {
         deserialize_with = "deserialize_num_str"
     )]
     pub replay_decode_per_tick: usize,
+    /// Number of compression worker threads.
+    #[serde(
+        default = "ConfigStorage::default_compressor_threads",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub compressor_threads: usize,
+    /// CPU affinity for compressor threads.
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub compressor_affinity: Option<Vec<usize>>,
+    /// Bounded channel capacity for the collector→compressor and compressor→writer stages.
+    #[serde(
+        default = "ConfigStorage::default_compressor_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub compressor_channel_size: usize,
+    /// Bounded channel capacity for the caller→collector stage.
+    #[serde(
+        default = "ConfigStorage::default_collector_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub collector_channel_size: usize,
+    /// Bounded channel capacity for the compressor→writer stage.
+    #[serde(
+        default = "ConfigStorage::default_writer_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub writer_channel_size: usize,
 }
 
 impl ConfigStorage {
@@ -311,6 +338,22 @@ impl ConfigStorage {
 
     const fn default_replay_decode_per_tick() -> usize {
         256
+    }
+
+    const fn default_compressor_threads() -> usize {
+        1
+    }
+
+    const fn default_compressor_channel_size() -> usize {
+        2
+    }
+
+    const fn default_collector_channel_size() -> usize {
+        64
+    }
+
+    const fn default_writer_channel_size() -> usize {
+        2
     }
 }
 
