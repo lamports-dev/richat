@@ -13,10 +13,9 @@ pub(crate) const SEGMENT_HEADER_LEN: usize = 32;
 
 /// Compression algorithm used for a chunk payload.
 ///
-/// Stored as a single byte in the chunk header (offset 6).  The
-/// writer picks the algorithm from config; the reader uses the tag
-/// stored on disk so it can always decode regardless of the current
-/// config.
+/// Stored as a single byte in chunk metadata.  The writer picks the
+/// algorithm from config; the reader uses the tag stored in metadata
+/// so it can always decode regardless of the current config.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChunkCompression {
     None,
@@ -99,10 +98,6 @@ pub(crate) fn read_segment_header(file: &mut File) -> anyhow::Result<SegmentHead
     file.seek(SeekFrom::Start(0))?;
     file.read_exact(&mut buf)?;
     SegmentHeader::decode(&buf)
-}
-
-pub(crate) fn chunk_crc32(bytes: &[u8]) -> u32 {
-    crc32fast::hash(bytes)
 }
 
 pub(crate) fn segment_file_name(segment_id: u64) -> String {

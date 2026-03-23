@@ -49,8 +49,6 @@ pub(crate) struct SlotMeta {
     pub(crate) slot: Slot,
     pub(crate) first_index: u64,
     pub(crate) segment_id: u64,
-    pub(crate) chunk_ordinal: u32,
-    pub(crate) record_ordinal: u32,
     pub(crate) finalized: bool,
 }
 
@@ -72,17 +70,11 @@ pub(crate) struct SegmentMeta {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ChunkMeta {
     pub(crate) segment_id: u64,
-    pub(crate) chunk_ordinal: u32,
-    pub(crate) file_offset: u64,
-    pub(crate) first_slot: Slot,
-    pub(crate) last_slot: Slot,
+    pub(crate) offset: u64,
+    pub(crate) size: u32,
+    pub(crate) compression: u8,
     pub(crate) first_index: u64,
     pub(crate) last_index: u64,
-    pub(crate) record_count: u32,
-    pub(crate) compressed_size: u32,
-    pub(crate) uncompressed_size: u32,
-    pub(crate) crc32: u32,
-    pub(crate) compression: u8,
 }
 
 /// Small singleton state persisted alongside metadata tables.
@@ -171,7 +163,7 @@ pub(crate) struct MetadataTrimCommit {
     pub(crate) removed_slot: Slot,
     pub(crate) deleted_slots: Vec<Slot>,
     pub(crate) deleted_segments: Vec<u64>,
-    pub(crate) deleted_chunks: Vec<(u64, u32)>,
+    pub(crate) deleted_chunks: Vec<u64>,
     pub(crate) state: GlobalState,
 }
 
@@ -241,9 +233,8 @@ impl MetadataDb {
             .iterator_cf(Self::cf_handle::<ChunksCf>(&self.db), IteratorMode::Start)
         {
             let (key, value) = item.context("failed to read chunks row")?;
-            let (segment_id, chunk_ordinal) =
-                decode_chunk_key(&key).context("failed to decode chunk key")?;
-            let meta = ChunkMeta::decode(segment_id, chunk_ordinal, &value)
+            let first_index = decode_u64_key(&key).context("failed to decode chunk key")?;
+            let meta = ChunkMeta::decode(first_index, &value)
                 .context("failed to decode chunk meta")?;
             chunks.push(meta);
         }
@@ -275,7 +266,7 @@ impl MetadataDb {
         }
         batch.put_cf(
             Self::cf_handle::<ChunksCf>(&self.db),
-            encode_chunk_key(commit.chunk.segment_id, commit.chunk.chunk_ordinal),
+            encode_u64_key(commit.chunk.first_index),
             commit.chunk.encode(),
         );
         batch.put_cf(
@@ -300,10 +291,10 @@ impl MetadataDb {
         for slot in &commit.deleted_slots {
             batch.delete_cf(Self::cf_handle::<SlotsCf>(&self.db), encode_u64_key(*slot));
         }
-        for (segment_id, chunk_ordinal) in &commit.deleted_chunks {
+        for first_index in &commit.deleted_chunks {
             batch.delete_cf(
                 Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(*segment_id, *chunk_ordinal),
+                encode_u64_key(*first_index),
             );
         }
         for segment_id in &commit.deleted_segments {
@@ -382,8 +373,7 @@ impl MetadataDb {
     fn write_batch(&self, batch: WriteBatch) -> anyhow::Result<()> {
         let mut write_options = WriteOptions::default();
         write_options.set_sync(true);
-        self.db.write_opt(batch, &write_options)?;
-        Ok(())
+        self.db.write_opt(batch, &write_options).map_err(Into::into)
     }
 
     fn db_options() -> Options {
@@ -415,11 +405,9 @@ impl MetadataDb {
 
 impl SlotMeta {
     fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(25);
+        let mut buf = Vec::with_capacity(17);
         buf.extend_from_slice(&self.first_index.to_be_bytes());
         buf.extend_from_slice(&self.segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.chunk_ordinal.to_be_bytes());
-        buf.extend_from_slice(&self.record_ordinal.to_be_bytes());
         buf.push(u8::from(self.finalized));
         buf
     }
@@ -430,8 +418,6 @@ impl SlotMeta {
             slot,
             first_index: take_u64(&mut value)?,
             segment_id: take_u64(&mut value)?,
-            chunk_ordinal: take_u32(&mut value)?,
-            record_ordinal: take_u32(&mut value)?,
             finalized: take_bool(&mut value)?,
         })
     }
@@ -483,35 +469,24 @@ impl SegmentMeta {
 
 impl ChunkMeta {
     fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(57);
-        buf.extend_from_slice(&self.file_offset.to_be_bytes());
-        buf.extend_from_slice(&self.first_slot.to_be_bytes());
-        buf.extend_from_slice(&self.last_slot.to_be_bytes());
-        buf.extend_from_slice(&self.first_index.to_be_bytes());
-        buf.extend_from_slice(&self.last_index.to_be_bytes());
-        buf.extend_from_slice(&self.record_count.to_be_bytes());
-        buf.extend_from_slice(&self.compressed_size.to_be_bytes());
-        buf.extend_from_slice(&self.uncompressed_size.to_be_bytes());
-        buf.extend_from_slice(&self.crc32.to_be_bytes());
+        let mut buf = Vec::with_capacity(29);
+        buf.extend_from_slice(&self.segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.offset.to_be_bytes());
+        buf.extend_from_slice(&self.size.to_be_bytes());
         buf.push(self.compression);
+        buf.extend_from_slice(&self.last_index.to_be_bytes());
         buf
     }
 
-    fn decode(segment_id: u64, chunk_ordinal: u32, value: &[u8]) -> anyhow::Result<Self> {
+    fn decode(first_index: u64, value: &[u8]) -> anyhow::Result<Self> {
         let mut value = value;
         Ok(Self {
-            segment_id,
-            chunk_ordinal,
-            file_offset: take_u64(&mut value)?,
-            first_slot: take_u64(&mut value)?,
-            last_slot: take_u64(&mut value)?,
-            first_index: take_u64(&mut value)?,
-            last_index: take_u64(&mut value)?,
-            record_count: take_u32(&mut value)?,
-            compressed_size: take_u32(&mut value)?,
-            uncompressed_size: take_u32(&mut value)?,
-            crc32: take_u32(&mut value)?,
+            segment_id: take_u64(&mut value)?,
+            offset: take_u64(&mut value)?,
+            size: take_u32(&mut value)?,
             compression: take_u8(&mut value)?,
+            first_index,
+            last_index: take_u64(&mut value)?,
         })
     }
 }
@@ -554,32 +529,6 @@ fn decode_u64_key(value: &[u8]) -> anyhow::Result<u64> {
         .try_into()
         .map(u64::from_be_bytes)
         .context("invalid u64 key length")
-}
-
-const fn encode_chunk_key(segment_id: u64, chunk_ordinal: u32) -> [u8; 12] {
-    let segment = segment_id.to_be_bytes();
-    let chunk = chunk_ordinal.to_be_bytes();
-    [
-        segment[0], segment[1], segment[2], segment[3], segment[4], segment[5], segment[6],
-        segment[7], chunk[0], chunk[1], chunk[2], chunk[3],
-    ]
-}
-
-fn decode_chunk_key(value: &[u8]) -> anyhow::Result<(u64, u32)> {
-    anyhow::ensure!(
-        value.len() == 12,
-        "invalid chunk key length: {}",
-        value.len()
-    );
-    let segment = value[..8]
-        .try_into()
-        .map(u64::from_be_bytes)
-        .context("invalid segment id in chunk key")?;
-    let chunk = value[8..]
-        .try_into()
-        .map(u32::from_be_bytes)
-        .context("invalid chunk ordinal in chunk key")?;
-    Ok((segment, chunk))
 }
 
 fn take_u16(slice: &mut &[u8]) -> anyhow::Result<u16> {
@@ -645,8 +594,6 @@ mod tests {
             slot: 42,
             first_index: 11,
             segment_id: 7,
-            chunk_ordinal: 3,
-            record_ordinal: 2,
             finalized: true,
         };
         assert_eq!(SlotMeta::decode(meta.slot, &meta.encode()).unwrap(), meta);
@@ -675,20 +622,14 @@ mod tests {
     fn chunk_meta_roundtrip() {
         let meta = ChunkMeta {
             segment_id: 2,
-            chunk_ordinal: 1,
-            file_offset: 64,
-            first_slot: 20,
-            last_slot: 21,
+            offset: 64,
+            size: 300,
+            compression: 1,
             first_index: 200,
             last_index: 220,
-            record_count: 21,
-            compressed_size: 300,
-            uncompressed_size: 900,
-            crc32: 1234,
-            compression: 1,
         };
         assert_eq!(
-            ChunkMeta::decode(meta.segment_id, meta.chunk_ordinal, &meta.encode()).unwrap(),
+            ChunkMeta::decode(meta.first_index, &meta.encode()).unwrap(),
             meta
         );
     }

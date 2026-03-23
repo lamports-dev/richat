@@ -6,8 +6,8 @@ use {
             MessageRecordCodec,
             metadata::ChunkMeta,
             segment_format::{
-                ChunkCompression, SEGMENT_HEADER_LEN, chunk_crc32, next_record,
-                read_segment_header, segment_file_name,
+                ChunkCompression, SEGMENT_HEADER_LEN, next_record, read_segment_header,
+                segment_file_name,
             },
         },
     },
@@ -19,13 +19,12 @@ use {
         io::{Read, Seek, SeekFrom},
         path::PathBuf,
     },
-    zstd::bulk::Decompressor,
+    zstd::stream::decode_all as zstd_decode_all,
 };
 
 /// A single decompressed chunk ready for record decoding.
 pub(crate) struct DecompressedChunk {
     pub(crate) first_index: u64,
-    record_count: u32,
     skip: usize,
     data: Vec<u8>,
 }
@@ -35,17 +34,17 @@ impl DecompressedChunk {
         self,
         parser: MessageParserEncoding,
     ) -> anyhow::Result<Vec<(u64, ParsedMessage)>> {
-        let mut records = Vec::with_capacity(self.record_count as usize);
+        let mut records = Vec::new();
         let mut slice = self.data.as_slice();
-        for ordinal in 0..self.record_count as usize {
+        let mut ordinal = 0usize;
+        while !slice.is_empty() {
             let record = next_record(&mut slice)?;
-            if ordinal < self.skip {
-                continue;
+            if ordinal >= self.skip {
+                let (_slot, message) = MessageRecordCodec::decode(record, parser)?;
+                records.push((self.first_index + ordinal as u64, message.into()));
             }
-            let (_slot, message) = MessageRecordCodec::decode(record, parser)?;
-            records.push((self.first_index + ordinal as u64, message.into()));
+            ordinal += 1;
         }
-        anyhow::ensure!(slice.is_empty(), "extra trailing bytes in chunk");
         Ok(records)
     }
 }
@@ -61,26 +60,24 @@ pub(crate) struct SegmentReader {
     next_index: u64,
     current_segment_id: Option<u64>,
     current_file: Option<File>,
-    decompressor: Decompressor<'static>,
     failed: bool,
 }
 
 impl SegmentReader {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         segments_path: PathBuf,
         chunks: Vec<ChunkMeta>,
         start_index: u64,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             segments_path,
             chunks,
             next_chunk: 0,
             next_index: start_index,
             current_segment_id: None,
             current_file: None,
-            decompressor: Decompressor::new().context("failed to create zstd decompressor")?,
             failed: false,
-        })
+        }
     }
 
     fn load_next_chunk(&mut self) -> anyhow::Result<DecompressedChunk> {
@@ -88,9 +85,9 @@ impl SegmentReader {
         self.next_chunk += 1;
 
         let file = self.open_segment(chunk.segment_id)?;
-        file.seek(SeekFrom::Start(chunk.file_offset))?;
+        file.seek(SeekFrom::Start(chunk.offset))?;
 
-        let mut payload = vec![0; chunk.compressed_size as usize];
+        let mut payload = vec![0; chunk.size as usize];
         file.read_exact(&mut payload)?;
         counter!(STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
 
@@ -98,20 +95,10 @@ impl SegmentReader {
             .context("unsupported chunk compression")?;
         let uncompressed = match compression {
             ChunkCompression::None => payload,
-            ChunkCompression::Zstd(_) => self
-                .decompressor
-                .decompress(&payload, chunk.uncompressed_size as usize)
-                .context("failed to decompress chunk")?,
+            ChunkCompression::Zstd(_) => {
+                zstd_decode_all(payload.as_slice()).context("failed to decompress chunk")?
+            }
         };
-        anyhow::ensure!(
-            uncompressed.len() == chunk.uncompressed_size as usize,
-            "unexpected uncompressed size: {}",
-            uncompressed.len()
-        );
-        anyhow::ensure!(
-            chunk_crc32(&uncompressed) == chunk.crc32,
-            "chunk crc32 mismatch"
-        );
         counter!(STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL).increment(uncompressed.len() as u64);
 
         let skip = self.next_index.saturating_sub(chunk.first_index) as usize;
@@ -119,7 +106,6 @@ impl SegmentReader {
 
         Ok(DecompressedChunk {
             first_index: chunk.first_index,
-            record_count: chunk.record_count,
             skip,
             data: uncompressed,
         })

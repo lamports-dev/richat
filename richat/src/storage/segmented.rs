@@ -185,10 +185,7 @@ impl SegmentedStorage {
             return Box::new(std::iter::empty());
         }
 
-        match SegmentReader::new(self.config.segments_path.clone(), chunks, index) {
-            Ok(reader) => Box::new(reader),
-            Err(error) => Box::new(std::iter::once(Err(error))),
-        }
+        Box::new(SegmentReader::new(self.config.segments_path.clone(), chunks, index))
     }
 }
 

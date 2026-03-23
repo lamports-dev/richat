@@ -16,8 +16,8 @@ use {
                 RotationCommit, SegmentMeta, SlotMeta,
             },
             segment_format::{
-                ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, chunk_crc32,
-                segment_file_name, write_segment_header,
+                ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
+                write_segment_header,
             },
             segmented::SegmentedConfig,
         },
@@ -56,7 +56,6 @@ pub(crate) enum WriterCommand {
 struct PendingSlot {
     slot: Slot,
     first_index: u64,
-    record_ordinal: u32,
 }
 
 #[derive(Debug, Default)]
@@ -77,7 +76,6 @@ impl PendingChunkMeta {
             self.first_index = index;
             self.first_slot = slot;
         }
-        let record_ordinal = self.record_count;
         self.last_index = index;
         self.last_slot = slot;
         self.estimated_uncompressed_size = self
@@ -88,7 +86,6 @@ impl PendingChunkMeta {
             self.pending_slots.push(PendingSlot {
                 slot,
                 first_index: head,
-                record_ordinal,
             });
         }
         if let ParsedMessage::Slot(message) = message {
@@ -126,9 +123,7 @@ pub(crate) struct SerializedChunk {
     last_index: u64,
     first_slot: Slot,
     last_slot: Slot,
-    record_count: u32,
     uncompressed_payload: Vec<u8>,
-    crc32: u32,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
 }
@@ -161,10 +156,7 @@ pub(crate) struct CompressedChunk {
     last_index: u64,
     first_slot: Slot,
     last_slot: Slot,
-    record_count: u32,
-    uncompressed_size: u32,
     payload: Vec<u8>,
-    crc32: u32,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
 }
@@ -238,7 +230,6 @@ fn run_collector(
 
         if (should_flush || closed) && !pending.is_empty() {
             let flushed = std::mem::take(&mut pending);
-            let crc32 = chunk_crc32(&chunk_buf);
             counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
                 .increment(chunk_buf.len() as u64);
 
@@ -249,12 +240,10 @@ fn run_collector(
                     last_index: flushed.last_index,
                     first_slot: flushed.first_slot,
                     last_slot: flushed.last_slot,
-                    record_count: flushed.record_count,
                     uncompressed_payload: std::mem::replace(
                         &mut chunk_buf,
                         Vec::with_capacity(chunk_target_size),
                     ),
-                    crc32,
                     pending_slots: flushed.pending_slots,
                     pending_finalized: flushed.pending_finalized,
                 },
@@ -328,8 +317,6 @@ fn run_compressor(
     loop {
         match rx.recv() {
             Ok(CollectorOutput::SerializedChunk { seq, chunk }) => {
-                let uncompressed_size = chunk.uncompressed_payload.len() as u32;
-
                 let payload = if let Some(compressor) = compressor.as_mut() {
                     let compress_started_at = Instant::now();
                     let compressed = compressor
@@ -350,10 +337,7 @@ fn run_compressor(
                     last_index: chunk.last_index,
                     first_slot: chunk.first_slot,
                     last_slot: chunk.last_slot,
-                    record_count: chunk.record_count,
-                    uncompressed_size,
                     payload,
-                    crc32: chunk.crc32,
                     pending_slots: chunk.pending_slots,
                     pending_finalized: chunk.pending_finalized,
                 };
@@ -487,20 +471,13 @@ impl SegmentWriter {
     }
 
     fn append_chunk(&mut self, chunk: CompressedChunk) -> anyhow::Result<()> {
-        let chunk_ordinal = self.active_segment.chunk_count;
         let chunk_meta = ChunkMeta {
             segment_id: self.active_segment.segment_id,
-            chunk_ordinal,
-            file_offset: self.active_segment.file_len,
+            offset: self.active_segment.file_len,
+            size: chunk.payload.len() as u32,
             compression: chunk.compression,
-            first_slot: chunk.first_slot,
-            last_slot: chunk.last_slot,
             first_index: chunk.first_index,
             last_index: chunk.last_index,
-            record_count: chunk.record_count,
-            compressed_size: chunk.payload.len() as u32,
-            uncompressed_size: chunk.uncompressed_size,
-            crc32: chunk.crc32,
         };
 
         let append_started_at = Instant::now();
@@ -522,6 +499,8 @@ impl SegmentWriter {
                 &catalog,
                 self.active_segment,
                 chunk_meta,
+                chunk.first_slot,
+                chunk.last_slot,
                 &chunk.pending_slots,
                 &chunk.pending_finalized,
             )?
@@ -609,17 +588,19 @@ fn build_chunk_commit(
     catalog: &MetadataCatalog,
     active_segment: SegmentMeta,
     chunk: ChunkMeta,
+    first_slot: Slot,
+    last_slot: Slot,
     pending_slots: &[PendingSlot],
     pending_finalized: &HashSet<Slot>,
 ) -> anyhow::Result<MetadataChunkCommit> {
     let mut segment = active_segment;
     if segment.chunk_count == 0 {
-        segment.first_slot = chunk.first_slot;
+        segment.first_slot = first_slot;
         segment.first_index = chunk.first_index;
     }
-    segment.last_slot = chunk.last_slot;
+    segment.last_slot = last_slot;
     segment.last_index = chunk.last_index;
-    segment.file_len += u64::from(chunk.compressed_size);
+    segment.file_len += u64::from(chunk.size);
     segment.chunk_count += 1;
 
     let mut new_slots = Vec::with_capacity(pending_slots.len());
@@ -628,8 +609,6 @@ fn build_chunk_commit(
             slot: pending.slot,
             first_index: pending.first_index,
             segment_id: chunk.segment_id,
-            chunk_ordinal: chunk.chunk_ordinal,
-            record_ordinal: pending.record_ordinal,
             finalized: pending_finalized.contains(&pending.slot),
         });
     }
@@ -688,7 +667,7 @@ fn build_trim_commit(
         .chunks
         .iter()
         .filter(|chunk| deleted_segments.contains(&chunk.segment_id))
-        .map(|chunk| (chunk.segment_id, chunk.chunk_ordinal))
+        .map(|chunk| chunk.first_index)
         .collect::<Vec<_>>();
 
     MetadataTrimCommit {
