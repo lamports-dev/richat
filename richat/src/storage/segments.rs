@@ -38,12 +38,6 @@ use {
     zstd::{bulk::Compressor, stream::decode_all as zstd_decode_all},
 };
 
-// ── Segment format ─────────────────────────────────────────────────
-
-pub(crate) const SEGMENT_MAGIC: [u8; 4] = *b"RSEG";
-pub(crate) const SEGMENT_FORMAT_VERSION: u16 = 1;
-pub(crate) const SEGMENT_HEADER_LEN: usize = 32;
-
 /// Compression algorithm used for a chunk payload.
 ///
 /// Stored as a single byte in chunk metadata.  The writer picks the
@@ -75,39 +69,6 @@ impl ChunkCompression {
     }
 }
 
-/// Fixed header stored at the start of every segment file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SegmentHeader {
-    pub(crate) segment_id: u64,
-}
-
-impl SegmentHeader {
-    pub(crate) fn encode(self) -> [u8; SEGMENT_HEADER_LEN] {
-        let mut buf = [0u8; SEGMENT_HEADER_LEN];
-        buf[..4].copy_from_slice(&SEGMENT_MAGIC);
-        buf[4..6].copy_from_slice(&SEGMENT_FORMAT_VERSION.to_be_bytes());
-        buf[8..16].copy_from_slice(&self.segment_id.to_be_bytes());
-        buf
-    }
-
-    pub(crate) fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            bytes.len() == SEGMENT_HEADER_LEN,
-            "invalid segment header length: {}",
-            bytes.len()
-        );
-        anyhow::ensure!(bytes[..4] == SEGMENT_MAGIC, "invalid segment magic");
-        let version = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
-        anyhow::ensure!(
-            version == SEGMENT_FORMAT_VERSION,
-            "unsupported segment format version: {version}"
-        );
-        Ok(Self {
-            segment_id: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
-        })
-    }
-}
-
 pub(crate) fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
     let record_len = decode_varint(slice).context("failed to decode record len")? as usize;
     let (record, rest) = slice
@@ -115,19 +76,6 @@ pub(crate) fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> 
         .context("record extends past chunk boundary")?;
     *slice = rest;
     Ok(record)
-}
-
-pub(crate) fn write_segment_header(file: &mut File, header: SegmentHeader) -> anyhow::Result<()> {
-    file.seek(SeekFrom::Start(0))?;
-    file.write_all(&header.encode())?;
-    Ok(())
-}
-
-pub(crate) fn read_segment_header(file: &mut File) -> anyhow::Result<SegmentHeader> {
-    let mut buf = [0u8; SEGMENT_HEADER_LEN];
-    file.seek(SeekFrom::Start(0))?;
-    file.read_exact(&mut buf)?;
-    SegmentHeader::decode(&buf)
 }
 
 pub(crate) fn segment_file_name(segment_id: u64) -> String {
@@ -228,20 +176,8 @@ impl SegmentReader {
     fn open_segment(&mut self, segment_id: u64) -> anyhow::Result<&mut File> {
         if self.current_segment_id != Some(segment_id) {
             let path = self.segments_path.join(segment_file_name(segment_id));
-            let mut file = File::open(&path)
+            let file = File::open(&path)
                 .with_context(|| format!("failed to open segment file: {path:?}"))?;
-            let header = read_segment_header(&mut file)
-                .with_context(|| format!("failed to read segment header for {path:?}"))?;
-            anyhow::ensure!(
-                header.segment_id == segment_id,
-                "segment header id mismatch: expected {segment_id}, got {}",
-                header.segment_id
-            );
-            let metadata_len = file.metadata()?.len();
-            anyhow::ensure!(
-                metadata_len >= SEGMENT_HEADER_LEN as u64,
-                "segment file shorter than header: {path:?}"
-            );
             self.current_segment_id = Some(segment_id);
             self.current_file = Some(file);
         }
@@ -751,29 +687,19 @@ impl SegmentWriter {
             let new_segment_id = state.next_segment_id;
             state.next_segment_id += 1;
             state.active_segment_id = new_segment_id;
-            (
-                SegmentMeta::empty(new_segment_id, SEGMENT_HEADER_LEN as u64),
-                state,
-            )
+            (SegmentMeta::empty(new_segment_id, 0), state)
         };
 
         let new_path = self
             .config
             .segments_path
             .join(segment_file_name(new_segment.segment_id));
-        let mut new_file = OpenOptions::new()
+        let new_file = OpenOptions::new()
             .create_new(true)
             .read(true)
             .write(true)
             .open(&new_path)
             .with_context(|| format!("failed to create next segment: {new_path:?}"))?;
-        write_segment_header(
-            &mut new_file,
-            SegmentHeader {
-                segment_id: new_segment.segment_id,
-            },
-        )?;
-        new_file.sync_data()?;
 
         let sealed_segment = SegmentMeta {
             sealed: true,
@@ -958,8 +884,7 @@ impl SegmentedStorage {
             catalog.state.active_segment_id = catalog.state.next_segment_id;
             catalog.state.next_segment_id += 1;
 
-            let segment =
-                SegmentMeta::empty(catalog.state.active_segment_id, SEGMENT_HEADER_LEN as u64);
+            let segment = SegmentMeta::empty(catalog.state.active_segment_id, 0);
             create_segment_file(&config, &segment)?;
             metadata.initialize_empty(&catalog.state, segment)?;
             catalog = metadata.load_catalog()?;
@@ -1060,25 +985,15 @@ impl SegmentedStorage {
     }
 }
 
-fn create_segment_file(
-    config: &SegmentedConfig,
-    segment: &SegmentMeta,
-) -> anyhow::Result<()> {
+fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {
     let path = config
         .segments_path
         .join(segment_file_name(segment.segment_id));
-    let mut file = OpenOptions::new()
+    OpenOptions::new()
         .create_new(true)
         .read(true)
         .write(true)
         .open(&path)
         .with_context(|| format!("failed to create segment file: {path:?}"))?;
-    write_segment_header(
-        &mut file,
-        SegmentHeader {
-            segment_id: segment.segment_id,
-        },
-    )?;
-    file.sync_data()?;
     Ok(())
 }
