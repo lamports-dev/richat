@@ -83,14 +83,14 @@ impl SegmentedStorage {
         let metadata = MetadataDb::open(&config.metadata_path)?;
         let mut catalog = metadata.load_catalog()?;
 
-        if catalog.active_segment_id == 0 {
-            catalog.active_segment_id = catalog.next_segment_id;
-            catalog.next_segment_id += 1;
+        if catalog.state.active_segment_id == 0 {
+            catalog.state.active_segment_id = catalog.state.next_segment_id;
+            catalog.state.next_segment_id += 1;
 
             let segment =
-                SegmentMeta::empty(catalog.active_segment_id, SEGMENT_HEADER_LEN as u64);
+                SegmentMeta::empty(catalog.state.active_segment_id, SEGMENT_HEADER_LEN as u64);
             create_segment_file(&config, &segment, current_unix_ms()?)?;
-            metadata.initialize_empty(&catalog, segment)?;
+            metadata.initialize_empty(&catalog.state, segment)?;
             catalog = metadata.load_catalog()?;
         }
 
@@ -181,7 +181,11 @@ impl SegmentedStorage {
             return Box::new(std::iter::empty());
         }
 
-        Box::new(SegmentReader::new(self.config.segments_path.clone(), chunks, index))
+        Box::new(SegmentReader::new(
+            self.config.segments_path.clone(),
+            chunks,
+            index,
+        ))
     }
 }
 

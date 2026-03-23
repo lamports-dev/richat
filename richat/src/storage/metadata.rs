@@ -149,6 +149,15 @@ impl ChunkMeta {
     }
 }
 
+/// Singleton state persisted alongside metadata tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataState {
+    pub next_segment_id: u64,
+    pub active_segment_id: u64,
+    pub trim_floor_slot: Slot,
+    pub trim_floor_index: u64,
+}
+
 /// Atomic metadata update produced by flushing one chunk.
 #[derive(Debug, Clone)]
 pub struct MetadataChunkCommit {
@@ -156,6 +165,7 @@ pub struct MetadataChunkCommit {
     pub updated_slots: Vec<SlotMeta>,
     pub chunk: ChunkMeta,
     pub segment: SegmentMeta,
+    pub state: MetadataState,
 }
 
 /// Atomic metadata update produced by retention trimming.
@@ -165,8 +175,7 @@ pub struct MetadataTrimCommit {
     pub deleted_slots: Vec<Slot>,
     pub deleted_segments: Vec<u64>,
     pub deleted_chunks: Vec<u64>,
-    pub trim_floor_slot: Slot,
-    pub trim_floor_index: u64,
+    pub state: MetadataState,
 }
 
 /// Metadata update produced when the writer seals one segment and opens the
@@ -175,8 +184,7 @@ pub struct MetadataTrimCommit {
 pub struct RotationCommit {
     pub sealed_segment: SegmentMeta,
     pub new_segment: SegmentMeta,
-    pub next_segment_id: u64,
-    pub active_segment_id: u64,
+    pub state: MetadataState,
 }
 
 const STATE_FORMAT_VERSION: u16 = 1;
@@ -188,10 +196,7 @@ pub struct MetadataCatalog {
     pub slots: BTreeMap<Slot, SlotMeta>,
     pub segments: BTreeMap<u64, SegmentMeta>,
     pub chunks: Vec<ChunkMeta>,
-    pub next_segment_id: u64,
-    pub active_segment_id: u64,
-    pub trim_floor_slot: Slot,
-    pub trim_floor_index: u64,
+    pub state: MetadataState,
 }
 
 impl MetadataCatalog {
@@ -205,6 +210,7 @@ impl MetadataCatalog {
         self.segments
             .insert(commit.segment.segment_id, commit.segment);
         self.chunks.push(commit.chunk);
+        self.state = commit.state;
     }
 
     pub fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
@@ -217,8 +223,7 @@ impl MetadataCatalog {
         }
         self.chunks
             .retain(|chunk| !commit.deleted_segments.contains(&chunk.segment_id));
-        self.trim_floor_slot = commit.trim_floor_slot;
-        self.trim_floor_index = commit.trim_floor_index;
+        self.state = commit.state;
     }
 
     pub fn apply_rotation_commit(&mut self, commit: RotationCommit) {
@@ -226,18 +231,7 @@ impl MetadataCatalog {
             .insert(commit.sealed_segment.segment_id, commit.sealed_segment);
         self.segments
             .insert(commit.new_segment.segment_id, commit.new_segment);
-        self.next_segment_id = commit.next_segment_id;
-        self.active_segment_id = commit.active_segment_id;
-    }
-
-    pub fn encode_state(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(34);
-        buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
-        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
-        buf
+        self.state = commit.state;
     }
 }
 
@@ -293,8 +287,7 @@ impl MetadataDb {
     }
 
     pub fn load_catalog(&self) -> anyhow::Result<MetadataCatalog> {
-        let (next_segment_id, active_segment_id, trim_floor_slot, trim_floor_index) =
-            self.read_state()?.unwrap_or((1, 0, 0, 0));
+        let state = self.read_state()?.unwrap_or_else(MetadataState::new);
 
         let mut slots = BTreeMap::new();
         for item in self
@@ -336,18 +329,11 @@ impl MetadataDb {
             slots,
             segments,
             chunks,
-            next_segment_id,
-            active_segment_id,
-            trim_floor_slot,
-            trim_floor_index,
+            state,
         })
     }
 
-    pub fn apply_chunk_commit(
-        &self,
-        commit: &MetadataChunkCommit,
-        state: &[u8],
-    ) -> anyhow::Result<()> {
+    pub fn apply_chunk_commit(&self, commit: &MetadataChunkCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
         for meta in &commit.new_slots {
             batch.put_cf(
@@ -373,15 +359,15 @@ impl MetadataDb {
             encode_u64_key(commit.segment.segment_id),
             commit.segment.encode(),
         );
-        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", state);
+        batch.put_cf(
+            Self::cf_handle::<StateCf>(&self.db),
+            b"state",
+            commit.state.encode(),
+        );
         self.write_batch(batch)
     }
 
-    pub fn apply_trim_commit(
-        &self,
-        commit: &MetadataTrimCommit,
-        state: &[u8],
-    ) -> anyhow::Result<()> {
+    pub fn apply_trim_commit(&self, commit: &MetadataTrimCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
         batch.delete_cf(
             Self::cf_handle::<SlotsCf>(&self.db),
@@ -402,13 +388,17 @@ impl MetadataDb {
                 encode_u64_key(*segment_id),
             );
         }
-        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", state);
+        batch.put_cf(
+            Self::cf_handle::<StateCf>(&self.db),
+            b"state",
+            commit.state.encode(),
+        );
         self.write_batch(batch)
     }
 
     pub fn initialize_empty(
         &self,
-        catalog: &MetadataCatalog,
+        state: &MetadataState,
         segment: SegmentMeta,
     ) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
@@ -420,16 +410,12 @@ impl MetadataDb {
         batch.put_cf(
             Self::cf_handle::<StateCf>(&self.db),
             b"state",
-            catalog.encode_state(),
+            state.encode(),
         );
         self.write_batch(batch)
     }
 
-    pub fn apply_rotation_commit(
-        &self,
-        commit: RotationCommit,
-        state: &[u8],
-    ) -> anyhow::Result<()> {
+    pub fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
@@ -441,36 +427,31 @@ impl MetadataDb {
             encode_u64_key(commit.new_segment.segment_id),
             commit.new_segment.encode(),
         );
-        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", state);
+        batch.put_cf(
+            Self::cf_handle::<StateCf>(&self.db),
+            b"state",
+            commit.state.encode(),
+        );
         self.write_batch(batch)
     }
 
     fn ensure_state(&self) -> anyhow::Result<()> {
         if self.read_state()?.is_none() {
-            let catalog = MetadataCatalog {
-                slots: BTreeMap::new(),
-                segments: BTreeMap::new(),
-                chunks: Vec::new(),
-                next_segment_id: 1,
-                active_segment_id: 0,
-                trim_floor_slot: 0,
-                trim_floor_index: 0,
-            };
             let mut batch = WriteBatch::new();
             batch.put_cf(
                 Self::cf_handle::<StateCf>(&self.db),
                 b"state",
-                catalog.encode_state(),
+                MetadataState::new().encode(),
             );
             self.write_batch(batch)?;
         }
         Ok(())
     }
 
-    fn read_state(&self) -> anyhow::Result<Option<(u64, u64, Slot, u64)>> {
+    fn read_state(&self) -> anyhow::Result<Option<MetadataState>> {
         self.db
             .get_cf(Self::cf_handle::<StateCf>(&self.db), b"state")?
-            .map(|value| decode_state(&value))
+            .map(|value| MetadataState::decode(&value))
             .transpose()
     }
 
@@ -481,19 +462,40 @@ impl MetadataDb {
     }
 }
 
-fn decode_state(value: &[u8]) -> anyhow::Result<(u64, u64, Slot, u64)> {
-    let mut value = value;
-    let format_version = take_u16(&mut value)?;
-    anyhow::ensure!(
-        format_version == STATE_FORMAT_VERSION,
-        "unsupported format version: {format_version}"
-    );
-    Ok((
-        take_u64(&mut value)?,
-        take_u64(&mut value)?,
-        take_u64(&mut value)?,
-        take_u64(&mut value)?,
-    ))
+impl MetadataState {
+    const fn new() -> Self {
+        Self {
+            next_segment_id: 1,
+            active_segment_id: 0,
+            trim_floor_slot: 0,
+            trim_floor_index: 0,
+        }
+    }
+
+    fn encode(self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(34);
+        buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
+        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
+        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
+        buf
+    }
+
+    fn decode(value: &[u8]) -> anyhow::Result<Self> {
+        let mut value = value;
+        let format_version = take_u16(&mut value)?;
+        anyhow::ensure!(
+            format_version == STATE_FORMAT_VERSION,
+            "unsupported format version: {format_version}"
+        );
+        Ok(Self {
+            next_segment_id: take_u64(&mut value)?,
+            active_segment_id: take_u64(&mut value)?,
+            trim_floor_slot: take_u64(&mut value)?,
+            trim_floor_index: take_u64(&mut value)?,
+        })
+    }
 }
 
 const fn encode_u64_key(value: u64) -> [u8; 8] {
@@ -560,7 +562,7 @@ fn take_bool(slice: &mut &[u8]) -> anyhow::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChunkMeta, MetadataCatalog, SegmentMeta, SlotMeta};
+    use super::{ChunkMeta, MetadataState, SegmentMeta, SlotMeta};
 
     #[test]
     fn slot_meta_roundtrip() {
@@ -606,20 +608,12 @@ mod tests {
 
     #[test]
     fn state_roundtrip() {
-        let catalog = MetadataCatalog {
-            slots: Default::default(),
-            segments: Default::default(),
-            chunks: Vec::new(),
+        let state = MetadataState {
             next_segment_id: 2,
             active_segment_id: 1,
             trim_floor_slot: 100,
             trim_floor_index: 200,
         };
-        let (next, active, floor_slot, floor_index) =
-            super::decode_state(&catalog.encode_state()).unwrap();
-        assert_eq!(next, 2);
-        assert_eq!(active, 1);
-        assert_eq!(floor_slot, 100);
-        assert_eq!(floor_index, 200);
+        assert_eq!(MetadataState::decode(&state.encode()).unwrap(), state);
     }
 }
