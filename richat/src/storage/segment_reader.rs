@@ -15,7 +15,6 @@ use {
     anyhow::Context,
     richat_filter::message::MessageParserEncoding,
     std::{
-        collections::VecDeque,
         fs::File,
         io::{Read, Seek, SeekFrom},
         path::PathBuf,
@@ -23,17 +22,43 @@ use {
     zstd::bulk::Decompressor,
 };
 
+/// A single decompressed chunk ready for record decoding.
+pub(crate) struct DecompressedChunk {
+    pub(crate) first_index: u64,
+    record_count: u32,
+    skip: usize,
+    data: Vec<u8>,
+}
+
+impl DecompressedChunk {
+    pub(crate) fn decode_records(
+        self,
+        parser: MessageParserEncoding,
+    ) -> anyhow::Result<Vec<(u64, ParsedMessage)>> {
+        let mut records = Vec::with_capacity(self.record_count as usize);
+        let mut slice = self.data.as_slice();
+        for ordinal in 0..self.record_count as usize {
+            let record = next_record(&mut slice)?;
+            if ordinal < self.skip {
+                continue;
+            }
+            let (_slot, message) = MessageRecordCodec::decode(record, parser)?;
+            records.push((self.first_index + ordinal as u64, message.into()));
+        }
+        anyhow::ensure!(slice.is_empty(), "extra trailing bytes in chunk");
+        Ok(records)
+    }
+}
+
 /// Sequential replay reader over chunk metadata and segment files.
 ///
-/// It seeks to the first relevant chunk, validates headers and CRCs, then
-/// yields decoded replay records in index order.
+/// Each iteration reads, decompresses, and validates one chunk, yielding a
+/// [`DecompressedChunk`] that the caller can decode on demand.
 pub(crate) struct SegmentReader {
     segments_path: PathBuf,
-    parser: MessageParserEncoding,
     chunks: Vec<ChunkMeta>,
     next_chunk: usize,
     next_index: u64,
-    current_records: VecDeque<anyhow::Result<(u64, ParsedMessage)>>,
     current_segment_id: Option<u64>,
     current_file: Option<File>,
     decompressor: Decompressor<'static>,
@@ -45,15 +70,12 @@ impl SegmentReader {
         segments_path: PathBuf,
         chunks: Vec<ChunkMeta>,
         start_index: u64,
-        parser: MessageParserEncoding,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             segments_path,
-            parser,
             chunks,
             next_chunk: 0,
             next_index: start_index,
-            current_records: VecDeque::new(),
             current_segment_id: None,
             current_file: None,
             decompressor: Decompressor::new().context("failed to create zstd decompressor")?,
@@ -61,7 +83,7 @@ impl SegmentReader {
         })
     }
 
-    fn load_next_chunk(&mut self) -> anyhow::Result<()> {
+    fn load_next_chunk(&mut self) -> anyhow::Result<DecompressedChunk> {
         let chunk = self.chunks[self.next_chunk];
         self.next_chunk += 1;
 
@@ -108,23 +130,15 @@ impl SegmentReader {
         );
         counter!(STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL).increment(uncompressed.len() as u64);
 
-        let mut slice = uncompressed.as_slice();
         let skip = self.next_index.saturating_sub(chunk.first_index) as usize;
-        for record_ordinal in 0..header.record_count as usize {
-            let record = next_record(&mut slice)?;
-            if record_ordinal < skip {
-                continue;
-            }
-
-            let (_slot, message) = MessageRecordCodec::decode(record, self.parser)?;
-            self.current_records.push_back(Ok((
-                chunk.first_index + record_ordinal as u64,
-                message.into(),
-            )));
-        }
-        anyhow::ensure!(slice.is_empty(), "extra trailing bytes in chunk");
         self.next_index = chunk.last_index + 1;
-        Ok(())
+
+        Ok(DecompressedChunk {
+            first_index: chunk.first_index,
+            record_count: header.record_count,
+            skip,
+            data: uncompressed,
+        })
     }
 
     fn open_segment(&mut self, segment_id: u64) -> anyhow::Result<&mut File> {
@@ -155,19 +169,17 @@ impl SegmentReader {
 }
 
 impl Iterator for SegmentReader {
-    type Item = anyhow::Result<(u64, ParsedMessage)>;
+    type Item = anyhow::Result<DecompressedChunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(item) = self.current_records.pop_front() {
-                return Some(item);
-            }
-            if self.failed || self.next_chunk >= self.chunks.len() {
-                return None;
-            }
-            if let Err(error) = self.load_next_chunk() {
+        if self.failed || self.next_chunk >= self.chunks.len() {
+            return None;
+        }
+        match self.load_next_chunk() {
+            Ok(chunk) => Some(Ok(chunk)),
+            Err(error) => {
                 self.failed = true;
-                return Some(Err(error));
+                Some(Err(error))
             }
         }
     }

@@ -316,21 +316,23 @@ impl Messages {
                 else {
                     anyhow::bail!("failed to get replay index to load messages");
                 };
-                for item in storage.read_messages_from_index(replay_index, self.parser) {
-                    let (msg_index, msg) = item?;
-                    if msg.slot() <= finalized_slot {
-                        continue;
-                    }
+                for chunk_result in storage.read_messages_from_index(replay_index) {
+                    let chunk = chunk_result?;
+                    for (msg_index, msg) in chunk.decode_records(self.parser)? {
+                        if msg.slot() <= finalized_slot {
+                            continue;
+                        }
 
-                    let Some(replay) = replay.get_mut(&msg.slot()) else {
-                        anyhow::bail!(
-                            "failed to get replay info for existed message, slot#{}",
-                            msg.slot()
-                        );
-                    };
-                    let messages = replay.messages.get_or_insert_default();
-                    messages.insert(msg.get_id(hasher.build_hasher()));
-                    index = msg_index + 1;
+                        let Some(replay) = replay.get_mut(&msg.slot()) else {
+                            anyhow::bail!(
+                                "failed to get replay info for existed message, slot#{}",
+                                msg.slot()
+                            );
+                        };
+                        let messages = replay.messages.get_or_insert_default();
+                        messages.insert(msg.get_id(hasher.build_hasher()));
+                        index = msg_index + 1;
+                    }
                 }
                 replay_from_slot = Some(finalized_slot + 1);
             } else {

@@ -27,6 +27,7 @@ use {
     },
     richat_metrics::duration_to_seconds,
     richat_shared::mutex_lock,
+    segment_reader::DecompressedChunk,
     segmented::SegmentedStorage,
     smallvec::SmallVec,
     solana_clock::Slot,
@@ -42,7 +43,7 @@ use {
     tonic::Status,
 };
 
-type StorageIter<'a> = Box<dyn Iterator<Item = anyhow::Result<(u64, ParsedMessage)>> + 'a>;
+type StorageIter<'a> = Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>> + 'a>;
 
 /// Replay start metadata exposed to the rest of `richat` for each retained
 /// slot.
@@ -228,20 +229,29 @@ impl Storage {
 
             if !req.state.read_finished && req.state.messages.len() < messages_decode_per_tick {
                 let mut messages_decoded = 0;
-                for item in storage.read_messages_from_index(current_head + 1, parser) {
-                    match item {
-                        Ok(item) => {
-                            req.state.messages.push_back(item);
-                            messages_decoded += 1;
-                        }
+                for chunk_result in storage.read_messages_from_index(current_head + 1) {
+                    match chunk_result {
+                        Ok(chunk) => match chunk.decode_records(parser) {
+                            Ok(records) => {
+                                messages_decoded += records.len();
+                                req.state.messages.extend(records);
+                            }
+                            Err(error) => {
+                                req.state.read_error = Some(Status::internal(error.to_string()));
+                                break;
+                            }
+                        },
                         Err(error) => {
                             req.state.read_error = Some(Status::internal(error.to_string()));
                             break;
                         }
-                    };
+                    }
+                    if messages_decoded >= messages_decode_per_tick {
+                        break;
+                    }
                 }
 
-                if messages_decoded < messages_decode_per_tick {
+                if messages_decoded < messages_decode_per_tick && req.state.read_error.is_none() {
                     req.state.read_finished = true;
                 }
             }
@@ -263,7 +273,11 @@ impl Storage {
         message: ParsedMessage,
     ) {
         let _ = self.inner.write_tx.send(WriterCommand::PushMessage {
-            init, slot, head, index, message,
+            init,
+            slot,
+            head,
+            index,
+            message,
         });
     }
 
@@ -275,12 +289,8 @@ impl Storage {
         self.inner.read_slots()
     }
 
-    pub fn read_messages_from_index(
-        &self,
-        index: u64,
-        parser: MessageParserEncoding,
-    ) -> StorageIter<'_> {
-        self.inner.read_messages_from_index(index, parser)
+    pub(crate) fn read_messages_from_index(&self, index: u64) -> StorageIter<'_> {
+        self.inner.read_messages_from_index(index)
     }
 
     pub fn replay(

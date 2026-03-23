@@ -1,6 +1,5 @@
 use {
     crate::{
-        channel::ParsedMessage,
         config::ConfigStorage,
         storage::{
             SlotIndexValue,
@@ -9,15 +8,12 @@ use {
                 ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
                 write_segment_header,
             },
-            segment_reader::SegmentReader,
-            segment_writer::{
-                WriterCommand, spawn_collector, spawn_compressor_pool, spawn_writer,
-            },
+            segment_reader::{DecompressedChunk, SegmentReader},
+            segment_writer::{WriterCommand, spawn_collector, spawn_compressor_pool, spawn_writer},
         },
         util::SpawnedThreads,
     },
     anyhow::Context,
-    richat_filter::message::MessageParserEncoding,
     solana_clock::Slot,
     std::{
         collections::BTreeMap,
@@ -152,7 +148,9 @@ impl SegmentedStorage {
     }
 
     pub(crate) fn remove_replay(&self, slot: Slot, until: Option<u64>) {
-        let _ = self.write_tx.send(WriterCommand::RemoveReplay { slot, until });
+        let _ = self
+            .write_tx
+            .send(WriterCommand::RemoveReplay { slot, until });
     }
 
     pub(crate) fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
@@ -175,8 +173,7 @@ impl SegmentedStorage {
     pub(crate) fn read_messages_from_index(
         &self,
         index: u64,
-        parser: MessageParserEncoding,
-    ) -> Box<dyn Iterator<Item = anyhow::Result<(u64, ParsedMessage)>> + '_> {
+    ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>> + '_> {
         let chunks = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
             let start = catalog
@@ -188,7 +185,7 @@ impl SegmentedStorage {
             return Box::new(std::iter::empty());
         }
 
-        match SegmentReader::new(self.config.segments_path.clone(), chunks, index, parser) {
+        match SegmentReader::new(self.config.segments_path.clone(), chunks, index) {
             Ok(reader) => Box::new(reader),
             Err(error) => Box::new(std::iter::once(Err(error))),
         }
@@ -279,13 +276,19 @@ mod tests {
             "slot metadata flush",
         );
 
-        let items = storage
-            .read_messages_from_index(0, MessageParserEncoding::Prost)
-            .collect::<Vec<_>>();
+        let items: Vec<_> = storage
+            .read_messages_from_index(0)
+            .flat_map(|chunk| {
+                chunk
+                    .unwrap()
+                    .decode_records(MessageParserEncoding::Prost)
+                    .unwrap()
+            })
+            .collect();
         assert_eq!(items.len(), 3);
-        assert_eq!(items[0].as_ref().unwrap().0, 0);
-        assert_eq!(items[1].as_ref().unwrap().0, 1);
-        assert_eq!(items[2].as_ref().unwrap().0, 2);
+        assert_eq!(items[0].0, 0);
+        assert_eq!(items[1].0, 1);
+        assert_eq!(items[2].0, 2);
 
         let segments_path = config.path.join("segments");
         let first_segment = segments_path.join(segment_file_name(1));

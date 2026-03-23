@@ -7,10 +7,10 @@ use {
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
             STORAGE_WRITE_FSYNC_MICROS_TOTAL, STORAGE_WRITE_METADATA_MICROS_TOTAL,
-            STORAGE_WRITE_ROTATE_MICROS_TOTAL,
-            STORAGE_WRITE_TRIM_MICROS_TOTAL,
+            STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
         storage::{
+            MessageRecordCodec,
             metadata::{
                 ChunkMeta, MetadataCatalog, MetadataChunkCommit, MetadataDb, MetadataTrimCommit,
                 RotationCommit, SegmentMeta, SlotMeta,
@@ -20,7 +20,6 @@ use {
                 chunk_crc32, segment_file_name, write_segment_header,
             },
             segmented::SegmentedConfig,
-            MessageRecordCodec,
         },
     },
     ::metrics::counter,
@@ -111,8 +110,15 @@ impl PendingChunkMeta {
 }
 
 pub(crate) enum CollectorOutput {
-    SerializedChunk { seq: u64, chunk: SerializedChunk },
-    Trim { seq: u64, slot: Slot, until: Option<u64> },
+    SerializedChunk {
+        seq: u64,
+        chunk: SerializedChunk,
+    },
+    Trim {
+        seq: u64,
+        slot: Slot,
+        until: Option<u64>,
+    },
 }
 
 pub(crate) struct SerializedChunk {
@@ -128,8 +134,15 @@ pub(crate) struct SerializedChunk {
 }
 
 pub(crate) enum CompressorOutput {
-    CompressedChunk { seq: u64, chunk: CompressedChunk },
-    Trim { seq: u64, slot: Slot, until: Option<u64> },
+    CompressedChunk {
+        seq: u64,
+        chunk: CompressedChunk,
+    },
+    Trim {
+        seq: u64,
+        slot: Slot,
+        until: Option<u64>,
+    },
 }
 
 impl CompressorOutput {
@@ -182,7 +195,7 @@ fn run_collector(
     rx: kanal::Receiver<WriterCommand>,
     tx: kanal::Sender<CollectorOutput>,
 ) -> anyhow::Result<()> {
-     // 11MiB should be enough for all types of messages
+    // 11MiB should be enough for all types of messages
     let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
     let mut chunk_buf = Vec::with_capacity(chunk_target_size);
     let mut pending = PendingChunkMeta::default();
@@ -237,7 +250,10 @@ fn run_collector(
                     first_slot: flushed.first_slot,
                     last_slot: flushed.last_slot,
                     record_count: flushed.record_count,
-                    uncompressed_payload: std::mem::replace(&mut chunk_buf, Vec::with_capacity(chunk_target_size)),
+                    uncompressed_payload: std::mem::replace(
+                        &mut chunk_buf,
+                        Vec::with_capacity(chunk_target_size),
+                    ),
                     crc32,
                     pending_slots: flushed.pending_slots,
                     pending_finalized: flushed.pending_finalized,
@@ -248,8 +264,12 @@ fn run_collector(
         }
 
         if let Some((slot, until)) = trim {
-            tx.send(CollectorOutput::Trim { seq: next_seq, slot, until })
-                .map_err(|_| anyhow!("collector output channel closed"))?;
+            tx.send(CollectorOutput::Trim {
+                seq: next_seq,
+                slot,
+                until,
+            })
+            .map_err(|_| anyhow!("collector output channel closed"))?;
             next_seq += 1;
         }
     }
@@ -339,14 +359,20 @@ fn run_compressor(
                 };
 
                 if tx
-                    .send(CompressorOutput::CompressedChunk { seq, chunk: compressed })
+                    .send(CompressorOutput::CompressedChunk {
+                        seq,
+                        chunk: compressed,
+                    })
                     .is_err()
                 {
                     break;
                 }
             }
             Ok(CollectorOutput::Trim { seq, slot, until }) => {
-                if tx.send(CompressorOutput::Trim { seq, slot, until }).is_err() {
+                if tx
+                    .send(CompressorOutput::Trim { seq, slot, until })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -589,7 +615,6 @@ impl SegmentWriter {
         self.active_file = new_file;
         Ok(())
     }
-
 }
 
 fn build_chunk_commit(
