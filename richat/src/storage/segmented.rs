@@ -3,7 +3,7 @@ use {
         config::ConfigStorage,
         storage::{
             SlotIndexValue,
-            metadata::{GlobalState, MetadataCatalog, MetadataDb, SegmentMeta},
+            metadata::{MetadataCatalog, MetadataDb, SegmentMeta},
             segment_format::{
                 ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
                 write_segment_header,
@@ -83,18 +83,14 @@ impl SegmentedStorage {
         let metadata = MetadataDb::open(&config.metadata_path)?;
         let mut catalog = metadata.load_catalog()?;
 
-        if catalog.state.active_segment_id == 0 {
-            let mut state = GlobalState::new();
-            state.active_segment_id = state.next_segment_id;
-            state.next_segment_id += 1;
+        if catalog.active_segment_id == 0 {
+            catalog.active_segment_id = catalog.next_segment_id;
+            catalog.next_segment_id += 1;
 
-            let segment = SegmentMeta::empty(
-                state.active_segment_id,
-                current_unix_ms()?,
-                SEGMENT_HEADER_LEN as u64,
-            );
-            create_segment_file(&config, segment)?;
-            metadata.initialize_empty(state, segment)?;
+            let segment =
+                SegmentMeta::empty(catalog.active_segment_id, SEGMENT_HEADER_LEN as u64);
+            create_segment_file(&config, &segment, current_unix_ms()?)?;
+            metadata.initialize_empty(&catalog, segment)?;
             catalog = metadata.load_catalog()?;
         }
 
@@ -189,7 +185,11 @@ impl SegmentedStorage {
     }
 }
 
-fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow::Result<()> {
+fn create_segment_file(
+    config: &SegmentedConfig,
+    segment: &SegmentMeta,
+    created_unix_ms: u64,
+) -> anyhow::Result<()> {
     let path = config
         .segments_path
         .join(segment_file_name(segment.segment_id));
@@ -203,7 +203,7 @@ fn create_segment_file(config: &SegmentedConfig, segment: SegmentMeta) -> anyhow
         &mut file,
         SegmentHeader {
             segment_id: segment.segment_id,
-            created_unix_ms: segment.created_unix_ms,
+            created_unix_ms,
         },
     )?;
     file.sync_data()?;

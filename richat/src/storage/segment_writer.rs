@@ -12,8 +12,8 @@ use {
         storage::{
             MessageRecordCodec,
             metadata::{
-                ChunkMeta, MetadataCatalog, MetadataChunkCommit, MetadataDb, MetadataTrimCommit,
-                RotationCommit, SegmentMeta, SlotMeta,
+                ChunkMeta, MetadataCatalog, MetadataChunkCommit, MetadataDb,
+                MetadataTrimCommit, RotationCommit, SegmentMeta, SlotMeta,
             },
             segment_format::{
                 ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, segment_file_name,
@@ -64,8 +64,6 @@ struct PendingChunkMeta {
     record_count: u32,
     first_index: u64,
     last_index: u64,
-    first_slot: Slot,
-    last_slot: Slot,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
 }
@@ -74,10 +72,8 @@ impl PendingChunkMeta {
     fn push(&mut self, init: bool, slot: Slot, head: u64, index: u64, message: &ParsedMessage) {
         if self.record_count == 0 {
             self.first_index = index;
-            self.first_slot = slot;
         }
         self.last_index = index;
-        self.last_slot = slot;
         self.estimated_uncompressed_size = self
             .estimated_uncompressed_size
             .saturating_add(estimate_record_size(slot, message));
@@ -121,8 +117,6 @@ pub(crate) enum CollectorOutput {
 pub(crate) struct SerializedChunk {
     first_index: u64,
     last_index: u64,
-    first_slot: Slot,
-    last_slot: Slot,
     uncompressed_payload: Vec<u8>,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
@@ -154,8 +148,6 @@ pub(crate) struct CompressedChunk {
     compression: u8,
     first_index: u64,
     last_index: u64,
-    first_slot: Slot,
-    last_slot: Slot,
     payload: Vec<u8>,
     pending_slots: Vec<PendingSlot>,
     pending_finalized: HashSet<Slot>,
@@ -238,8 +230,6 @@ fn run_collector(
                 chunk: SerializedChunk {
                     first_index: flushed.first_index,
                     last_index: flushed.last_index,
-                    first_slot: flushed.first_slot,
-                    last_slot: flushed.last_slot,
                     uncompressed_payload: std::mem::replace(
                         &mut chunk_buf,
                         Vec::with_capacity(chunk_target_size),
@@ -335,8 +325,6 @@ fn run_compressor(
                     compression: compression_tag,
                     first_index: chunk.first_index,
                     last_index: chunk.last_index,
-                    first_slot: chunk.first_slot,
-                    last_slot: chunk.last_slot,
                     payload,
                     pending_slots: chunk.pending_slots,
                     pending_finalized: chunk.pending_finalized,
@@ -416,7 +404,7 @@ impl SegmentWriter {
             let catalog = catalog.read().expect("segment catalog poisoned");
             catalog
                 .segments
-                .get(&catalog.state.active_segment_id)
+                .get(&catalog.active_segment_id)
                 .copied()
                 .context("missing active segment metadata")?
         };
@@ -441,11 +429,15 @@ impl SegmentWriter {
 
     fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
         let trim_started_at = Instant::now();
-        let commit = {
+        let (commit, state) = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
-            build_trim_commit(&catalog, slot, until)
+            let commit = build_trim_commit(&catalog, slot, until);
+            let mut catalog_snapshot = catalog.clone();
+            catalog_snapshot.trim_floor_slot = commit.trim_floor_slot;
+            catalog_snapshot.trim_floor_index = commit.trim_floor_index;
+            (commit, catalog_snapshot.encode_state())
         };
-        self.metadata.apply_trim_commit(&commit)?;
+        self.metadata.apply_trim_commit(&commit, &state)?;
         {
             let mut catalog = self.catalog.write().expect("segment catalog poisoned");
             catalog.apply_trim_commit(&commit);
@@ -493,19 +485,18 @@ impl SegmentWriter {
             .increment(duration_as_micros(fsync_started_at.elapsed()));
 
         let metadata_started_at = Instant::now();
-        let commit = {
+        let (commit, state) = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
-            build_chunk_commit(
+            let commit = build_chunk_commit(
                 &catalog,
                 self.active_segment,
                 chunk_meta,
-                chunk.first_slot,
-                chunk.last_slot,
                 &chunk.pending_slots,
                 &chunk.pending_finalized,
-            )?
+            )?;
+            (commit, catalog.encode_state())
         };
-        self.metadata.apply_chunk_commit(&commit)?;
+        self.metadata.apply_chunk_commit(&commit, &state)?;
         {
             let mut catalog = self.catalog.write().expect("segment catalog poisoned");
             catalog.apply_chunk_commit(&commit);
@@ -525,23 +516,17 @@ impl SegmentWriter {
 
     fn rotate_segment(&mut self) -> anyhow::Result<()> {
         let rotate_started_at = Instant::now();
-        let (new_segment, state) = {
+        let (new_segment, next_segment_id, active_segment_id) = {
             let catalog = self.catalog.read().expect("segment catalog poisoned");
-            let mut state = catalog.state;
-            let new_segment_id = state.next_segment_id;
-            state.next_segment_id += 1;
-            state.active_segment_id = new_segment_id;
-
+            let new_segment_id = catalog.next_segment_id;
             (
-                SegmentMeta::empty(
-                    new_segment_id,
-                    current_unix_ms()?,
-                    SEGMENT_HEADER_LEN as u64,
-                ),
-                state,
+                SegmentMeta::empty(new_segment_id, SEGMENT_HEADER_LEN as u64),
+                new_segment_id + 1,
+                new_segment_id,
             )
         };
 
+        let created_unix_ms = current_unix_ms()?;
         let new_path = self
             .config
             .segments_path
@@ -556,7 +541,7 @@ impl SegmentWriter {
             &mut new_file,
             SegmentHeader {
                 segment_id: new_segment.segment_id,
-                created_unix_ms: new_segment.created_unix_ms,
+                created_unix_ms,
             },
         )?;
         new_file.sync_data()?;
@@ -568,9 +553,17 @@ impl SegmentWriter {
         let commit = RotationCommit {
             sealed_segment,
             new_segment,
-            state,
+            next_segment_id,
+            active_segment_id,
         };
-        self.metadata.apply_rotation_commit(commit)?;
+        let state = {
+            let catalog = self.catalog.read().expect("segment catalog poisoned");
+            let mut snapshot = catalog.clone();
+            snapshot.next_segment_id = next_segment_id;
+            snapshot.active_segment_id = active_segment_id;
+            snapshot.encode_state()
+        };
+        self.metadata.apply_rotation_commit(commit, &state)?;
         {
             let mut catalog = self.catalog.write().expect("segment catalog poisoned");
             catalog.apply_rotation_commit(commit);
@@ -588,17 +581,10 @@ fn build_chunk_commit(
     catalog: &MetadataCatalog,
     active_segment: SegmentMeta,
     chunk: ChunkMeta,
-    first_slot: Slot,
-    last_slot: Slot,
     pending_slots: &[PendingSlot],
     pending_finalized: &HashSet<Slot>,
 ) -> anyhow::Result<MetadataChunkCommit> {
     let mut segment = active_segment;
-    if segment.chunk_count == 0 {
-        segment.first_slot = first_slot;
-        segment.first_index = chunk.first_index;
-    }
-    segment.last_slot = last_slot;
     segment.last_index = chunk.last_index;
     segment.file_len += u64::from(chunk.size);
     segment.chunk_count += 1;
@@ -629,7 +615,6 @@ fn build_chunk_commit(
         updated_slots,
         chunk,
         segment,
-        state: catalog.state,
     })
 }
 
@@ -638,11 +623,10 @@ fn build_trim_commit(
     slot: Slot,
     until: Option<u64>,
 ) -> MetadataTrimCommit {
-    let mut state = catalog.state;
-    state.trim_floor_slot = state.trim_floor_slot.max(slot);
-    if let Some(until) = until {
-        state.trim_floor_index = state.trim_floor_index.max(until);
-    }
+    let trim_floor_slot = catalog.trim_floor_slot.max(slot);
+    let trim_floor_index = until
+        .map(|u| catalog.trim_floor_index.max(u))
+        .unwrap_or(catalog.trim_floor_index);
 
     let deleted_segments = until
         .map(|floor| {
@@ -675,7 +659,8 @@ fn build_trim_commit(
         deleted_slots,
         deleted_segments,
         deleted_chunks,
-        state,
+        trim_floor_slot,
+        trim_floor_index,
     }
 }
 
