@@ -192,14 +192,14 @@ const STATE_FORMAT_VERSION: u16 = 1;
 /// In-memory view of the metadata DB used for fast replay lookups and trim
 /// decisions.
 #[derive(Debug, Clone)]
-pub struct MetadataCatalog {
+pub struct MetadataMirror {
     pub slots: BTreeMap<Slot, SlotMeta>,
     pub segments: BTreeMap<u64, SegmentMeta>,
     pub chunks: Vec<ChunkMeta>,
     pub state: MetadataState,
 }
 
-impl MetadataCatalog {
+impl MetadataMirror {
     pub fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
         for meta in &commit.new_slots {
             self.slots.insert(meta.slot, *meta);
@@ -240,11 +240,11 @@ impl MetadataCatalog {
 /// Payload bytes are stored in segment files; this DB keeps the exact lookup
 /// state needed to find them again.
 #[derive(Debug, Clone)]
-pub struct MetadataDb {
+pub struct Metadata {
     db: Arc<DB>,
 }
 
-impl MetadataDb {
+impl Metadata {
     fn db_options() -> Options {
         let mut options = Options::default();
         options.create_if_missing(true);
@@ -286,7 +286,7 @@ impl MetadataDb {
         Ok(db)
     }
 
-    pub fn load_catalog(&self) -> anyhow::Result<MetadataCatalog> {
+    pub fn load_catalog(&self) -> anyhow::Result<MetadataMirror> {
         let state = self.read_state()?.unwrap_or_else(MetadataState::new);
 
         let mut slots = BTreeMap::new();
@@ -325,7 +325,7 @@ impl MetadataDb {
         }
         chunks.sort_by_key(|chunk| chunk.first_index);
 
-        Ok(MetadataCatalog {
+        Ok(MetadataMirror {
             slots,
             segments,
             chunks,
@@ -557,63 +557,5 @@ fn take_bool(slice: &mut &[u8]) -> anyhow::Result<bool> {
         0 => Ok(false),
         1 => Ok(true),
         value => anyhow::bail!("invalid bool value: {value}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ChunkMeta, MetadataState, SegmentMeta, SlotMeta};
-
-    #[test]
-    fn slot_meta_roundtrip() {
-        let meta = SlotMeta {
-            slot: 42,
-            first_index: 11,
-            segment_id: 7,
-            finalized: true,
-        };
-        assert_eq!(SlotMeta::decode(meta.slot, &meta.encode()).unwrap(), meta);
-    }
-
-    #[test]
-    fn segment_meta_roundtrip() {
-        let meta = SegmentMeta {
-            segment_id: 9,
-            last_index: 120,
-            sealed: true,
-            file_len: 512,
-            chunk_count: 4,
-        };
-        assert_eq!(
-            SegmentMeta::decode(meta.segment_id, &meta.encode()).unwrap(),
-            meta
-        );
-    }
-
-    #[test]
-    fn chunk_meta_roundtrip() {
-        let meta = ChunkMeta {
-            segment_id: 2,
-            offset: 64,
-            size: 300,
-            compression: 1,
-            first_index: 200,
-            last_index: 220,
-        };
-        assert_eq!(
-            ChunkMeta::decode(meta.first_index, &meta.encode()).unwrap(),
-            meta
-        );
-    }
-
-    #[test]
-    fn state_roundtrip() {
-        let state = MetadataState {
-            next_segment_id: 2,
-            active_segment_id: 1,
-            trim_floor_slot: 100,
-            trim_floor_index: 200,
-        };
-        assert_eq!(MetadataState::decode(&state.encode()).unwrap(), state);
     }
 }

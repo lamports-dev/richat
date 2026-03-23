@@ -1,17 +1,14 @@
 mod metadata;
-mod segment_format;
-mod segment_reader;
-mod segment_writer;
-mod segmented;
+mod segments;
 
-pub use segment_format::ChunkCompression;
+pub use segments::ChunkCompression;
 use {
     crate::{
         channel::{IndexLocation, ParsedMessage, SharedChannel},
         config::ConfigStorage,
         grpc::server::SubscribeClient,
         metrics::GrpcSubscribeMessage,
-        storage::segment_writer::WriterCommand,
+        storage::segments::WriterCommand,
         util::SpawnedThreads,
     },
     ::metrics::Gauge,
@@ -27,8 +24,8 @@ use {
     },
     richat_metrics::duration_to_seconds,
     richat_shared::mutex_lock,
-    segment_reader::DecompressedChunk,
-    segmented::SegmentedStorage,
+    segments::DecompressedChunk,
+    segments::SegmentedStorage,
     smallvec::SmallVec,
     solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
