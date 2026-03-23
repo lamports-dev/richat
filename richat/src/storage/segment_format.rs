@@ -1,7 +1,6 @@
 use {
     anyhow::Context,
     prost::encoding::decode_varint,
-    solana_clock::Slot,
     std::{
         fs::File,
         io::{Read, Seek, SeekFrom, Write},
@@ -9,10 +8,8 @@ use {
 };
 
 pub(crate) const SEGMENT_MAGIC: [u8; 4] = *b"RSEG";
-pub(crate) const CHUNK_MAGIC: [u8; 4] = *b"RCHK";
 pub(crate) const SEGMENT_FORMAT_VERSION: u16 = 1;
 pub(crate) const SEGMENT_HEADER_LEN: usize = 32;
-pub(crate) const CHUNK_HEADER_LEN: usize = 60;
 
 /// Compression algorithm used for a chunk payload.
 ///
@@ -53,21 +50,6 @@ pub(crate) struct SegmentHeader {
     pub(crate) created_unix_ms: u64,
 }
 
-/// Fixed header stored in front of every chunk payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ChunkHeader {
-    pub(crate) compression: u8,
-    pub(crate) chunk_ordinal: u32,
-    pub(crate) first_index: u64,
-    pub(crate) last_index: u64,
-    pub(crate) first_slot: Slot,
-    pub(crate) last_slot: Slot,
-    pub(crate) record_count: u32,
-    pub(crate) compressed_size: u32,
-    pub(crate) uncompressed_size: u32,
-    pub(crate) crc32: u32,
-}
-
 impl SegmentHeader {
     pub(crate) fn encode(self) -> [u8; SEGMENT_HEADER_LEN] {
         let mut buf = [0u8; SEGMENT_HEADER_LEN];
@@ -93,51 +75,6 @@ impl SegmentHeader {
         Ok(Self {
             segment_id: u64::from_be_bytes(bytes[8..16].try_into().unwrap()),
             created_unix_ms: u64::from_be_bytes(bytes[16..24].try_into().unwrap()),
-        })
-    }
-}
-
-impl ChunkHeader {
-    pub(crate) fn encode(self) -> [u8; CHUNK_HEADER_LEN] {
-        let mut buf = [0u8; CHUNK_HEADER_LEN];
-        buf[..4].copy_from_slice(&CHUNK_MAGIC);
-        buf[4..6].copy_from_slice(&(CHUNK_HEADER_LEN as u16).to_be_bytes());
-        buf[6] = self.compression;
-        buf[8..12].copy_from_slice(&self.chunk_ordinal.to_be_bytes());
-        buf[12..20].copy_from_slice(&self.first_index.to_be_bytes());
-        buf[20..28].copy_from_slice(&self.last_index.to_be_bytes());
-        buf[28..36].copy_from_slice(&self.first_slot.to_be_bytes());
-        buf[36..44].copy_from_slice(&self.last_slot.to_be_bytes());
-        buf[44..48].copy_from_slice(&self.record_count.to_be_bytes());
-        buf[48..52].copy_from_slice(&self.compressed_size.to_be_bytes());
-        buf[52..56].copy_from_slice(&self.uncompressed_size.to_be_bytes());
-        buf[56..60].copy_from_slice(&self.crc32.to_be_bytes());
-        buf
-    }
-
-    pub(crate) fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            bytes.len() == CHUNK_HEADER_LEN,
-            "invalid chunk header length: {}",
-            bytes.len()
-        );
-        anyhow::ensure!(bytes[..4] == CHUNK_MAGIC, "invalid chunk magic");
-        let header_len = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
-        anyhow::ensure!(
-            header_len == CHUNK_HEADER_LEN,
-            "unsupported chunk header length: {header_len}"
-        );
-        Ok(Self {
-            compression: bytes[6],
-            chunk_ordinal: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
-            first_index: u64::from_be_bytes(bytes[12..20].try_into().unwrap()),
-            last_index: u64::from_be_bytes(bytes[20..28].try_into().unwrap()),
-            first_slot: u64::from_be_bytes(bytes[28..36].try_into().unwrap()),
-            last_slot: u64::from_be_bytes(bytes[36..44].try_into().unwrap()),
-            record_count: u32::from_be_bytes(bytes[44..48].try_into().unwrap()),
-            compressed_size: u32::from_be_bytes(bytes[48..52].try_into().unwrap()),
-            uncompressed_size: u32::from_be_bytes(bytes[52..56].try_into().unwrap()),
-            crc32: u32::from_be_bytes(bytes[56..60].try_into().unwrap()),
         })
     }
 }
@@ -174,10 +111,7 @@ pub(crate) fn segment_file_name(segment_id: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_FORMAT_VERSION,
-        SEGMENT_HEADER_LEN, SegmentHeader,
-    };
+    use super::{SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_LEN, SegmentHeader};
 
     #[test]
     fn segment_header_roundtrip() {
@@ -189,26 +123,8 @@ mod tests {
     }
 
     #[test]
-    fn chunk_header_roundtrip() {
-        let header = ChunkHeader {
-            compression: ChunkCompression::Zstd(0).tag(),
-            chunk_ordinal: 1,
-            first_index: 10,
-            last_index: 20,
-            first_slot: 100,
-            last_slot: 101,
-            record_count: 11,
-            compressed_size: 512,
-            uncompressed_size: 1024,
-            crc32: 42,
-        };
-        assert_eq!(ChunkHeader::decode(&header.encode()).unwrap(), header);
-    }
-
-    #[test]
-    fn invalid_header_lengths_rejected() {
+    fn invalid_segment_header_length_rejected() {
         assert!(SegmentHeader::decode(&[0u8; SEGMENT_HEADER_LEN - 1]).is_err());
-        assert!(ChunkHeader::decode(&[0u8; CHUNK_HEADER_LEN - 1]).is_err());
     }
 
     #[test]

@@ -6,8 +6,8 @@ use {
             MessageRecordCodec,
             metadata::ChunkMeta,
             segment_format::{
-                CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, chunk_crc32,
-                next_record, read_segment_header, segment_file_name,
+                ChunkCompression, SEGMENT_HEADER_LEN, chunk_crc32, next_record,
+                read_segment_header, segment_file_name,
             },
         },
     },
@@ -90,42 +90,26 @@ impl SegmentReader {
         let file = self.open_segment(chunk.segment_id)?;
         file.seek(SeekFrom::Start(chunk.file_offset))?;
 
-        let mut header_buf = [0u8; CHUNK_HEADER_LEN];
-        file.read_exact(&mut header_buf)?;
-        let header = ChunkHeader::decode(&header_buf).context("failed to decode chunk header")?;
-        anyhow::ensure!(
-            header.chunk_ordinal == chunk.chunk_ordinal
-                && header.first_index == chunk.first_index
-                && header.last_index == chunk.last_index
-                && header.first_slot == chunk.first_slot
-                && header.last_slot == chunk.last_slot
-                && header.record_count == chunk.record_count
-                && header.compressed_size == chunk.compressed_size
-                && header.uncompressed_size == chunk.uncompressed_size
-                && header.crc32 == chunk.crc32,
-            "chunk header does not match metadata"
-        );
-
-        let mut payload = vec![0; header.compressed_size as usize];
+        let mut payload = vec![0; chunk.compressed_size as usize];
         file.read_exact(&mut payload)?;
         counter!(STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
 
-        let compression = ChunkCompression::from_tag(header.compression)
+        let compression = ChunkCompression::from_tag(chunk.compression)
             .context("unsupported chunk compression")?;
         let uncompressed = match compression {
             ChunkCompression::None => payload,
             ChunkCompression::Zstd(_) => self
                 .decompressor
-                .decompress(&payload, header.uncompressed_size as usize)
+                .decompress(&payload, chunk.uncompressed_size as usize)
                 .context("failed to decompress chunk")?,
         };
         anyhow::ensure!(
-            uncompressed.len() == header.uncompressed_size as usize,
+            uncompressed.len() == chunk.uncompressed_size as usize,
             "unexpected uncompressed size: {}",
             uncompressed.len()
         );
         anyhow::ensure!(
-            chunk_crc32(&uncompressed) == header.crc32,
+            chunk_crc32(&uncompressed) == chunk.crc32,
             "chunk crc32 mismatch"
         );
         counter!(STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL).increment(uncompressed.len() as u64);
@@ -135,7 +119,7 @@ impl SegmentReader {
 
         Ok(DecompressedChunk {
             first_index: chunk.first_index,
-            record_count: header.record_count,
+            record_count: chunk.record_count,
             skip,
             data: uncompressed,
         })

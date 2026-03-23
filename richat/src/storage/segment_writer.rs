@@ -16,8 +16,8 @@ use {
                 RotationCommit, SegmentMeta, SlotMeta,
             },
             segment_format::{
-                CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
-                chunk_crc32, segment_file_name, write_segment_header,
+                ChunkCompression, SEGMENT_HEADER_LEN, SegmentHeader, chunk_crc32,
+                segment_file_name, write_segment_header,
             },
             segmented::SegmentedConfig,
         },
@@ -488,36 +488,24 @@ impl SegmentWriter {
 
     fn append_chunk(&mut self, chunk: CompressedChunk) -> anyhow::Result<()> {
         let chunk_ordinal = self.active_segment.chunk_count;
-        let chunk_header = ChunkHeader {
-            compression: chunk.compression,
+        let chunk_meta = ChunkMeta {
+            segment_id: self.active_segment.segment_id,
             chunk_ordinal,
-            first_index: chunk.first_index,
-            last_index: chunk.last_index,
+            file_offset: self.active_segment.file_len,
+            compression: chunk.compression,
             first_slot: chunk.first_slot,
             last_slot: chunk.last_slot,
+            first_index: chunk.first_index,
+            last_index: chunk.last_index,
             record_count: chunk.record_count,
             compressed_size: chunk.payload.len() as u32,
             uncompressed_size: chunk.uncompressed_size,
             crc32: chunk.crc32,
         };
-        let chunk_meta = ChunkMeta {
-            segment_id: self.active_segment.segment_id,
-            chunk_ordinal,
-            file_offset: self.active_segment.file_len,
-            first_slot: chunk_header.first_slot,
-            last_slot: chunk_header.last_slot,
-            first_index: chunk_header.first_index,
-            last_index: chunk_header.last_index,
-            record_count: chunk_header.record_count,
-            compressed_size: chunk_header.compressed_size,
-            uncompressed_size: chunk_header.uncompressed_size,
-            crc32: chunk_header.crc32,
-        };
 
         let append_started_at = Instant::now();
         self.active_file
             .seek(SeekFrom::Start(self.active_segment.file_len))?;
-        self.active_file.write_all(&chunk_header.encode())?;
         self.active_file.write_all(&chunk.payload)?;
         counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL)
             .increment(duration_as_micros(append_started_at.elapsed()));
@@ -631,7 +619,7 @@ fn build_chunk_commit(
     }
     segment.last_slot = chunk.last_slot;
     segment.last_index = chunk.last_index;
-    segment.file_len += CHUNK_HEADER_LEN as u64 + u64::from(chunk.compressed_size);
+    segment.file_len += u64::from(chunk.compressed_size);
     segment.chunk_count += 1;
 
     let mut new_slots = Vec::with_capacity(pending_slots.len());

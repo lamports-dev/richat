@@ -82,6 +82,7 @@ pub(crate) struct ChunkMeta {
     pub(crate) compressed_size: u32,
     pub(crate) uncompressed_size: u32,
     pub(crate) crc32: u32,
+    pub(crate) compression: u8,
 }
 
 /// Small singleton state persisted alongside metadata tables.
@@ -482,7 +483,7 @@ impl SegmentMeta {
 
 impl ChunkMeta {
     fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(56);
+        let mut buf = Vec::with_capacity(57);
         buf.extend_from_slice(&self.file_offset.to_be_bytes());
         buf.extend_from_slice(&self.first_slot.to_be_bytes());
         buf.extend_from_slice(&self.last_slot.to_be_bytes());
@@ -492,6 +493,7 @@ impl ChunkMeta {
         buf.extend_from_slice(&self.compressed_size.to_be_bytes());
         buf.extend_from_slice(&self.uncompressed_size.to_be_bytes());
         buf.extend_from_slice(&self.crc32.to_be_bytes());
+        buf.push(self.compression);
         buf
     }
 
@@ -509,6 +511,7 @@ impl ChunkMeta {
             compressed_size: take_u32(&mut value)?,
             uncompressed_size: take_u32(&mut value)?,
             crc32: take_u32(&mut value)?,
+            compression: take_u8(&mut value)?,
         })
     }
 }
@@ -612,6 +615,14 @@ fn take_u64(slice: &mut &[u8]) -> anyhow::Result<u64> {
     Ok(value)
 }
 
+fn take_u8(slice: &mut &[u8]) -> anyhow::Result<u8> {
+    let value = *slice
+        .first()
+        .context("unexpected eof while decoding u8")?;
+    *slice = &slice[1..];
+    Ok(value)
+}
+
 fn take_bool(slice: &mut &[u8]) -> anyhow::Result<bool> {
     let value = *slice
         .first()
@@ -674,6 +685,7 @@ mod tests {
             compressed_size: 300,
             uncompressed_size: 900,
             crc32: 1234,
+            compression: 1,
         };
         assert_eq!(
             ChunkMeta::decode(meta.segment_id, meta.chunk_ordinal, &meta.encode()).unwrap(),
