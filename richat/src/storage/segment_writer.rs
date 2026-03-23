@@ -2,7 +2,7 @@ use {
     crate::{
         channel::ParsedMessage,
         metrics::{
-            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX, STORAGE_DISK_SIZE_BYTES,
+            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
             STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_MICROS_TOTAL,
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
@@ -19,11 +19,11 @@ use {
                 CHUNK_HEADER_LEN, ChunkCompression, ChunkHeader, SEGMENT_HEADER_LEN, SegmentHeader,
                 chunk_crc32, segment_file_name, write_segment_header,
             },
-            segmented::{SegmentedConfig, dir_size_bytes},
+            segmented::SegmentedConfig,
             MessageRecordCodec,
         },
     },
-    ::metrics::{counter, gauge},
+    ::metrics::counter,
     anyhow::{Context, anyhow},
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
@@ -457,7 +457,6 @@ impl SegmentWriter {
         }
         counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
             .increment(duration_as_micros(trim_started_at.elapsed()));
-        self.publish_disk_size_metric();
         Ok(())
     }
 
@@ -528,7 +527,6 @@ impl SegmentWriter {
         if self.active_segment.file_len >= self.config.segment_target_size as u64 {
             self.rotate_segment()?;
         }
-        self.publish_disk_size_metric();
         Ok(())
     }
 
@@ -592,16 +590,6 @@ impl SegmentWriter {
         Ok(())
     }
 
-    fn publish_disk_size_metric(&self) {
-        let segment_bytes = {
-            let catalog = self.catalog.read().expect("segment catalog poisoned");
-            catalog.segments.values().fold(0u64, |bytes, segment| {
-                bytes.saturating_add(segment.file_len)
-            })
-        };
-        let metadata_bytes = dir_size_bytes(&self.config.metadata_path).unwrap_or(0);
-        gauge!(STORAGE_DISK_SIZE_BYTES).set(segment_bytes.saturating_add(metadata_bytes) as f64);
-    }
 }
 
 fn build_chunk_commit(
