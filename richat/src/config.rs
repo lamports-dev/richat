@@ -1,7 +1,7 @@
 use {
     crate::{
         grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub,
-        richat::config::ConfigAppsRichat, storage::ChunkCompression,
+        richat::config::ConfigAppsRichat, storage::segments::ChunkCompression,
     },
     futures::future::{TryFutureExt, ready, try_join_all},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},

@@ -276,6 +276,11 @@ impl Metadata {
             .expect("should never get an unknown column")
     }
 
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn catalog(&self) -> &RwLock<MetadataMirror> {
+        &self.catalog
+    }
+
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         std::fs::create_dir_all(path)
             .with_context(|| format!("failed to create metadata path: {path:?}"))?;
@@ -299,11 +304,6 @@ impl Metadata {
         db.ensure_state()?;
         *db.catalog.write().expect("poisoned") = db.load_catalog_from_db()?;
         Ok(db)
-    }
-
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn catalog(&self) -> &RwLock<MetadataMirror> {
-        &self.catalog
     }
 
     fn load_catalog_from_db(&self) -> anyhow::Result<MetadataMirror> {
@@ -351,6 +351,47 @@ impl Metadata {
             chunks,
             state,
         })
+    }
+
+    fn ensure_state(&self) -> anyhow::Result<()> {
+        if self.read_state()?.is_none() {
+            let mut batch = WriteBatch::new();
+            batch.put_cf(
+                Self::cf_handle::<StateCf>(&self.db),
+                b"state",
+                MetadataState::new().encode(),
+            );
+            self.write_batch(batch)?;
+        }
+        Ok(())
+    }
+
+    fn read_state(&self) -> anyhow::Result<Option<MetadataState>> {
+        self.db
+            .get_cf(Self::cf_handle::<StateCf>(&self.db), b"state")?
+            .map(|value| MetadataState::decode(&value))
+            .transpose()
+    }
+
+    pub fn initialize_empty(
+        &self,
+        state: &MetadataState,
+        segment: SegmentMeta,
+    ) -> anyhow::Result<()> {
+        let mut batch = WriteBatch::new();
+        batch.put_cf(
+            Self::cf_handle::<SegmentsCf>(&self.db),
+            encode_u64_key(segment.segment_id),
+            segment.encode(),
+        );
+        batch.put_cf(
+            Self::cf_handle::<StateCf>(&self.db),
+            b"state",
+            state.encode(),
+        );
+        self.write_batch(batch)?;
+        *self.catalog.write().expect("poisoned") = self.load_catalog_from_db()?;
+        Ok(())
     }
 
     pub fn apply_chunk_commit(&self, commit: &MetadataChunkCommit) -> anyhow::Result<()> {
@@ -426,27 +467,6 @@ impl Metadata {
         Ok(())
     }
 
-    pub fn initialize_empty(
-        &self,
-        state: &MetadataState,
-        segment: SegmentMeta,
-    ) -> anyhow::Result<()> {
-        let mut batch = WriteBatch::new();
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(segment.segment_id),
-            segment.encode(),
-        );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            state.encode(),
-        );
-        self.write_batch(batch)?;
-        *self.catalog.write().expect("poisoned") = self.load_catalog_from_db()?;
-        Ok(())
-    }
-
     pub fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
         batch.put_cf(
@@ -470,26 +490,6 @@ impl Metadata {
             .expect("poisoned")
             .apply_rotation_commit(commit);
         Ok(())
-    }
-
-    fn ensure_state(&self) -> anyhow::Result<()> {
-        if self.read_state()?.is_none() {
-            let mut batch = WriteBatch::new();
-            batch.put_cf(
-                Self::cf_handle::<StateCf>(&self.db),
-                b"state",
-                MetadataState::new().encode(),
-            );
-            self.write_batch(batch)?;
-        }
-        Ok(())
-    }
-
-    fn read_state(&self) -> anyhow::Result<Option<MetadataState>> {
-        self.db
-            .get_cf(Self::cf_handle::<StateCf>(&self.db), b"state")?
-            .map(|value| MetadataState::decode(&value))
-            .transpose()
     }
 
     fn write_batch(&self, batch: WriteBatch) -> anyhow::Result<()> {

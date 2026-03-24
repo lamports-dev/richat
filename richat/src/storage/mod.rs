@@ -1,23 +1,23 @@
-mod metadata;
-mod segments;
+pub mod metadata;
+pub mod segments;
 
-pub use segments::ChunkCompression;
 use {
     crate::{
         channel::{IndexLocation, ParsedMessage, SharedChannel},
         config::ConfigStorage,
         grpc::server::SubscribeClient,
         metrics::GrpcSubscribeMessage,
-        storage::segments::WriterCommand,
+        storage::{
+            metadata::Metadata,
+            segments::{SegmentReader, WriterCommand},
+        },
         util::SpawnedThreads,
     },
     ::metrics::Gauge,
-    metadata::Metadata,
     quanta::Instant,
     richat_filter::message::{MessageParserEncoding, MessageRef},
     richat_metrics::duration_to_seconds,
     richat_shared::mutex_lock,
-    segments::DecompressedChunk,
     smallvec::SmallVec,
     solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
@@ -272,10 +272,7 @@ impl Storage {
             .collect()
     }
 
-    pub(crate) fn read_messages_from_index(
-        &self,
-        index: u64,
-    ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
+    pub(crate) fn read_messages_from_index(&self, index: u64) -> SegmentReader {
         segments::read_messages_from_index(&self.segments_path, &self.metadata, index)
     }
 

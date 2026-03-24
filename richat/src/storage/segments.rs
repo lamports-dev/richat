@@ -110,14 +110,14 @@ pub(crate) fn segment_file_name(segment_id: u64) -> String {
 // ── Segment reader ─────────────────────────────────────────────────
 
 /// A single decompressed chunk ready for record decoding.
-pub(crate) struct DecompressedChunk {
+pub struct DecompressedChunk {
     pub(crate) first_index: u64,
     skip: usize,
     data: Vec<u8>,
 }
 
 impl DecompressedChunk {
-    pub(crate) fn decode_records(
+    pub fn decode_records(
         self,
         parser: MessageParserEncoding,
     ) -> anyhow::Result<Vec<(u64, ParsedMessage)>> {
@@ -140,7 +140,7 @@ impl DecompressedChunk {
 ///
 /// Each iteration reads, decompresses, and validates one chunk, yielding a
 /// [`DecompressedChunk`] that the caller can decode on demand.
-pub(crate) struct SegmentReader {
+pub struct SegmentReader {
     segments_path: PathBuf,
     chunks: Vec<ChunkMeta>,
     next_chunk: usize,
@@ -151,11 +151,7 @@ pub(crate) struct SegmentReader {
 }
 
 impl SegmentReader {
-    pub(crate) const fn new(
-        segments_path: PathBuf,
-        chunks: Vec<ChunkMeta>,
-        start_index: u64,
-    ) -> Self {
+    pub const fn new(segments_path: PathBuf, chunks: Vec<ChunkMeta>, start_index: u64) -> Self {
         Self {
             segments_path,
             chunks,
@@ -944,11 +940,11 @@ pub(crate) fn open_storage(
 }
 
 /// Reads decompressed chunks starting from `index`.
-pub(crate) fn read_messages_from_index(
+pub fn read_messages_from_index(
     segments_path: &Path,
     metadata: &Metadata,
     index: u64,
-) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
+) -> SegmentReader {
     let chunks = {
         let catalog = metadata.catalog().read().expect("segment catalog poisoned");
         let start = catalog
@@ -956,15 +952,8 @@ pub(crate) fn read_messages_from_index(
             .partition_point(|chunk| chunk.last_index < index);
         catalog.chunks[start..].to_vec()
     };
-    if chunks.is_empty() {
-        return Box::new(std::iter::empty());
-    }
 
-    Box::new(SegmentReader::new(
-        segments_path.to_path_buf(),
-        chunks,
-        index,
-    ))
+    SegmentReader::new(segments_path.to_path_buf(), chunks, index)
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {
