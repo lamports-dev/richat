@@ -12,34 +12,25 @@ use {
         util::SpawnedThreads,
     },
     ::metrics::Gauge,
-    anyhow::Context,
-    prost::{
-        bytes::BufMut,
-        encoding::{decode_varint, encode_varint},
-    },
+    metadata::MetadataMirror,
     quanta::Instant,
-    richat_filter::{
-        filter::{FilteredUpdate, FilteredUpdateFilters},
-        message::{Message, MessageParserEncoding, MessageRef},
-    },
+    richat_filter::message::{MessageParserEncoding, MessageRef},
     richat_metrics::duration_to_seconds,
     richat_shared::mutex_lock,
-    segments::{DecompressedChunk, SegmentedStorage},
+    segments::DecompressedChunk,
     smallvec::SmallVec,
     solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
     std::{
-        borrow::Cow,
         collections::{BTreeMap, VecDeque},
-        sync::{Arc, Mutex, atomic::Ordering},
+        path::PathBuf,
+        sync::{Arc, Mutex, RwLock, atomic::Ordering},
         thread,
         time::Duration,
     },
     tokio_util::sync::CancellationToken,
     tonic::Status,
 };
-
-type StorageIter<'a> = Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>> + 'a>;
 
 /// Replay start metadata exposed to the rest of `richat` for each retained
 /// slot.
@@ -49,38 +40,13 @@ pub struct SlotIndexValue {
     pub head: u64,
 }
 
-/// Encodes and decodes individual replay records inside chunk payloads.
-#[derive(Debug)]
-pub(crate) struct MessageRecordCodec;
-
-impl MessageRecordCodec {
-    pub(crate) fn encode(slot: Slot, message: &ParsedMessage, buf: &mut impl BufMut) {
-        let message_ref: MessageRef = message.into();
-        let filtered = FilteredUpdate {
-            filters: FilteredUpdateFilters::new(),
-            filtered_update: message_ref.into(),
-        };
-        encode_varint(slot, buf);
-        filtered.encode(buf);
-    }
-
-    pub(crate) fn decode(
-        mut slice: &[u8],
-        parser: MessageParserEncoding,
-    ) -> anyhow::Result<(Slot, Message)> {
-        let slot =
-            decode_varint(&mut slice).context("invalid slice size, failed to decode slot")?;
-        let message =
-            Message::parse(Cow::Borrowed(slice), parser).context("failed to parse message")?;
-        Ok((slot, message))
-    }
-}
-
 /// Public storage facade used by channel startup, replay bootstrap, and disk
 /// replay workers.
 #[derive(Debug, Clone)]
 pub struct Storage {
-    inner: Arc<SegmentedStorage>,
+    segments_path: PathBuf,
+    catalog: Arc<RwLock<MetadataMirror>>,
+    write_tx: kanal::Sender<WriterCommand>,
     replay_queue: Arc<Mutex<ReplayQueue>>,
 }
 
@@ -95,10 +61,12 @@ impl Storage {
         let replay_affinity = config.replay_affinity.clone();
         let replay_decode_per_tick = config.replay_decode_per_tick;
 
-        let (inner, mut threads) = SegmentedStorage::open(config)?;
+        let (segments_path, catalog, write_tx, mut threads) = segments::open_storage(config)?;
 
         let storage = Self {
-            inner: Arc::new(inner),
+            segments_path,
+            catalog,
+            write_tx,
             replay_queue: Arc::new(Mutex::new(ReplayQueue::new(replay_inflight_max))),
         };
 
@@ -268,7 +236,7 @@ impl Storage {
         index: u64,
         message: ParsedMessage,
     ) {
-        let _ = self.inner.write_tx.send(WriterCommand::PushMessage {
+        let _ = self.write_tx.send(WriterCommand::PushMessage {
             init,
             slot,
             head,
@@ -278,15 +246,33 @@ impl Storage {
     }
 
     pub fn remove_replay(&self, slot: Slot, until: Option<u64>) {
-        self.inner.remove_replay(slot, until);
+        let _ = self
+            .write_tx
+            .send(WriterCommand::RemoveReplay { slot, until });
     }
 
-    pub fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
-        self.inner.read_slots()
+    pub fn read_slots(&self) -> BTreeMap<Slot, SlotIndexValue> {
+        let catalog = self.catalog.read().expect("segment catalog poisoned");
+        catalog
+            .slots
+            .iter()
+            .map(|(slot, meta)| {
+                (
+                    *slot,
+                    SlotIndexValue {
+                        finalized: meta.finalized,
+                        head: meta.first_index,
+                    },
+                )
+            })
+            .collect()
     }
 
-    pub(crate) fn read_messages_from_index(&self, index: u64) -> StorageIter<'_> {
-        self.inner.read_messages_from_index(index)
+    pub(crate) fn read_messages_from_index(
+        &self,
+        index: u64,
+    ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
+        segments::read_messages_from_index(&self.segments_path, &self.catalog, index)
     }
 
     pub fn replay(

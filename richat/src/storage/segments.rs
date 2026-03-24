@@ -11,26 +11,30 @@ use {
             STORAGE_WRITE_FSYNC_MICROS_TOTAL, STORAGE_WRITE_METADATA_MICROS_TOTAL,
             STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_TRIM_MICROS_TOTAL,
         },
-        storage::{
-            MessageRecordCodec, SlotIndexValue,
-            metadata::{
-                ChunkMeta, Metadata, MetadataChunkCommit, MetadataMirror, MetadataTrimCommit,
-                RotationCommit, SegmentMeta, SlotMeta,
-            },
+        storage::metadata::{
+            ChunkMeta, Metadata, MetadataChunkCommit, MetadataMirror, MetadataTrimCommit,
+            RotationCommit, SegmentMeta, SlotMeta,
         },
         util::{SpawnedThread, SpawnedThreads},
     },
     ::metrics::counter,
     anyhow::{Context, anyhow},
-    prost::encoding::{decode_varint, encode_varint},
-    richat_filter::message::MessageParserEncoding,
+    prost::{
+        bytes::BufMut,
+        encoding::{decode_varint, encode_varint},
+    },
+    richat_filter::{
+        filter::{FilteredUpdate, FilteredUpdateFilters},
+        message::{Message, MessageParserEncoding, MessageRef},
+    },
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
     std::{
+        borrow::Cow,
         collections::{BTreeMap, HashSet},
         fs::{File, OpenOptions},
         io::{Read, Seek, SeekFrom, Write},
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{Arc, RwLock},
         thread,
         time::{Duration, Instant},
@@ -66,6 +70,28 @@ impl ChunkCompression {
             Self::TAG_ZSTD => Ok(Self::Zstd(0)),
             other => anyhow::bail!("unsupported chunk compression tag: {other}"),
         }
+    }
+}
+
+struct MessageRecordCodec;
+
+impl MessageRecordCodec {
+    fn encode(slot: Slot, message: &ParsedMessage, buf: &mut impl BufMut) {
+        let message_ref: MessageRef = message.into();
+        let filtered = FilteredUpdate {
+            filters: FilteredUpdateFilters::new(),
+            filtered_update: message_ref.into(),
+        };
+        encode_varint(slot, buf);
+        filtered.encode(buf);
+    }
+
+    fn decode(mut slice: &[u8], parser: MessageParserEncoding) -> anyhow::Result<(Slot, Message)> {
+        let slot =
+            decode_varint(&mut slice).context("invalid slice size, failed to decode slot")?;
+        let message =
+            Message::parse(Cow::Borrowed(slice), parser).context("failed to parse message")?;
+        Ok((slot, message))
     }
 }
 
@@ -859,130 +885,100 @@ impl SegmentedConfig {
     }
 }
 
-/// Segmented replay store used by the rest of the channel pipeline.
-///
-/// This owns the metadata catalog used for lookups and the writer channel used
-/// to append new replay records onto the active segment.
-#[derive(Debug, Clone)]
-pub(crate) struct SegmentedStorage {
-    config: SegmentedConfig,
-    catalog: Arc<RwLock<MetadataMirror>>,
-    pub(crate) write_tx: kanal::Sender<WriterCommand>,
+/// Initializes segment pipeline: opens metadata, creates channels, spawns
+/// collector/compressor/writer threads.
+#[allow(clippy::type_complexity)]
+pub(crate) fn open_storage(
+    config: ConfigStorage,
+) -> anyhow::Result<(
+    PathBuf,
+    Arc<RwLock<MetadataMirror>>,
+    kanal::Sender<WriterCommand>,
+    SpawnedThreads,
+)> {
+    let config = SegmentedConfig::from_config(&config);
+    std::fs::create_dir_all(&config.segments_path)
+        .with_context(|| format!("failed to create segments path: {:?}", config.segments_path))?;
+
+    let metadata = Metadata::open(&config.metadata_path)?;
+    let mut catalog = metadata.load_catalog()?;
+
+    if catalog.state.active_segment_id == 0 {
+        catalog.state.active_segment_id = catalog.state.next_segment_id;
+        catalog.state.next_segment_id += 1;
+
+        let segment = SegmentMeta::empty(catalog.state.active_segment_id, 0);
+        create_segment_file(&config, &segment)?;
+        metadata.initialize_empty(&catalog.state, segment)?;
+        catalog = metadata.load_catalog()?;
+    }
+
+    let catalog = Arc::new(RwLock::new(catalog));
+    let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
+    let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
+    let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
+
+    let collector_thread = spawn_collector(
+        config.chunk_target_size,
+        config.serialize_affinity.clone(),
+        write_rx,
+        collector_tx,
+    )?;
+    let compressor_threads = spawn_compressor_pool(
+        config.compressor_threads,
+        config.chunk_compression,
+        config.compressor_affinity.clone(),
+        collector_rx,
+        compressor_tx,
+    )?;
+
+    let writer_config = config.clone();
+    let writer_catalog = Arc::clone(&catalog);
+    let writer_metadata = metadata.clone();
+    let writer_affinity = config.write_affinity.clone();
+    let writer_jh = thread::Builder::new()
+        .name("richatStrgWrt".to_owned())
+        .spawn(move || {
+            if let Some(cpus) = writer_affinity {
+                affinity_linux::set_thread_affinity(cpus.into_iter())
+                    .expect("failed to set affinity");
+            }
+            spawn_writer(
+                writer_config,
+                writer_metadata,
+                writer_catalog,
+                compressor_rx,
+            )
+        })?;
+    let mut threads = vec![collector_thread];
+    threads.extend(compressor_threads);
+    threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
+
+    Ok((config.segments_path, catalog, write_tx, threads))
 }
 
-impl SegmentedStorage {
-    pub(crate) fn open(config: ConfigStorage) -> anyhow::Result<(Self, SpawnedThreads)> {
-        let config = SegmentedConfig::from_config(&config);
-        std::fs::create_dir_all(&config.segments_path).with_context(|| {
-            format!("failed to create segments path: {:?}", config.segments_path)
-        })?;
-
-        let metadata = Metadata::open(&config.metadata_path)?;
-        let mut catalog = metadata.load_catalog()?;
-
-        if catalog.state.active_segment_id == 0 {
-            catalog.state.active_segment_id = catalog.state.next_segment_id;
-            catalog.state.next_segment_id += 1;
-
-            let segment = SegmentMeta::empty(catalog.state.active_segment_id, 0);
-            create_segment_file(&config, &segment)?;
-            metadata.initialize_empty(&catalog.state, segment)?;
-            catalog = metadata.load_catalog()?;
-        }
-
-        let catalog = Arc::new(RwLock::new(catalog));
-        let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
-        let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
-        let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
-
-        let collector_thread = spawn_collector(
-            config.chunk_target_size,
-            config.serialize_affinity.clone(),
-            write_rx,
-            collector_tx,
-        )?;
-        let compressor_threads = spawn_compressor_pool(
-            config.compressor_threads,
-            config.chunk_compression,
-            config.compressor_affinity.clone(),
-            collector_rx,
-            compressor_tx,
-        )?;
-
-        let writer_config = config.clone();
-        let writer_catalog = Arc::clone(&catalog);
-        let writer_metadata = metadata.clone();
-        let writer_affinity = config.write_affinity.clone();
-        let writer_jh = thread::Builder::new()
-            .name("richatStrgWrt".to_owned())
-            .spawn(move || {
-                if let Some(cpus) = writer_affinity {
-                    affinity_linux::set_thread_affinity(cpus.into_iter())
-                        .expect("failed to set affinity");
-                }
-                spawn_writer(
-                    writer_config,
-                    writer_metadata,
-                    writer_catalog,
-                    compressor_rx,
-                )
-            })?;
-        let mut threads = vec![collector_thread];
-        threads.extend(compressor_threads);
-        threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
-
-        let storage = Self {
-            config,
-            catalog,
-            write_tx,
-        };
-        Ok((storage, threads))
+/// Reads decompressed chunks starting from `index`.
+pub(crate) fn read_messages_from_index(
+    segments_path: &Path,
+    catalog: &RwLock<MetadataMirror>,
+    index: u64,
+) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
+    let chunks = {
+        let catalog = catalog.read().expect("segment catalog poisoned");
+        let start = catalog
+            .chunks
+            .partition_point(|chunk| chunk.last_index < index);
+        catalog.chunks[start..].to_vec()
+    };
+    if chunks.is_empty() {
+        return Box::new(std::iter::empty());
     }
 
-    pub(crate) fn remove_replay(&self, slot: Slot, until: Option<u64>) {
-        let _ = self
-            .write_tx
-            .send(WriterCommand::RemoveReplay { slot, until });
-    }
-
-    pub(crate) fn read_slots(&self) -> anyhow::Result<BTreeMap<Slot, SlotIndexValue>> {
-        let catalog = self.catalog.read().expect("segment catalog poisoned");
-        Ok(catalog
-            .slots
-            .iter()
-            .map(|(slot, meta)| {
-                (
-                    *slot,
-                    SlotIndexValue {
-                        finalized: meta.finalized,
-                        head: meta.first_index,
-                    },
-                )
-            })
-            .collect())
-    }
-
-    pub(crate) fn read_messages_from_index(
-        &self,
-        index: u64,
-    ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>> + '_> {
-        let chunks = {
-            let catalog = self.catalog.read().expect("segment catalog poisoned");
-            let start = catalog
-                .chunks
-                .partition_point(|chunk| chunk.last_index < index);
-            catalog.chunks[start..].to_vec()
-        };
-        if chunks.is_empty() {
-            return Box::new(std::iter::empty());
-        }
-
-        Box::new(SegmentReader::new(
-            self.config.segments_path.clone(),
-            chunks,
-            index,
-        ))
-    }
+    Box::new(SegmentReader::new(
+        segments_path.to_path_buf(),
+        chunks,
+        index,
+    ))
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {

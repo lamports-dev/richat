@@ -297,7 +297,7 @@ impl Messages {
         let mut replay = BTreeMap::new();
         let mut index = 0;
         if let Some(storage) = &self.storage {
-            let slots = storage.read_slots()?;
+            let slots = storage.read_slots();
 
             for (slot, item) in slots.iter() {
                 replay.insert(*slot, ReplayInfo::new(item.head));
