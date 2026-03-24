@@ -8,7 +8,7 @@ use {
     std::{
         collections::BTreeMap,
         path::Path,
-        sync::{Arc, RwLock},
+        sync::{Arc, RwLock, RwLockReadGuard},
     },
 };
 
@@ -276,9 +276,8 @@ impl Metadata {
             .expect("should never get an unknown column")
     }
 
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn catalog(&self) -> &RwLock<MetadataMirror> {
-        &self.catalog
+    pub fn catalog(&self) -> RwLockReadGuard<'_, MetadataMirror> {
+        self.catalog.read().expect("segment catalog poisoned")
     }
 
     pub fn open(path: &Path) -> anyhow::Result<Self> {

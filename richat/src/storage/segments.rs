@@ -586,7 +586,7 @@ pub(crate) fn spawn_writer(
 impl SegmentWriter {
     fn open(config: SegmentedConfig, metadata: Metadata) -> anyhow::Result<Self> {
         let active_segment = {
-            let catalog = metadata.catalog().read().expect("segment catalog poisoned");
+            let catalog = metadata.catalog();
             catalog
                 .segments
                 .get(&catalog.state.active_segment_id)
@@ -614,11 +614,7 @@ impl SegmentWriter {
     fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
         let trim_started_at = Instant::now();
         let commit = {
-            let catalog = self
-                .metadata
-                .catalog()
-                .read()
-                .expect("segment catalog poisoned");
+            let catalog = self.metadata.catalog();
             build_trim_commit(&catalog, slot, until)
         };
         self.metadata.apply_trim_commit(&commit)?;
@@ -666,11 +662,7 @@ impl SegmentWriter {
 
         let metadata_started_at = Instant::now();
         let commit = {
-            let catalog = self
-                .metadata
-                .catalog()
-                .read()
-                .expect("segment catalog poisoned");
+            let catalog = self.metadata.catalog();
             build_chunk_commit(
                 &catalog,
                 self.active_segment,
@@ -696,11 +688,7 @@ impl SegmentWriter {
     fn rotate_segment(&mut self) -> anyhow::Result<()> {
         let rotate_started_at = Instant::now();
         let (new_segment, state) = {
-            let catalog = self
-                .metadata
-                .catalog()
-                .read()
-                .expect("segment catalog poisoned");
+            let catalog = self.metadata.catalog();
             let mut state = catalog.state;
             let new_segment_id = state.next_segment_id;
             state.next_segment_id += 1;
@@ -890,7 +878,7 @@ pub(crate) fn open_storage(
     let metadata = Metadata::open(&config.metadata_path)?;
 
     {
-        let catalog = metadata.catalog().read().expect("segment catalog poisoned");
+        let catalog = metadata.catalog();
         if catalog.state.active_segment_id == 0 {
             let mut state = catalog.state;
             state.active_segment_id = state.next_segment_id;
@@ -946,7 +934,7 @@ pub fn read_messages_from_index(
     index: u64,
 ) -> SegmentReader {
     let chunks = {
-        let catalog = metadata.catalog().read().expect("segment catalog poisoned");
+        let catalog = metadata.catalog();
         let start = catalog
             .chunks
             .partition_point(|chunk| chunk.last_index < index);

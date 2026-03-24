@@ -252,11 +252,7 @@ impl Storage {
     }
 
     pub fn read_slots(&self) -> BTreeMap<Slot, SlotIndexValue> {
-        let catalog = self
-            .metadata
-            .catalog()
-            .read()
-            .expect("segment catalog poisoned");
+        let catalog = self.metadata.catalog();
         catalog
             .slots
             .iter()
@@ -272,7 +268,7 @@ impl Storage {
             .collect()
     }
 
-    pub(crate) fn read_messages_from_index(&self, index: u64) -> SegmentReader {
+    pub fn read_messages_from_index(&self, index: u64) -> SegmentReader {
         segments::read_messages_from_index(&self.segments_path, &self.metadata, index)
     }
 
