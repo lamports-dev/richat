@@ -35,7 +35,6 @@ use {
         fs::{File, OpenOptions},
         io::{Read, Seek, SeekFrom, Write},
         path::{Path, PathBuf},
-        sync::{Arc, RwLock},
         thread,
         time::{Duration, Instant},
     },
@@ -557,7 +556,6 @@ fn run_compressor(
 pub(crate) struct SegmentWriter {
     config: SegmentedConfig,
     metadata: Metadata,
-    catalog: Arc<RwLock<MetadataMirror>>,
     active_segment: SegmentMeta,
     active_file: File,
 }
@@ -565,10 +563,9 @@ pub(crate) struct SegmentWriter {
 pub(crate) fn spawn_writer(
     config: SegmentedConfig,
     metadata: Metadata,
-    catalog: Arc<RwLock<MetadataMirror>>,
     rx: kanal::Receiver<CompressorOutput>,
 ) -> anyhow::Result<()> {
-    let mut writer = SegmentWriter::open(config, metadata, catalog)?;
+    let mut writer = SegmentWriter::open(config, metadata)?;
     let mut next_seq: u64 = 0;
     let mut pending: BTreeMap<u64, CompressorOutput> = BTreeMap::new();
 
@@ -591,13 +588,9 @@ pub(crate) fn spawn_writer(
 }
 
 impl SegmentWriter {
-    fn open(
-        config: SegmentedConfig,
-        metadata: Metadata,
-        catalog: Arc<RwLock<MetadataMirror>>,
-    ) -> anyhow::Result<Self> {
+    fn open(config: SegmentedConfig, metadata: Metadata) -> anyhow::Result<Self> {
         let active_segment = {
-            let catalog = catalog.read().expect("segment catalog poisoned");
+            let catalog = metadata.catalog().read().expect("segment catalog poisoned");
             catalog
                 .segments
                 .get(&catalog.state.active_segment_id)
@@ -617,7 +610,6 @@ impl SegmentWriter {
         Ok(Self {
             config,
             metadata,
-            catalog,
             active_segment,
             active_file,
         })
@@ -626,14 +618,14 @@ impl SegmentWriter {
     fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
         let trim_started_at = Instant::now();
         let commit = {
-            let catalog = self.catalog.read().expect("segment catalog poisoned");
+            let catalog = self
+                .metadata
+                .catalog()
+                .read()
+                .expect("segment catalog poisoned");
             build_trim_commit(&catalog, slot, until)
         };
         self.metadata.apply_trim_commit(&commit)?;
-        {
-            let mut catalog = self.catalog.write().expect("segment catalog poisoned");
-            catalog.apply_trim_commit(&commit);
-        }
 
         for segment_id in &commit.deleted_segments {
             let path = self
@@ -678,7 +670,11 @@ impl SegmentWriter {
 
         let metadata_started_at = Instant::now();
         let commit = {
-            let catalog = self.catalog.read().expect("segment catalog poisoned");
+            let catalog = self
+                .metadata
+                .catalog()
+                .read()
+                .expect("segment catalog poisoned");
             build_chunk_commit(
                 &catalog,
                 self.active_segment,
@@ -688,10 +684,6 @@ impl SegmentWriter {
             )?
         };
         self.metadata.apply_chunk_commit(&commit)?;
-        {
-            let mut catalog = self.catalog.write().expect("segment catalog poisoned");
-            catalog.apply_chunk_commit(&commit);
-        }
         counter!(STORAGE_WRITE_METADATA_MICROS_TOTAL)
             .increment(duration_as_micros(metadata_started_at.elapsed()));
 
@@ -708,7 +700,11 @@ impl SegmentWriter {
     fn rotate_segment(&mut self) -> anyhow::Result<()> {
         let rotate_started_at = Instant::now();
         let (new_segment, state) = {
-            let catalog = self.catalog.read().expect("segment catalog poisoned");
+            let catalog = self
+                .metadata
+                .catalog()
+                .read()
+                .expect("segment catalog poisoned");
             let mut state = catalog.state;
             let new_segment_id = state.next_segment_id;
             state.next_segment_id += 1;
@@ -737,10 +733,6 @@ impl SegmentWriter {
             state,
         };
         self.metadata.apply_rotation_commit(commit)?;
-        {
-            let mut catalog = self.catalog.write().expect("segment catalog poisoned");
-            catalog.apply_rotation_commit(commit);
-        }
 
         counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL)
             .increment(duration_as_micros(rotate_started_at.elapsed()));
@@ -887,12 +879,11 @@ impl SegmentedConfig {
 
 /// Initializes segment pipeline: opens metadata, creates channels, spawns
 /// collector/compressor/writer threads.
-#[allow(clippy::type_complexity)]
 pub(crate) fn open_storage(
     config: ConfigStorage,
 ) -> anyhow::Result<(
     PathBuf,
-    Arc<RwLock<MetadataMirror>>,
+    Metadata,
     kanal::Sender<WriterCommand>,
     SpawnedThreads,
 )> {
@@ -901,19 +892,20 @@ pub(crate) fn open_storage(
         .with_context(|| format!("failed to create segments path: {:?}", config.segments_path))?;
 
     let metadata = Metadata::open(&config.metadata_path)?;
-    let mut catalog = metadata.load_catalog()?;
 
-    if catalog.state.active_segment_id == 0 {
-        catalog.state.active_segment_id = catalog.state.next_segment_id;
-        catalog.state.next_segment_id += 1;
-
-        let segment = SegmentMeta::empty(catalog.state.active_segment_id, 0);
-        create_segment_file(&config, &segment)?;
-        metadata.initialize_empty(&catalog.state, segment)?;
-        catalog = metadata.load_catalog()?;
+    {
+        let catalog = metadata.catalog().read().expect("segment catalog poisoned");
+        if catalog.state.active_segment_id == 0 {
+            let mut state = catalog.state;
+            state.active_segment_id = state.next_segment_id;
+            state.next_segment_id += 1;
+            let segment = SegmentMeta::empty(state.active_segment_id, 0);
+            drop(catalog);
+            create_segment_file(&config, &segment)?;
+            metadata.initialize_empty(&state, segment)?;
+        }
     }
 
-    let catalog = Arc::new(RwLock::new(catalog));
     let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
     let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
     let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
@@ -933,7 +925,6 @@ pub(crate) fn open_storage(
     )?;
 
     let writer_config = config.clone();
-    let writer_catalog = Arc::clone(&catalog);
     let writer_metadata = metadata.clone();
     let writer_affinity = config.write_affinity.clone();
     let writer_jh = thread::Builder::new()
@@ -943,28 +934,23 @@ pub(crate) fn open_storage(
                 affinity_linux::set_thread_affinity(cpus.into_iter())
                     .expect("failed to set affinity");
             }
-            spawn_writer(
-                writer_config,
-                writer_metadata,
-                writer_catalog,
-                compressor_rx,
-            )
+            spawn_writer(writer_config, writer_metadata, compressor_rx)
         })?;
     let mut threads = vec![collector_thread];
     threads.extend(compressor_threads);
     threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
-    Ok((config.segments_path, catalog, write_tx, threads))
+    Ok((config.segments_path, metadata, write_tx, threads))
 }
 
 /// Reads decompressed chunks starting from `index`.
 pub(crate) fn read_messages_from_index(
     segments_path: &Path,
-    catalog: &RwLock<MetadataMirror>,
+    metadata: &Metadata,
     index: u64,
 ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
     let chunks = {
-        let catalog = catalog.read().expect("segment catalog poisoned");
+        let catalog = metadata.catalog().read().expect("segment catalog poisoned");
         let start = catalog
             .chunks
             .partition_point(|chunk| chunk.last_index < index);

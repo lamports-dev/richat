@@ -5,7 +5,11 @@ use {
         WriteBatch, WriteOptions,
     },
     solana_clock::Slot,
-    std::{collections::BTreeMap, path::Path, sync::Arc},
+    std::{
+        collections::BTreeMap,
+        path::Path,
+        sync::{Arc, RwLock},
+    },
 };
 
 trait ColumnName {
@@ -242,6 +246,7 @@ impl MetadataMirror {
 #[derive(Debug, Clone)]
 pub struct Metadata {
     db: Arc<DB>,
+    catalog: Arc<RwLock<MetadataMirror>>,
 }
 
 impl Metadata {
@@ -281,12 +286,27 @@ impl Metadata {
             DB::open_cf_descriptors(&db_options, path, cf_descriptors)
                 .with_context(|| format!("failed to open metadata rocksdb at {path:?}"))?,
         );
-        let db = Self { db };
+        let placeholder = MetadataMirror {
+            slots: BTreeMap::new(),
+            segments: BTreeMap::new(),
+            chunks: Vec::new(),
+            state: MetadataState::new(),
+        };
+        let db = Self {
+            db,
+            catalog: Arc::new(RwLock::new(placeholder)),
+        };
         db.ensure_state()?;
+        *db.catalog.write().expect("poisoned") = db.load_catalog_from_db()?;
         Ok(db)
     }
 
-    pub fn load_catalog(&self) -> anyhow::Result<MetadataMirror> {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn catalog(&self) -> &RwLock<MetadataMirror> {
+        &self.catalog
+    }
+
+    fn load_catalog_from_db(&self) -> anyhow::Result<MetadataMirror> {
         let state = self.read_state()?.unwrap_or_else(MetadataState::new);
 
         let mut slots = BTreeMap::new();
@@ -364,7 +384,12 @@ impl Metadata {
             b"state",
             commit.state.encode(),
         );
-        self.write_batch(batch)
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_chunk_commit(commit);
+        Ok(())
     }
 
     pub fn apply_trim_commit(&self, commit: &MetadataTrimCommit) -> anyhow::Result<()> {
@@ -393,7 +418,12 @@ impl Metadata {
             b"state",
             commit.state.encode(),
         );
-        self.write_batch(batch)
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_trim_commit(commit);
+        Ok(())
     }
 
     pub fn initialize_empty(
@@ -412,7 +442,9 @@ impl Metadata {
             b"state",
             state.encode(),
         );
-        self.write_batch(batch)
+        self.write_batch(batch)?;
+        *self.catalog.write().expect("poisoned") = self.load_catalog_from_db()?;
+        Ok(())
     }
 
     pub fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
@@ -432,7 +464,12 @@ impl Metadata {
             b"state",
             commit.state.encode(),
         );
-        self.write_batch(batch)
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_rotation_commit(commit);
+        Ok(())
     }
 
     fn ensure_state(&self) -> anyhow::Result<()> {

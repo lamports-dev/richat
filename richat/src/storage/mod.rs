@@ -12,7 +12,7 @@ use {
         util::SpawnedThreads,
     },
     ::metrics::Gauge,
-    metadata::MetadataMirror,
+    metadata::Metadata,
     quanta::Instant,
     richat_filter::message::{MessageParserEncoding, MessageRef},
     richat_metrics::duration_to_seconds,
@@ -24,7 +24,7 @@ use {
     std::{
         collections::{BTreeMap, VecDeque},
         path::PathBuf,
-        sync::{Arc, Mutex, RwLock, atomic::Ordering},
+        sync::{Arc, Mutex, atomic::Ordering},
         thread,
         time::Duration,
     },
@@ -45,7 +45,7 @@ pub struct SlotIndexValue {
 #[derive(Debug, Clone)]
 pub struct Storage {
     segments_path: PathBuf,
-    catalog: Arc<RwLock<MetadataMirror>>,
+    metadata: Metadata,
     write_tx: kanal::Sender<WriterCommand>,
     replay_queue: Arc<Mutex<ReplayQueue>>,
 }
@@ -61,11 +61,11 @@ impl Storage {
         let replay_affinity = config.replay_affinity.clone();
         let replay_decode_per_tick = config.replay_decode_per_tick;
 
-        let (segments_path, catalog, write_tx, mut threads) = segments::open_storage(config)?;
+        let (segments_path, metadata, write_tx, mut threads) = segments::open_storage(config)?;
 
         let storage = Self {
             segments_path,
-            catalog,
+            metadata,
             write_tx,
             replay_queue: Arc::new(Mutex::new(ReplayQueue::new(replay_inflight_max))),
         };
@@ -252,7 +252,11 @@ impl Storage {
     }
 
     pub fn read_slots(&self) -> BTreeMap<Slot, SlotIndexValue> {
-        let catalog = self.catalog.read().expect("segment catalog poisoned");
+        let catalog = self
+            .metadata
+            .catalog()
+            .read()
+            .expect("segment catalog poisoned");
         catalog
             .slots
             .iter()
@@ -272,7 +276,7 @@ impl Storage {
         &self,
         index: u64,
     ) -> Box<dyn Iterator<Item = anyhow::Result<DecompressedChunk>>> {
-        segments::read_messages_from_index(&self.segments_path, &self.catalog, index)
+        segments::read_messages_from_index(&self.segments_path, &self.metadata, index)
     }
 
     pub fn replay(
