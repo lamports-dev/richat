@@ -56,14 +56,14 @@ impl ChunkCompression {
     const TAG_NONE: u8 = 0;
     const TAG_ZSTD: u8 = 1;
 
-    pub(crate) const fn tag(self) -> u8 {
+    const fn tag(self) -> u8 {
         match self {
             Self::None => Self::TAG_NONE,
             Self::Zstd(_) => Self::TAG_ZSTD,
         }
     }
 
-    pub(crate) fn from_tag(tag: u8) -> anyhow::Result<Self> {
+    fn from_tag(tag: u8) -> anyhow::Result<Self> {
         match tag {
             Self::TAG_NONE => Ok(Self::None),
             Self::TAG_ZSTD => Ok(Self::Zstd(0)),
@@ -94,7 +94,7 @@ impl MessageRecordCodec {
     }
 }
 
-pub(crate) fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
+fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
     let record_len = decode_varint(slice).context("failed to decode record len")? as usize;
     let (record, rest) = slice
         .split_at_checked(record_len)
@@ -103,7 +103,7 @@ pub(crate) fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> 
     Ok(record)
 }
 
-pub(crate) fn segment_file_name(segment_id: u64) -> String {
+fn segment_file_name(segment_id: u64) -> String {
     format!("{segment_id:012}.seg")
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn segment_file_name(segment_id: u64) -> String {
 
 /// A single decompressed chunk ready for record decoding.
 pub struct DecompressedChunk {
-    pub(crate) first_index: u64,
+    first_index: u64,
     skip: usize,
     data: Vec<u8>,
 }
@@ -293,7 +293,7 @@ impl PendingChunkMeta {
     }
 }
 
-pub(crate) enum CollectorOutput {
+enum CollectorOutput {
     SerializedChunk {
         seq: u64,
         chunk: SerializedChunk,
@@ -305,7 +305,7 @@ pub(crate) enum CollectorOutput {
     },
 }
 
-pub(crate) struct SerializedChunk {
+struct SerializedChunk {
     first_index: u64,
     last_index: u64,
     uncompressed_payload: Vec<u8>,
@@ -313,7 +313,7 @@ pub(crate) struct SerializedChunk {
     pending_finalized: HashSet<Slot>,
 }
 
-pub(crate) enum CompressorOutput {
+enum CompressorOutput {
     CompressedChunk {
         seq: u64,
         chunk: CompressedChunk,
@@ -335,7 +335,7 @@ impl CompressorOutput {
 }
 
 #[derive(Debug)]
-pub(crate) struct CompressedChunk {
+struct CompressedChunk {
     compression: u8,
     first_index: u64,
     last_index: u64,
@@ -346,7 +346,7 @@ pub(crate) struct CompressedChunk {
 
 // ── Collector thread ───────────────────────────────────────────────
 
-pub(crate) fn spawn_collector(
+fn spawn_collector(
     chunk_target_size: usize,
     serialize_affinity: Option<Vec<usize>>,
     rx: kanal::Receiver<WriterCommand>,
@@ -449,7 +449,7 @@ fn run_collector(
 
 // ── Compressor thread ──────────────────────────────────────────────
 
-pub(crate) fn spawn_compressor_pool(
+fn spawn_compressor_pool(
     threads: usize,
     chunk_compression: Option<ChunkCompression>,
     affinity: Option<Vec<usize>>,
@@ -549,14 +549,14 @@ fn run_compressor(
 // ── Writer thread ──────────────────────────────────────────────────
 
 /// Long-lived state for the ordered storage append path.
-pub(crate) struct SegmentWriter {
+struct SegmentWriter {
     config: SegmentedConfig,
     metadata: Metadata,
     active_segment: SegmentMeta,
     active_file: File,
 }
 
-pub(crate) fn spawn_writer(
+fn spawn_writer(
     config: SegmentedConfig,
     metadata: Metadata,
     rx: kanal::Receiver<CompressorOutput>,
@@ -827,23 +827,23 @@ fn duration_as_micros(duration: Duration) -> u64 {
 /// Runtime storage settings derived from [`ConfigStorage`] and normalized into
 /// concrete filesystem paths and write thresholds.
 #[derive(Debug, Clone)]
-pub(crate) struct SegmentedConfig {
-    pub(crate) metadata_path: PathBuf,
-    pub(crate) segments_path: PathBuf,
-    pub(crate) serialize_affinity: Option<Vec<usize>>,
-    pub(crate) write_affinity: Option<Vec<usize>>,
-    pub(crate) segment_target_size: usize,
-    pub(crate) chunk_target_size: usize,
-    pub(crate) chunk_compression: Option<ChunkCompression>,
-    pub(crate) compressor_threads: usize,
-    pub(crate) compressor_affinity: Option<Vec<usize>>,
-    pub(crate) compressor_channel_size: usize,
-    pub(crate) collector_channel_size: usize,
-    pub(crate) writer_channel_size: usize,
+struct SegmentedConfig {
+    metadata_path: PathBuf,
+    segments_path: PathBuf,
+    serialize_affinity: Option<Vec<usize>>,
+    write_affinity: Option<Vec<usize>>,
+    segment_target_size: usize,
+    chunk_target_size: usize,
+    chunk_compression: Option<ChunkCompression>,
+    compressor_threads: usize,
+    compressor_affinity: Option<Vec<usize>>,
+    compressor_channel_size: usize,
+    collector_channel_size: usize,
+    writer_channel_size: usize,
 }
 
 impl SegmentedConfig {
-    pub(crate) fn from_config(config: &ConfigStorage) -> Self {
+    fn from_config(config: &ConfigStorage) -> Self {
         Self {
             metadata_path: config.path.join("metadata"),
             segments_path: config.path.join("segments"),
