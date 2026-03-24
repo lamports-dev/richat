@@ -23,7 +23,6 @@ use {
     solana_commitment_config::CommitmentLevel,
     std::{
         collections::{BTreeMap, VecDeque},
-        path::PathBuf,
         sync::{Arc, Mutex, atomic::Ordering},
         thread,
         time::Duration,
@@ -44,7 +43,6 @@ pub struct SlotIndexValue {
 /// replay workers.
 #[derive(Debug, Clone)]
 pub struct Storage {
-    segments_path: PathBuf,
     metadata: Metadata,
     write_tx: kanal::Sender<WriterCommand>,
     replay_queue: Arc<Mutex<ReplayQueue>>,
@@ -61,10 +59,9 @@ impl Storage {
         let replay_affinity = config.replay_affinity.clone();
         let replay_decode_per_tick = config.replay_decode_per_tick;
 
-        let (segments_path, metadata, write_tx, mut threads) = segments::open_storage(config)?;
+        let (metadata, write_tx, mut threads) = segments::open_storage(config)?;
 
         let storage = Self {
-            segments_path,
             metadata,
             write_tx,
             replay_queue: Arc::new(Mutex::new(ReplayQueue::new(replay_inflight_max))),
@@ -245,7 +242,7 @@ impl Storage {
         });
     }
 
-    pub fn remove_replay(&self, slot: Slot, until: Option<u64>) {
+    pub fn trim_messages(&self, slot: Slot, until: Option<u64>) {
         let _ = self
             .write_tx
             .send(WriterCommand::RemoveReplay { slot, until });
@@ -269,7 +266,7 @@ impl Storage {
     }
 
     pub fn read_messages_from_index(&self, index: u64) -> SegmentReader {
-        segments::read_messages_from_index(&self.segments_path, &self.metadata, index)
+        segments::read_messages_from_index(&self.metadata, index)
     }
 
     pub fn replay(

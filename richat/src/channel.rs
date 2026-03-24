@@ -755,7 +755,7 @@ impl Sender {
                             .map(|replay| replay.head)
                             .min();
 
-                        storage.remove_replay(slot, until);
+                        storage.trim_messages(slot, until);
                     }
                 }
             }

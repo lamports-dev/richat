@@ -34,7 +34,7 @@ use {
         collections::{BTreeMap, HashSet},
         fs::{File, OpenOptions},
         io::{Read, Seek, SeekFrom, Write},
-        path::{Path, PathBuf},
+        path::PathBuf,
         thread,
         time::{Duration, Instant},
     },
@@ -865,17 +865,12 @@ impl SegmentedConfig {
 /// collector/compressor/writer threads.
 pub(crate) fn open_storage(
     config: ConfigStorage,
-) -> anyhow::Result<(
-    PathBuf,
-    Metadata,
-    kanal::Sender<WriterCommand>,
-    SpawnedThreads,
-)> {
+) -> anyhow::Result<(Metadata, kanal::Sender<WriterCommand>, SpawnedThreads)> {
     let config = SegmentedConfig::from_config(&config);
     std::fs::create_dir_all(&config.segments_path)
         .with_context(|| format!("failed to create segments path: {:?}", config.segments_path))?;
 
-    let metadata = Metadata::open(&config.metadata_path)?;
+    let metadata = Metadata::open(&config.metadata_path, config.segments_path.clone())?;
 
     {
         let catalog = metadata.catalog();
@@ -924,15 +919,11 @@ pub(crate) fn open_storage(
     threads.extend(compressor_threads);
     threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
-    Ok((config.segments_path, metadata, write_tx, threads))
+    Ok((metadata, write_tx, threads))
 }
 
 /// Reads decompressed chunks starting from `index`.
-pub fn read_messages_from_index(
-    segments_path: &Path,
-    metadata: &Metadata,
-    index: u64,
-) -> SegmentReader {
+pub fn read_messages_from_index(metadata: &Metadata, index: u64) -> SegmentReader {
     let chunks = {
         let catalog = metadata.catalog();
         let start = catalog
@@ -941,7 +932,7 @@ pub fn read_messages_from_index(
         catalog.chunks[start..].to_vec()
     };
 
-    SegmentReader::new(segments_path.to_path_buf(), chunks, index)
+    SegmentReader::new(metadata.segments_path().to_path_buf(), chunks, index)
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {

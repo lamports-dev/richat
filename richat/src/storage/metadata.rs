@@ -7,13 +7,20 @@ use {
     solana_clock::Slot,
     std::{
         collections::BTreeMap,
-        path::Path,
+        path::{Path, PathBuf},
         sync::{Arc, RwLock, RwLockReadGuard},
     },
 };
 
 trait ColumnName {
     const NAME: &'static str;
+}
+
+#[derive(Debug)]
+struct StateCf;
+
+impl ColumnName for StateCf {
+    const NAME: &'static str = "state";
 }
 
 #[derive(Debug)]
@@ -37,11 +44,51 @@ impl ColumnName for ChunksCf {
     const NAME: &'static str = "chunks";
 }
 
-#[derive(Debug)]
-struct StateCf;
+/// Singleton state persisted alongside metadata tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataState {
+    pub next_segment_id: u64,
+    pub active_segment_id: u64,
+    pub trim_floor_slot: Slot,
+    pub trim_floor_index: u64,
+}
 
-impl ColumnName for StateCf {
-    const NAME: &'static str = "state";
+impl Default for MetadataState {
+    fn default() -> Self {
+        Self {
+            next_segment_id: 1,
+            active_segment_id: 0,
+            trim_floor_slot: 0,
+            trim_floor_index: 0,
+        }
+    }
+}
+
+impl MetadataState {
+    fn encode(self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(34);
+        buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
+        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
+        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
+        buf
+    }
+
+    fn decode(value: &[u8]) -> anyhow::Result<Self> {
+        let mut value = value;
+        let format_version = take_u16(&mut value)?;
+        anyhow::ensure!(
+            format_version == STATE_FORMAT_VERSION,
+            "unsupported format version: {format_version}"
+        );
+        Ok(Self {
+            next_segment_id: take_u64(&mut value)?,
+            active_segment_id: take_u64(&mut value)?,
+            trim_floor_slot: take_u64(&mut value)?,
+            trim_floor_index: take_u64(&mut value)?,
+        })
+    }
 }
 
 /// Replay start lookup for a retained slot.
@@ -153,15 +200,6 @@ impl ChunkMeta {
     }
 }
 
-/// Singleton state persisted alongside metadata tables.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MetadataState {
-    pub next_segment_id: u64,
-    pub active_segment_id: u64,
-    pub trim_floor_slot: Slot,
-    pub trim_floor_index: u64,
-}
-
 /// Atomic metadata update produced by flushing one chunk.
 #[derive(Debug, Clone)]
 pub struct MetadataChunkCommit {
@@ -195,7 +233,7 @@ const STATE_FORMAT_VERSION: u16 = 1;
 
 /// In-memory view of the metadata DB used for fast replay lookups and trim
 /// decisions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MetadataMirror {
     pub slots: BTreeMap<Slot, SlotMeta>,
     pub segments: BTreeMap<u64, SegmentMeta>,
@@ -204,7 +242,7 @@ pub struct MetadataMirror {
 }
 
 impl MetadataMirror {
-    pub fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
+    fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
         for meta in &commit.new_slots {
             self.slots.insert(meta.slot, *meta);
         }
@@ -217,7 +255,7 @@ impl MetadataMirror {
         self.state = commit.state;
     }
 
-    pub fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
+    fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
         self.slots.remove(&commit.removed_slot);
         for slot in &commit.deleted_slots {
             self.slots.remove(slot);
@@ -230,7 +268,7 @@ impl MetadataMirror {
         self.state = commit.state;
     }
 
-    pub fn apply_rotation_commit(&mut self, commit: RotationCommit) {
+    fn apply_rotation_commit(&mut self, commit: RotationCommit) {
         self.segments
             .insert(commit.sealed_segment.segment_id, commit.sealed_segment);
         self.segments
@@ -247,6 +285,7 @@ impl MetadataMirror {
 pub struct Metadata {
     db: Arc<DB>,
     catalog: Arc<RwLock<MetadataMirror>>,
+    segments_path: PathBuf,
 }
 
 impl Metadata {
@@ -280,7 +319,12 @@ impl Metadata {
         self.catalog.read().expect("segment catalog poisoned")
     }
 
-    pub fn open(path: &Path) -> anyhow::Result<Self> {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn segments_path(&self) -> &Path {
+        &self.segments_path
+    }
+
+    pub fn open(path: &Path, segments_path: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(path)
             .with_context(|| format!("failed to create metadata path: {path:?}"))?;
 
@@ -290,23 +334,28 @@ impl Metadata {
             DB::open_cf_descriptors(&db_options, path, cf_descriptors)
                 .with_context(|| format!("failed to open metadata rocksdb at {path:?}"))?,
         );
-        let placeholder = MetadataMirror {
-            slots: BTreeMap::new(),
-            segments: BTreeMap::new(),
-            chunks: Vec::new(),
-            state: MetadataState::new(),
-        };
         let db = Self {
             db,
-            catalog: Arc::new(RwLock::new(placeholder)),
+            catalog: Arc::new(RwLock::new(MetadataMirror::default())),
+            segments_path,
         };
-        db.ensure_state()?;
+
+        if db.read_state()?.is_none() {
+            let mut batch = WriteBatch::new();
+            batch.put_cf(
+                Self::cf_handle::<StateCf>(&db.db),
+                b"state",
+                MetadataState::default().encode(),
+            );
+            db.write_batch(batch)?;
+        }
         *db.catalog.write().expect("poisoned") = db.load_catalog_from_db()?;
+
         Ok(db)
     }
 
     fn load_catalog_from_db(&self) -> anyhow::Result<MetadataMirror> {
-        let state = self.read_state()?.unwrap_or_else(MetadataState::new);
+        let state = self.read_state()?.unwrap_or_default();
 
         let mut slots = BTreeMap::new();
         for item in self
@@ -350,19 +399,6 @@ impl Metadata {
             chunks,
             state,
         })
-    }
-
-    fn ensure_state(&self) -> anyhow::Result<()> {
-        if self.read_state()?.is_none() {
-            let mut batch = WriteBatch::new();
-            batch.put_cf(
-                Self::cf_handle::<StateCf>(&self.db),
-                b"state",
-                MetadataState::new().encode(),
-            );
-            self.write_batch(batch)?;
-        }
-        Ok(())
     }
 
     fn read_state(&self) -> anyhow::Result<Option<MetadataState>> {
@@ -495,42 +531,6 @@ impl Metadata {
         let mut write_options = WriteOptions::default();
         write_options.set_sync(true);
         self.db.write_opt(batch, &write_options).map_err(Into::into)
-    }
-}
-
-impl MetadataState {
-    const fn new() -> Self {
-        Self {
-            next_segment_id: 1,
-            active_segment_id: 0,
-            trim_floor_slot: 0,
-            trim_floor_index: 0,
-        }
-    }
-
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(34);
-        buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
-        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
-        buf
-    }
-
-    fn decode(value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
-        let format_version = take_u16(&mut value)?;
-        anyhow::ensure!(
-            format_version == STATE_FORMAT_VERSION,
-            "unsupported format version: {format_version}"
-        );
-        Ok(Self {
-            next_segment_id: take_u64(&mut value)?,
-            active_segment_id: take_u64(&mut value)?,
-            trim_floor_slot: take_u64(&mut value)?,
-            trim_floor_index: take_u64(&mut value)?,
-        })
     }
 }
 
