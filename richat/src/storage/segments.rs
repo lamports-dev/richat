@@ -19,10 +19,7 @@ use {
     },
     ::metrics::counter,
     anyhow::{Context, anyhow},
-    prost::{
-        bytes::BufMut,
-        encoding::{decode_varint, encode_varint},
-    },
+    prost::encoding::{decode_varint, encode_varint},
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::{Message, MessageParserEncoding, MessageRef},
@@ -72,28 +69,6 @@ impl ChunkCompression {
     }
 }
 
-struct MessageRecordCodec;
-
-impl MessageRecordCodec {
-    fn encode(slot: Slot, message: &ParsedMessage, buf: &mut impl BufMut) {
-        let message_ref: MessageRef = message.into();
-        let filtered = FilteredUpdate {
-            filters: FilteredUpdateFilters::new(),
-            filtered_update: message_ref.into(),
-        };
-        encode_varint(slot, buf);
-        filtered.encode(buf);
-    }
-
-    fn decode(mut slice: &[u8], parser: MessageParserEncoding) -> anyhow::Result<(Slot, Message)> {
-        let slot =
-            decode_varint(&mut slice).context("invalid slice size, failed to decode slot")?;
-        let message =
-            Message::parse(Cow::Borrowed(slice), parser).context("failed to parse message")?;
-        Ok((slot, message))
-    }
-}
-
 fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
     let record_len = decode_varint(slice).context("failed to decode record len")? as usize;
     let (record, rest) = slice
@@ -106,8 +81,6 @@ fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
 fn segment_file_name(segment_id: u64) -> String {
     format!("{segment_id:012}.seg")
 }
-
-// ── Segment reader ─────────────────────────────────────────────────
 
 /// A single decompressed chunk ready for record decoding.
 pub struct DecompressedChunk {
@@ -127,7 +100,11 @@ impl DecompressedChunk {
         while !slice.is_empty() {
             let record = next_record(&mut slice)?;
             if ordinal >= self.skip {
-                let (_slot, message) = MessageRecordCodec::decode(record, parser)?;
+                let mut record_slice = record;
+                let _slot = decode_varint(&mut record_slice)
+                    .context("invalid slice size, failed to decode slot")?;
+                let message = Message::parse(Cow::Borrowed(record_slice), parser)
+                    .context("failed to parse message")?;
                 records.push((self.first_index + ordinal as u64, message.into()));
             }
             ordinal += 1;
@@ -151,9 +128,14 @@ pub struct SegmentReader {
 }
 
 impl SegmentReader {
-    pub const fn new(segments_path: PathBuf, chunks: Vec<ChunkMeta>, start_index: u64) -> Self {
+    pub fn new(metadata: &Metadata, start_index: u64) -> Self {
+        let catalog = metadata.catalog();
+        let start = catalog
+            .chunks
+            .partition_point(|chunk| chunk.last_index < start_index);
+        let chunks = catalog.chunks[start..].to_vec();
         Self {
-            segments_path,
+            segments_path: metadata.segments_path().to_path_buf(),
             chunks,
             next_chunk: 0,
             next_index: start_index,
@@ -392,7 +374,13 @@ fn run_collector(
                         message,
                     } => {
                         record_buf.clear();
-                        MessageRecordCodec::encode(slot, &message, &mut record_buf);
+                        let message_ref: MessageRef = (&message).into();
+                        let filtered = FilteredUpdate {
+                            filters: FilteredUpdateFilters::new(),
+                            filtered_update: message_ref.into(),
+                        };
+                        encode_varint(slot, &mut record_buf);
+                        filtered.encode(&mut record_buf);
                         encode_varint(record_buf.len() as u64, &mut chunk_buf);
                         chunk_buf.extend_from_slice(&record_buf);
 
@@ -920,19 +908,6 @@ pub(crate) fn open_storage(
     threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
     Ok((metadata, write_tx, threads))
-}
-
-/// Reads decompressed chunks starting from `index`.
-pub fn read_messages_from_index(metadata: &Metadata, index: u64) -> SegmentReader {
-    let chunks = {
-        let catalog = metadata.catalog();
-        let start = catalog
-            .chunks
-            .partition_point(|chunk| chunk.last_index < index);
-        catalog.chunks[start..].to_vec()
-    };
-
-    SegmentReader::new(metadata.segments_path().to_path_buf(), chunks, index)
 }
 
 fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {

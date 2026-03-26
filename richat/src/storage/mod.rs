@@ -266,7 +266,7 @@ impl Storage {
     }
 
     pub fn read_messages_from_index(&self, index: u64) -> SegmentReader {
-        segments::read_messages_from_index(&self.metadata, index)
+        SegmentReader::new(&self.metadata, index)
     }
 
     pub fn replay(
