@@ -59,7 +59,6 @@ channel:
   config:
     max_messages: 2_097_152
     max_bytes: 16GiB
-
     # storage:
       # Root directory for replay storage. Metadata RocksDB is stored at
       # <path>/metadata and segment files at <path>/segments.

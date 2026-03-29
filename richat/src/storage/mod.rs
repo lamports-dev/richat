@@ -60,18 +60,17 @@ impl Storage {
             .with_context(|| format!("failed to create segments path: {segments_path:?}"))?;
 
         let metadata = Metadata::open(&config.metadata_path(), segments_path.clone())?;
-
-        {
-            let catalog = metadata.catalog();
-            if catalog.state.active_segment_id == 0 {
-                let mut state = catalog.state;
-                state.active_segment_id = state.next_segment_id;
-                state.next_segment_id += 1;
-                let segment = SegmentMeta::empty(state.active_segment_id, 0);
-                drop(catalog);
-                segments::create_segment_file(&segments_path, &segment)?;
-                metadata.initialize_empty(&state, segment)?;
-            }
+        let catalog = metadata.catalog();
+        if catalog.state.active_segment_id == 0 {
+            let mut state = catalog.state;
+            state.active_segment_id = state.next_segment_id;
+            state.next_segment_id += 1;
+            let segment = SegmentMeta::empty(state.active_segment_id, 0);
+            segments::create_segment_file(&segments_path, &segment)?;
+            drop(catalog); // drop because `initialize_empty` requires write lock
+            metadata.initialize_empty(&state, segment)?;
+        } else {
+            drop(catalog);
         }
 
         let (write_tx, mut threads) = segments::spawn_write_pipeline(&config, metadata.clone())?;
@@ -206,18 +205,25 @@ impl Storage {
 
             if !req.state.read_finished && req.state.messages.len() < messages_decode_per_tick {
                 let mut messages_decoded = 0;
-                for chunk_result in storage.read_messages_from_index(current_head + 1) {
+                'outer: for chunk_result in
+                    storage.read_messages_from_index(current_head + 1, parser)
+                {
                     match chunk_result {
-                        Ok(chunk) => match chunk.decode_records(parser) {
-                            Ok(records) => {
-                                messages_decoded += records.len();
-                                req.state.messages.extend(records);
+                        Ok(mut chunk) => {
+                            for result in &mut chunk {
+                                match result {
+                                    Ok(record) => {
+                                        messages_decoded += 1;
+                                        req.state.messages.push_back(record);
+                                    }
+                                    Err(error) => {
+                                        req.state.read_error =
+                                            Some(Status::internal(error.to_string()));
+                                        break 'outer;
+                                    }
+                                }
                             }
-                            Err(error) => {
-                                req.state.read_error = Some(Status::internal(error.to_string()));
-                                break;
-                            }
-                        },
+                        }
                         Err(error) => {
                             req.state.read_error = Some(Status::internal(error.to_string()));
                             break;
@@ -281,8 +287,12 @@ impl Storage {
             .collect()
     }
 
-    pub fn read_messages_from_index(&self, index: u64) -> SegmentReader {
-        SegmentReader::new(&self.metadata, index)
+    pub fn read_messages_from_index(
+        &self,
+        index: u64,
+        parser: MessageParserEncoding,
+    ) -> SegmentReader {
+        SegmentReader::new(&self.metadata, index, parser)
     }
 
     pub fn replay(

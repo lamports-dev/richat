@@ -39,10 +39,6 @@ use {
 };
 
 /// Compression algorithm used for a chunk payload.
-///
-/// Stored as a single byte in chunk metadata.  The writer picks the
-/// algorithm from config; the reader uses the tag stored in metadata
-/// so it can always decode regardless of the current config.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChunkCompression {
     None,
@@ -69,55 +65,59 @@ impl ChunkCompression {
     }
 }
 
-fn next_record<'a>(slice: &mut &'a [u8]) -> anyhow::Result<&'a [u8]> {
-    let record_len = decode_varint(slice).context("failed to decode record len")? as usize;
-    let (record, rest) = slice
-        .split_at_checked(record_len)
-        .context("record extends past chunk boundary")?;
-    *slice = rest;
-    Ok(record)
-}
-
-fn segment_file_name(segment_id: u64) -> String {
-    format!("{segment_id:012}.seg")
-}
-
-/// A single decompressed chunk ready for record decoding.
+/// A single decompressed chunk that yields decoded records as an iterator.
 pub struct DecompressedChunk {
     first_index: u64,
     skip: usize,
+    offset: usize,
+    record_index: usize,
+    parser: MessageParserEncoding,
     data: Vec<u8>,
 }
 
-impl DecompressedChunk {
-    pub fn decode_records(
-        self,
-        parser: MessageParserEncoding,
-    ) -> anyhow::Result<Vec<(u64, ParsedMessage)>> {
-        let mut records = Vec::new();
-        let mut slice = self.data.as_slice();
-        let mut ordinal = 0usize;
-        while !slice.is_empty() {
-            let record = next_record(&mut slice)?;
-            if ordinal >= self.skip {
-                let mut record_slice = record;
-                let _slot = decode_varint(&mut record_slice)
-                    .context("invalid slice size, failed to decode slot")?;
-                let message = Message::parse(Cow::Borrowed(record_slice), parser)
-                    .context("failed to parse message")?;
-                records.push((self.first_index + ordinal as u64, message.into()));
+impl Iterator for DecompressedChunk {
+    type Item = anyhow::Result<(u64, ParsedMessage)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.offset >= self.data.len() {
+                return None;
             }
-            ordinal += 1;
+
+            let mut slice = &self.data[self.offset..];
+            let record_len = match decode_varint(&mut slice) {
+                Ok(len) => len as usize,
+                Err(error) => return Some(Err(error).context("failed to decode record len")),
+            };
+
+            let Some((record, rest)) = slice.split_at_checked(record_len) else {
+                return Some(Err(anyhow!("record extends past chunk boundary")));
+            };
+
+            self.offset = self.data.len() - rest.len();
+            let record_index = self.record_index;
+            self.record_index += 1;
+            if record_index < self.skip {
+                continue;
+            }
+
+            let mut record_slice = record;
+            if let Err(error) = decode_varint(&mut record_slice) {
+                return Some(Err(error).context("invalid slice size, failed to decode slot"));
+            }
+
+            return Some(
+                Message::parse(Cow::Borrowed(record_slice), self.parser)
+                    .map(|msg| (self.first_index + record_index as u64, msg.into()))
+                    .context("failed to parse message"),
+            );
         }
-        Ok(records)
     }
 }
 
 /// Sequential replay reader over chunk metadata and segment files.
-///
-/// Each iteration reads, decompresses, and validates one chunk, yielding a
-/// [`DecompressedChunk`] that the caller can decode on demand.
 pub struct SegmentReader {
+    parser: MessageParserEncoding,
     segments_path: PathBuf,
     chunks: Vec<ChunkMeta>,
     next_chunk: usize,
@@ -128,13 +128,14 @@ pub struct SegmentReader {
 }
 
 impl SegmentReader {
-    pub fn new(metadata: &Metadata, start_index: u64) -> Self {
+    pub fn new(metadata: &Metadata, start_index: u64, parser: MessageParserEncoding) -> Self {
         let catalog = metadata.catalog();
         let start = catalog
             .chunks
             .partition_point(|chunk| chunk.last_index < start_index);
         let chunks = catalog.chunks[start..].to_vec();
         Self {
+            parser,
             segments_path: metadata.segments_path().to_path_buf(),
             chunks,
             next_chunk: 0,
@@ -143,6 +144,20 @@ impl SegmentReader {
             current_file: None,
             failed: false,
         }
+    }
+
+    fn open_segment(&mut self, segment_id: u64) -> anyhow::Result<&mut File> {
+        if self.current_segment_id != Some(segment_id) {
+            let path = self.segments_path.join(segment_file_name(segment_id));
+            let file = File::open(&path)
+                .with_context(|| format!("failed to open segment file: {path:?}"))?;
+            self.current_segment_id = Some(segment_id);
+            self.current_file = Some(file);
+        }
+
+        self.current_file
+            .as_mut()
+            .context("segment file should be opened")
     }
 
     fn load_next_chunk(&mut self) -> anyhow::Result<DecompressedChunk> {
@@ -172,22 +187,11 @@ impl SegmentReader {
         Ok(DecompressedChunk {
             first_index: chunk.first_index,
             skip,
+            offset: 0,
+            record_index: 0,
+            parser: self.parser,
             data: uncompressed,
         })
-    }
-
-    fn open_segment(&mut self, segment_id: u64) -> anyhow::Result<&mut File> {
-        if self.current_segment_id != Some(segment_id) {
-            let path = self.segments_path.join(segment_file_name(segment_id));
-            let file = File::open(&path)
-                .with_context(|| format!("failed to open segment file: {path:?}"))?;
-            self.current_segment_id = Some(segment_id);
-            self.current_file = Some(file);
-        }
-
-        self.current_file
-            .as_mut()
-            .context("segment file should be opened")
     }
 }
 
@@ -198,6 +202,7 @@ impl Iterator for SegmentReader {
         if self.failed || self.next_chunk >= self.chunks.len() {
             return None;
         }
+
         match self.load_next_chunk() {
             Ok(chunk) => Some(Ok(chunk)),
             Err(error) => {
@@ -849,6 +854,10 @@ pub fn spawn_write_pipeline(
     threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
     Ok((write_tx, threads))
+}
+
+fn segment_file_name(segment_id: u64) -> String {
+    format!("{segment_id:012}.seg")
 }
 
 pub fn create_segment_file(segments_path: &Path, segment: &SegmentMeta) -> anyhow::Result<()> {
