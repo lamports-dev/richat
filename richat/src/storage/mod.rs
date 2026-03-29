@@ -8,8 +8,8 @@ use {
         grpc::server::SubscribeClient,
         metrics::GrpcSubscribeMessage,
         storage::{
-            metadata::{Metadata, SegmentMeta},
-            segments::{SegmentReader, WriterCommand},
+            metadata::Metadata,
+            segments::{SegmentReader, SegmentWriter, WriterCommand},
         },
         util::SpawnedThreads,
     },
@@ -59,21 +59,8 @@ impl Storage {
         std::fs::create_dir_all(&segments_path)
             .with_context(|| format!("failed to create segments path: {segments_path:?}"))?;
 
-        let metadata = Metadata::open(&config.metadata_path(), segments_path.clone())?;
-        let catalog = metadata.catalog();
-        if catalog.state.active_segment_id == 0 {
-            let mut state = catalog.state;
-            state.active_segment_id = state.next_segment_id;
-            state.next_segment_id += 1;
-            let segment = SegmentMeta::empty(state.active_segment_id, 0);
-            segments::create_segment_file(&segments_path, &segment)?;
-            drop(catalog); // drop because `initialize_empty` requires write lock
-            metadata.initialize_empty(&state, segment)?;
-        } else {
-            drop(catalog);
-        }
-
-        let (write_tx, mut threads) = segments::spawn_write_pipeline(&config, metadata.clone())?;
+        let metadata = Metadata::open(&config.metadata_path(), segments_path)?;
+        let (write_tx, mut threads) = SegmentWriter::spawn_pipeline(&config, metadata.clone())?;
 
         let storage = Self {
             metadata,

@@ -118,9 +118,7 @@ impl Iterator for DecompressedChunk {
 /// Sequential replay reader over chunk metadata and segment files.
 pub struct SegmentReader {
     parser: MessageParserEncoding,
-    segments_path: PathBuf,
-    chunks: Vec<ChunkMeta>,
-    next_chunk: usize,
+    metadata: Metadata,
     next_index: u64,
     current_segment_id: Option<u64>,
     current_file: Option<File>,
@@ -129,16 +127,9 @@ pub struct SegmentReader {
 
 impl SegmentReader {
     pub fn new(metadata: &Metadata, start_index: u64, parser: MessageParserEncoding) -> Self {
-        let catalog = metadata.catalog();
-        let start = catalog
-            .chunks
-            .partition_point(|chunk| chunk.last_index < start_index);
-        let chunks = catalog.chunks[start..].to_vec();
         Self {
             parser,
-            segments_path: metadata.segments_path().to_path_buf(),
-            chunks,
-            next_chunk: 0,
+            metadata: metadata.clone(),
             next_index: start_index,
             current_segment_id: None,
             current_file: None,
@@ -148,7 +139,10 @@ impl SegmentReader {
 
     fn open_segment(&mut self, segment_id: u64) -> anyhow::Result<&mut File> {
         if self.current_segment_id != Some(segment_id) {
-            let path = self.segments_path.join(segment_file_name(segment_id));
+            let path = self
+                .metadata
+                .segments_path()
+                .join(segment_file_name(segment_id));
             let file = File::open(&path)
                 .with_context(|| format!("failed to open segment file: {path:?}"))?;
             self.current_segment_id = Some(segment_id);
@@ -160,14 +154,29 @@ impl SegmentReader {
             .context("segment file should be opened")
     }
 
-    fn load_next_chunk(&mut self) -> anyhow::Result<DecompressedChunk> {
-        let chunk = self.chunks[self.next_chunk];
-        self.next_chunk += 1;
+    fn load_next_chunk(&mut self) -> anyhow::Result<Option<DecompressedChunk>> {
+        let chunk = {
+            let catalog = self.metadata.catalog();
+            let pos = catalog
+                .chunks
+                .partition_point(|c| c.last_index < self.next_index);
+            match catalog.chunks.get(pos) {
+                Some(&chunk) => chunk,
+                None => return Ok(None),
+            }
+        };
 
         let file = self.open_segment(chunk.segment_id)?;
         file.seek(SeekFrom::Start(chunk.offset))?;
 
-        let mut payload = vec![0; chunk.size as usize];
+        // SAFETY: read_exact either fills all bytes or returns Err,
+        // dropping payload without reading uninitialized data.
+        #[allow(clippy::uninit_vec)]
+        let mut payload = unsafe {
+            let mut vec = Vec::with_capacity(chunk.size as usize);
+            vec.set_len(chunk.size as usize);
+            vec
+        };
         file.read_exact(&mut payload)?;
         counter!(STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL).increment(payload.len() as u64);
 
@@ -184,14 +193,14 @@ impl SegmentReader {
         let skip = self.next_index.saturating_sub(chunk.first_index) as usize;
         self.next_index = chunk.last_index + 1;
 
-        Ok(DecompressedChunk {
+        Ok(Some(DecompressedChunk {
             first_index: chunk.first_index,
             skip,
             offset: 0,
             record_index: 0,
             parser: self.parser,
             data: uncompressed,
-        })
+        }))
     }
 }
 
@@ -199,12 +208,13 @@ impl Iterator for SegmentReader {
     type Item = anyhow::Result<DecompressedChunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.failed || self.next_chunk >= self.chunks.len() {
+        if self.failed {
             return None;
         }
 
         match self.load_next_chunk() {
-            Ok(chunk) => Some(Ok(chunk)),
+            Ok(Some(chunk)) => Some(Ok(chunk)),
+            Ok(None) => None,
             Err(error) => {
                 self.failed = true;
                 Some(Err(error))
@@ -212,8 +222,6 @@ impl Iterator for SegmentReader {
         }
     }
 }
-
-// ── Segment writer ─────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub enum WriterCommand {
@@ -228,6 +236,26 @@ pub enum WriterCommand {
         slot: Slot,
         until: Option<u64>,
     },
+}
+
+enum CollectorOutput {
+    SerializedChunk {
+        seq: u64,
+        chunk: SerializedChunk,
+    },
+    Trim {
+        seq: u64,
+        slot: Slot,
+        until: Option<u64>,
+    },
+}
+
+struct SerializedChunk {
+    first_index: u64,
+    last_index: u64,
+    uncompressed_payload: Vec<u8>,
+    pending_slots: Vec<PendingSlot>,
+    pending_finalized: HashSet<Slot>,
 }
 
 #[derive(Debug)]
@@ -254,7 +282,7 @@ impl PendingChunkMeta {
         self.last_index = index;
         self.estimated_uncompressed_size = self
             .estimated_uncompressed_size
-            .saturating_add(estimate_record_size(slot, message));
+            .saturating_add(message.size().saturating_add(16));
 
         if init {
             self.pending_slots.push(PendingSlot {
@@ -279,59 +307,6 @@ impl PendingChunkMeta {
         self.record_count == 0
     }
 }
-
-enum CollectorOutput {
-    SerializedChunk {
-        seq: u64,
-        chunk: SerializedChunk,
-    },
-    Trim {
-        seq: u64,
-        slot: Slot,
-        until: Option<u64>,
-    },
-}
-
-struct SerializedChunk {
-    first_index: u64,
-    last_index: u64,
-    uncompressed_payload: Vec<u8>,
-    pending_slots: Vec<PendingSlot>,
-    pending_finalized: HashSet<Slot>,
-}
-
-enum CompressorOutput {
-    CompressedChunk {
-        seq: u64,
-        chunk: CompressedChunk,
-    },
-    Trim {
-        seq: u64,
-        slot: Slot,
-        until: Option<u64>,
-    },
-}
-
-impl CompressorOutput {
-    const fn seq(&self) -> u64 {
-        match self {
-            Self::CompressedChunk { seq, .. } => *seq,
-            Self::Trim { seq, .. } => *seq,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct CompressedChunk {
-    compression: u8,
-    first_index: u64,
-    last_index: u64,
-    payload: Vec<u8>,
-    pending_slots: Vec<PendingSlot>,
-    pending_finalized: HashSet<Slot>,
-}
-
-// ── Collector thread ───────────────────────────────────────────────
 
 fn spawn_collector(
     chunk_target_size: usize,
@@ -440,7 +415,36 @@ fn run_collector(
     Ok(())
 }
 
-// ── Compressor thread ──────────────────────────────────────────────
+enum CompressorOutput {
+    CompressedChunk {
+        seq: u64,
+        chunk: CompressedChunk,
+    },
+    Trim {
+        seq: u64,
+        slot: Slot,
+        until: Option<u64>,
+    },
+}
+
+impl CompressorOutput {
+    const fn seq(&self) -> u64 {
+        match self {
+            Self::CompressedChunk { seq, .. } => *seq,
+            Self::Trim { seq, .. } => *seq,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CompressedChunk {
+    compression: u8,
+    first_index: u64,
+    last_index: u64,
+    payload: Vec<u8>,
+    pending_slots: Vec<PendingSlot>,
+    pending_finalized: HashSet<Slot>,
+}
 
 fn spawn_compressor_pool(
     threads: usize,
@@ -450,13 +454,13 @@ fn spawn_compressor_pool(
     tx: kanal::Sender<CompressorOutput>,
 ) -> anyhow::Result<Vec<SpawnedThread>> {
     let mut handles = Vec::with_capacity(threads);
-    for i in 0..threads {
-        let th_name = format!("richatStrgCmp{i:02}");
+    for index in 0..threads {
+        let th_name = format!("richatStrgCmp{index:02}");
         let rx = rx.clone();
         let tx = tx.clone();
         let cpus = affinity.as_ref().map(|aff| {
             if threads == aff.len() {
-                vec![aff[i]]
+                vec![aff[index]]
             } else {
                 aff.clone()
             }
@@ -539,43 +543,13 @@ fn run_compressor(
     Ok(())
 }
 
-// ── Writer thread ──────────────────────────────────────────────────
-
 /// Long-lived state for the ordered storage append path.
-struct SegmentWriter {
+pub struct SegmentWriter {
     segments_path: PathBuf,
     segment_target_size: u64,
     metadata: Metadata,
     active_segment: SegmentMeta,
     active_file: File,
-}
-
-fn spawn_writer(
-    segments_path: PathBuf,
-    segment_target_size: u64,
-    metadata: Metadata,
-    rx: kanal::Receiver<CompressorOutput>,
-) -> anyhow::Result<()> {
-    let mut writer = SegmentWriter::open(segments_path, segment_target_size, metadata)?;
-    let mut next_seq: u64 = 0;
-    let mut pending: BTreeMap<u64, CompressorOutput> = BTreeMap::new();
-
-    while let Ok(output) = rx.recv() {
-        pending.insert(output.seq(), output);
-        while let Some(item) = pending.remove(&next_seq) {
-            match item {
-                CompressorOutput::CompressedChunk { chunk, .. } => {
-                    writer.append_chunk(chunk)?;
-                }
-                CompressorOutput::Trim { slot, until, .. } => {
-                    writer.handle_trim(slot, until)?;
-                }
-            }
-            next_seq += 1;
-        }
-    }
-
-    Ok(())
 }
 
 impl SegmentWriter {
@@ -584,6 +558,19 @@ impl SegmentWriter {
         segment_target_size: u64,
         metadata: Metadata,
     ) -> anyhow::Result<Self> {
+        {
+            let catalog = metadata.catalog();
+            if catalog.state.active_segment_id == 0 {
+                let mut state = catalog.state;
+                state.active_segment_id = state.next_segment_id;
+                state.next_segment_id += 1;
+                let segment = SegmentMeta::empty(state.active_segment_id, 0);
+                drop(catalog);
+                create_segment_file(&segments_path, &segment)?;
+                metadata.initialize_empty(&state, segment)?;
+            }
+        }
+
         let active_segment = {
             let catalog = metadata.catalog();
             catalog
@@ -609,11 +596,75 @@ impl SegmentWriter {
         })
     }
 
+    fn run(mut self, rx: kanal::Receiver<CompressorOutput>) -> anyhow::Result<()> {
+        let mut next_seq: u64 = 0;
+        let mut pending: BTreeMap<u64, CompressorOutput> = BTreeMap::new();
+
+        while let Ok(output) = rx.recv() {
+            pending.insert(output.seq(), output);
+            while let Some(item) = pending.remove(&next_seq) {
+                match item {
+                    CompressorOutput::CompressedChunk { chunk, .. } => {
+                        self.append_chunk(chunk)?;
+                    }
+                    CompressorOutput::Trim { slot, until, .. } => {
+                        self.handle_trim(slot, until)?;
+                    }
+                }
+                next_seq += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Creates channels and spawns collector, compressor, and writer threads.
+    pub fn spawn_pipeline(
+        config: &ConfigStorage,
+        metadata: Metadata,
+    ) -> anyhow::Result<(kanal::Sender<WriterCommand>, SpawnedThreads)> {
+        let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
+        let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
+        let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
+
+        let collector_thread = spawn_collector(
+            config.chunk_target_size,
+            config.serialize_affinity.clone(),
+            write_rx,
+            collector_tx,
+        )?;
+        let compressor_threads = spawn_compressor_pool(
+            config.compressor_threads,
+            config.chunk_compression,
+            config.compressor_affinity.clone(),
+            collector_rx,
+            compressor_tx,
+        )?;
+
+        let segments_path = config.segments_path();
+        let segment_target_size = config.segment_target_size as u64;
+        let writer_affinity = config.write_affinity.clone();
+        let writer_jh = thread::Builder::new()
+            .name("richatStrgWrt".to_owned())
+            .spawn(move || {
+                if let Some(cpus) = writer_affinity {
+                    affinity_linux::set_thread_affinity(cpus.into_iter())
+                        .expect("failed to set affinity");
+                }
+                Self::open(segments_path, segment_target_size, metadata)?.run(compressor_rx)
+            })?;
+        let mut threads = vec![collector_thread];
+        threads.extend(compressor_threads);
+        threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
+
+        Ok((write_tx, threads))
+    }
+
     fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
         let trim_started_at = Instant::now();
         let commit = {
             let catalog = self.metadata.catalog();
-            build_trim_commit(&catalog, slot, until)
+            Self::build_trim_commit(&catalog, slot, until)
         };
         self.metadata.apply_trim_commit(&commit)?;
 
@@ -658,7 +709,7 @@ impl SegmentWriter {
         let metadata_started_at = Instant::now();
         let commit = {
             let catalog = self.metadata.catalog();
-            build_chunk_commit(
+            Self::build_chunk_commit(
                 &catalog,
                 self.active_segment,
                 chunk_meta,
@@ -718,155 +769,107 @@ impl SegmentWriter {
         self.active_file = new_file;
         Ok(())
     }
-}
 
-fn build_chunk_commit(
-    catalog: &MetadataMirror,
-    active_segment: SegmentMeta,
-    chunk: ChunkMeta,
-    pending_slots: &[PendingSlot],
-    pending_finalized: &HashSet<Slot>,
-) -> anyhow::Result<MetadataChunkCommit> {
-    let mut segment = active_segment;
-    segment.last_index = chunk.last_index;
-    segment.file_len += u64::from(chunk.size);
-    segment.chunk_count += 1;
+    fn build_chunk_commit(
+        catalog: &MetadataMirror,
+        active_segment: SegmentMeta,
+        chunk: ChunkMeta,
+        pending_slots: &[PendingSlot],
+        pending_finalized: &HashSet<Slot>,
+    ) -> anyhow::Result<MetadataChunkCommit> {
+        let mut segment = active_segment;
+        segment.last_index = chunk.last_index;
+        segment.file_len += u64::from(chunk.size);
+        segment.chunk_count += 1;
 
-    let mut new_slots = Vec::with_capacity(pending_slots.len());
-    for pending in pending_slots {
-        new_slots.push(SlotMeta {
-            slot: pending.slot,
-            finalized: pending_finalized.contains(&pending.slot),
-            first_index: pending.first_index,
-            segment_id: chunk.segment_id,
-        });
-    }
+        let mut new_slots = Vec::with_capacity(pending_slots.len());
+        for pending in pending_slots {
+            new_slots.push(SlotMeta {
+                slot: pending.slot,
+                finalized: pending_finalized.contains(&pending.slot),
+                first_index: pending.first_index,
+                segment_id: chunk.segment_id,
+            });
+        }
 
-    let mut updated_slots = Vec::with_capacity(pending_finalized.len());
-    for slot in pending_finalized {
-        if let Some(meta) = catalog.slots.get(slot) {
-            if !new_slots.iter().any(|new_meta| new_meta.slot == *slot) {
-                let mut meta = *meta;
-                meta.finalized = true;
-                updated_slots.push(meta);
+        let mut updated_slots = Vec::with_capacity(pending_finalized.len());
+        for slot in pending_finalized {
+            if let Some(meta) = catalog.slots.get(slot) {
+                if !new_slots.iter().any(|new_meta| new_meta.slot == *slot) {
+                    let mut meta = *meta;
+                    meta.finalized = true;
+                    updated_slots.push(meta);
+                }
             }
         }
-    }
 
-    Ok(MetadataChunkCommit {
-        new_slots,
-        updated_slots,
-        chunk,
-        segment,
-        state: catalog.state,
-    })
-}
-
-fn build_trim_commit(
-    catalog: &MetadataMirror,
-    slot: Slot,
-    until: Option<u64>,
-) -> MetadataTrimCommit {
-    let state = catalog.state;
-
-    let deleted_segments = until
-        .map(|floor| {
-            catalog
-                .segments
-                .values()
-                .filter(|segment| {
-                    segment.sealed && segment.chunk_count > 0 && segment.last_index < floor
-                })
-                .map(|segment| segment.segment_id)
-                .collect::<Vec<_>>()
+        Ok(MetadataChunkCommit {
+            new_slots,
+            updated_slots,
+            chunk,
+            segment,
+            state: catalog.state,
         })
-        .unwrap_or_default();
-
-    let deleted_slots = catalog
-        .slots
-        .values()
-        .filter(|meta| deleted_segments.contains(&meta.segment_id))
-        .map(|meta| meta.slot)
-        .collect::<Vec<_>>();
-    let deleted_chunks = catalog
-        .chunks
-        .iter()
-        .filter(|chunk| deleted_segments.contains(&chunk.segment_id))
-        .map(|chunk| chunk.first_index)
-        .collect::<Vec<_>>();
-
-    MetadataTrimCommit {
-        removed_slot: slot,
-        deleted_slots,
-        deleted_segments,
-        deleted_chunks,
-        state,
     }
-}
 
-fn estimate_record_size(_slot: Slot, message: &ParsedMessage) -> usize {
-    message.size().saturating_add(16)
-}
+    fn build_trim_commit(
+        catalog: &MetadataMirror,
+        slot: Slot,
+        until: Option<u64>,
+    ) -> MetadataTrimCommit {
+        let state = catalog.state;
 
-fn duration_as_micros(duration: Duration) -> u64 {
-    duration.as_micros().min(u64::MAX as u128) as u64
-}
+        let deleted_segments = until
+            .map(|floor| {
+                catalog
+                    .segments
+                    .values()
+                    .filter(|segment| {
+                        segment.sealed && segment.chunk_count > 0 && segment.last_index < floor
+                    })
+                    .map(|segment| segment.segment_id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
-// ── Segmented storage ──────────────────────────────────────────────
+        let deleted_slots = catalog
+            .slots
+            .values()
+            .filter(|meta| deleted_segments.contains(&meta.segment_id))
+            .map(|meta| meta.slot)
+            .collect::<Vec<_>>();
+        let deleted_chunks = catalog
+            .chunks
+            .iter()
+            .filter(|chunk| deleted_segments.contains(&chunk.segment_id))
+            .map(|chunk| chunk.first_index)
+            .collect::<Vec<_>>();
 
-/// Creates channels and spawns collector, compressor, and writer threads.
-pub fn spawn_write_pipeline(
-    config: &ConfigStorage,
-    metadata: Metadata,
-) -> anyhow::Result<(kanal::Sender<WriterCommand>, SpawnedThreads)> {
-    let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
-    let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
-    let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
-
-    let collector_thread = spawn_collector(
-        config.chunk_target_size,
-        config.serialize_affinity.clone(),
-        write_rx,
-        collector_tx,
-    )?;
-    let compressor_threads = spawn_compressor_pool(
-        config.compressor_threads,
-        config.chunk_compression,
-        config.compressor_affinity.clone(),
-        collector_rx,
-        compressor_tx,
-    )?;
-
-    let segments_path = config.segments_path();
-    let segment_target_size = config.segment_target_size as u64;
-    let writer_affinity = config.write_affinity.clone();
-    let writer_jh = thread::Builder::new()
-        .name("richatStrgWrt".to_owned())
-        .spawn(move || {
-            if let Some(cpus) = writer_affinity {
-                affinity_linux::set_thread_affinity(cpus.into_iter())
-                    .expect("failed to set affinity");
-            }
-            spawn_writer(segments_path, segment_target_size, metadata, compressor_rx)
-        })?;
-    let mut threads = vec![collector_thread];
-    threads.extend(compressor_threads);
-    threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
-
-    Ok((write_tx, threads))
+        MetadataTrimCommit {
+            removed_slot: slot,
+            deleted_slots,
+            deleted_segments,
+            deleted_chunks,
+            state,
+        }
+    }
 }
 
 fn segment_file_name(segment_id: u64) -> String {
     format!("{segment_id:012}.seg")
 }
 
-pub fn create_segment_file(segments_path: &Path, segment: &SegmentMeta) -> anyhow::Result<()> {
+fn create_segment_file(segments_path: &Path, segment: &SegmentMeta) -> anyhow::Result<()> {
     let path = segments_path.join(segment_file_name(segment.segment_id));
     OpenOptions::new()
         .create_new(true)
         .read(true)
         .write(true)
         .open(&path)
-        .with_context(|| format!("failed to create segment file: {path:?}"))?;
-    Ok(())
+        .with_context(|| format!("failed to create segment file: {path:?}"))
+        .map(|_| ())
+}
+
+fn duration_as_micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u64::MAX as u128) as u64
 }
