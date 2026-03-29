@@ -63,12 +63,10 @@ impl Default for MetadataState {
 impl MetadataState {
     const STATE_FORMAT_VERSION: u16 = 1;
 
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(18);
+    fn encode(self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&Self::STATE_FORMAT_VERSION.to_be_bytes());
         buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
         buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
-        buf
     }
 
     fn decode(value: &[u8]) -> anyhow::Result<Self> {
@@ -92,27 +90,24 @@ impl MetadataState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlotMeta {
     pub slot: Slot,
+    pub finalized: bool,
     pub first_index: u64,
     pub segment_id: u64,
-    pub finalized: bool,
 }
 
 impl SlotMeta {
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(17);
+    fn encode(self, buf: &mut Vec<u8>) {
+        buf.push(u8::from(self.finalized));
         buf.extend_from_slice(&self.first_index.to_be_bytes());
         buf.extend_from_slice(&self.segment_id.to_be_bytes());
-        buf.push(u8::from(self.finalized));
-        buf
     }
 
-    fn decode(slot: Slot, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
+    fn decode(slot: Slot, mut value: &[u8]) -> anyhow::Result<Self> {
         Ok(Self {
             slot,
+            finalized: take_bool(&mut value)?,
             first_index: take_u64(&mut value)?,
             segment_id: take_u64(&mut value)?,
-            finalized: take_bool(&mut value)?,
         })
     }
 }
@@ -121,8 +116,8 @@ impl SlotMeta {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegmentMeta {
     pub segment_id: u64,
-    pub last_index: u64,
     pub sealed: bool,
+    pub last_index: u64,
     pub file_len: u64,
     pub chunk_count: u32,
 }
@@ -131,28 +126,25 @@ impl SegmentMeta {
     pub const fn empty(segment_id: u64, file_len: u64) -> Self {
         Self {
             segment_id,
-            last_index: 0,
             sealed: false,
+            last_index: 0,
             file_len,
             chunk_count: 0,
         }
     }
 
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(21);
-        buf.extend_from_slice(&self.last_index.to_be_bytes());
+    fn encode(self, buf: &mut Vec<u8>) {
         buf.push(u8::from(self.sealed));
+        buf.extend_from_slice(&self.last_index.to_be_bytes());
         buf.extend_from_slice(&self.file_len.to_be_bytes());
         buf.extend_from_slice(&self.chunk_count.to_be_bytes());
-        buf
     }
 
-    fn decode(segment_id: u64, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
+    fn decode(segment_id: u64, mut value: &[u8]) -> anyhow::Result<Self> {
         Ok(Self {
             segment_id,
-            last_index: take_u64(&mut value)?,
             sealed: take_bool(&mut value)?,
+            last_index: take_u64(&mut value)?,
             file_len: take_u64(&mut value)?,
             chunk_count: take_u32(&mut value)?,
         })
@@ -171,18 +163,15 @@ pub struct ChunkMeta {
 }
 
 impl ChunkMeta {
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(29);
+    fn encode(self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.segment_id.to_be_bytes());
         buf.extend_from_slice(&self.offset.to_be_bytes());
         buf.extend_from_slice(&self.size.to_be_bytes());
         buf.push(self.compression);
         buf.extend_from_slice(&self.last_index.to_be_bytes());
-        buf
     }
 
-    fn decode(first_index: u64, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
+    fn decode(first_index: u64, mut value: &[u8]) -> anyhow::Result<Self> {
         Ok(Self {
             segment_id: take_u64(&mut value)?,
             offset: take_u64(&mut value)?,
@@ -334,11 +323,9 @@ impl Metadata {
 
         if db.read_state()?.is_none() {
             let mut batch = WriteBatch::new();
-            batch.put_cf(
-                Self::cf_handle::<StateCf>(&db.db),
-                b"state",
-                MetadataState::default().encode(),
-            );
+            let mut buf = Vec::with_capacity(32);
+            MetadataState::default().encode(&mut buf);
+            batch.put_cf(Self::cf_handle::<StateCf>(&db.db), b"state", &buf);
             db.write_batch(batch)?;
         }
         *db.catalog.write().expect("poisoned") = db.load_catalog_from_db()?;
@@ -406,16 +393,16 @@ impl Metadata {
         segment: SegmentMeta,
     ) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
+        segment.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
             encode_u64_key(segment.segment_id),
-            segment.encode(),
+            &buf,
         );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            state.encode(),
-        );
+        buf.clear();
+        state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
         self.write_batch(batch)?;
         *self.catalog.write().expect("poisoned") = self.load_catalog_from_db()?;
         Ok(())
@@ -423,35 +410,42 @@ impl Metadata {
 
     pub fn apply_chunk_commit(&self, commit: &MetadataChunkCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
         for meta in &commit.new_slots {
+            buf.clear();
+            meta.encode(&mut buf);
             batch.put_cf(
                 Self::cf_handle::<SlotsCf>(&self.db),
                 encode_u64_key(meta.slot),
-                meta.encode(),
+                &buf,
             );
         }
         for meta in &commit.updated_slots {
+            buf.clear();
+            meta.encode(&mut buf);
             batch.put_cf(
                 Self::cf_handle::<SlotsCf>(&self.db),
                 encode_u64_key(meta.slot),
-                meta.encode(),
+                &buf,
             );
         }
+        buf.clear();
+        commit.chunk.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<ChunksCf>(&self.db),
             encode_u64_key(commit.chunk.first_index),
-            commit.chunk.encode(),
+            &buf,
         );
+        buf.clear();
+        commit.segment.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
             encode_u64_key(commit.segment.segment_id),
-            commit.segment.encode(),
+            &buf,
         );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
+        buf.clear();
+        commit.state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
         self.write_batch(batch)?;
         self.catalog
             .write()
@@ -481,11 +475,9 @@ impl Metadata {
                 encode_u64_key(*segment_id),
             );
         }
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
+        let mut buf = Vec::with_capacity(32);
+        commit.state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
         self.write_batch(batch)?;
         self.catalog
             .write()
@@ -496,21 +488,23 @@ impl Metadata {
 
     pub fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
+        commit.sealed_segment.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
             encode_u64_key(commit.sealed_segment.segment_id),
-            commit.sealed_segment.encode(),
+            &buf,
         );
+        buf.clear();
+        commit.new_segment.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
             encode_u64_key(commit.new_segment.segment_id),
-            commit.new_segment.encode(),
+            &buf,
         );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
+        buf.clear();
+        commit.state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
         self.write_batch(batch)?;
         self.catalog
             .write()

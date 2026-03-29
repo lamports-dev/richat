@@ -731,9 +731,9 @@ fn build_chunk_commit(
     for pending in pending_slots {
         new_slots.push(SlotMeta {
             slot: pending.slot,
+            finalized: pending_finalized.contains(&pending.slot),
             first_index: pending.first_index,
             segment_id: chunk.segment_id,
-            finalized: pending_finalized.contains(&pending.slot),
         });
     }
 
@@ -851,10 +851,7 @@ pub fn spawn_write_pipeline(
     Ok((write_tx, threads))
 }
 
-pub(crate) fn create_segment_file(
-    segments_path: &Path,
-    segment: &SegmentMeta,
-) -> anyhow::Result<()> {
+pub fn create_segment_file(segments_path: &Path, segment: &SegmentMeta) -> anyhow::Result<()> {
     let path = segments_path.join(segment_file_name(segment.segment_id));
     OpenOptions::new()
         .create_new(true)
