@@ -31,7 +31,7 @@ use {
         collections::{BTreeMap, HashSet},
         fs::{File, OpenOptions},
         io::{Read, Seek, SeekFrom, Write},
-        path::PathBuf,
+        path::{Path, PathBuf},
         thread,
         time::{Duration, Instant},
     },
@@ -211,7 +211,7 @@ impl Iterator for SegmentReader {
 // ── Segment writer ─────────────────────────────────────────────────
 
 #[derive(Debug)]
-pub(crate) enum WriterCommand {
+pub enum WriterCommand {
     PushMessage {
         init: bool,
         slot: Slot,
@@ -538,18 +538,20 @@ fn run_compressor(
 
 /// Long-lived state for the ordered storage append path.
 struct SegmentWriter {
-    config: SegmentedConfig,
+    segments_path: PathBuf,
+    segment_target_size: u64,
     metadata: Metadata,
     active_segment: SegmentMeta,
     active_file: File,
 }
 
 fn spawn_writer(
-    config: SegmentedConfig,
+    segments_path: PathBuf,
+    segment_target_size: u64,
     metadata: Metadata,
     rx: kanal::Receiver<CompressorOutput>,
 ) -> anyhow::Result<()> {
-    let mut writer = SegmentWriter::open(config, metadata)?;
+    let mut writer = SegmentWriter::open(segments_path, segment_target_size, metadata)?;
     let mut next_seq: u64 = 0;
     let mut pending: BTreeMap<u64, CompressorOutput> = BTreeMap::new();
 
@@ -572,7 +574,11 @@ fn spawn_writer(
 }
 
 impl SegmentWriter {
-    fn open(config: SegmentedConfig, metadata: Metadata) -> anyhow::Result<Self> {
+    fn open(
+        segments_path: PathBuf,
+        segment_target_size: u64,
+        metadata: Metadata,
+    ) -> anyhow::Result<Self> {
         let active_segment = {
             let catalog = metadata.catalog();
             catalog
@@ -581,9 +587,7 @@ impl SegmentWriter {
                 .copied()
                 .context("missing active segment metadata")?
         };
-        let active_path = config
-            .segments_path
-            .join(segment_file_name(active_segment.segment_id));
+        let active_path = segments_path.join(segment_file_name(active_segment.segment_id));
         let mut active_file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -592,7 +596,8 @@ impl SegmentWriter {
         active_file.seek(SeekFrom::Start(active_segment.file_len))?;
 
         Ok(Self {
-            config,
+            segments_path,
+            segment_target_size,
             metadata,
             active_segment,
             active_file,
@@ -608,10 +613,7 @@ impl SegmentWriter {
         self.metadata.apply_trim_commit(&commit)?;
 
         for segment_id in &commit.deleted_segments {
-            let path = self
-                .config
-                .segments_path
-                .join(segment_file_name(*segment_id));
+            let path = self.segments_path.join(segment_file_name(*segment_id));
             match std::fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -667,7 +669,7 @@ impl SegmentWriter {
         counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL).increment(1);
 
         self.active_segment = commit.segment;
-        if self.active_segment.file_len >= self.config.segment_target_size as u64 {
+        if self.active_segment.file_len >= self.segment_target_size {
             self.rotate_segment()?;
         }
         Ok(())
@@ -685,7 +687,6 @@ impl SegmentWriter {
         };
 
         let new_path = self
-            .config
             .segments_path
             .join(segment_file_name(new_segment.segment_id));
         let new_file = OpenOptions::new()
@@ -761,11 +762,7 @@ fn build_trim_commit(
     slot: Slot,
     until: Option<u64>,
 ) -> MetadataTrimCommit {
-    let mut state = catalog.state;
-    state.trim_floor_slot = state.trim_floor_slot.max(slot);
-    if let Some(until) = until {
-        state.trim_floor_index = state.trim_floor_index.max(until);
-    }
+    let state = catalog.state;
 
     let deleted_segments = until
         .map(|floor| {
@@ -812,67 +809,11 @@ fn duration_as_micros(duration: Duration) -> u64 {
 
 // ── Segmented storage ──────────────────────────────────────────────
 
-/// Runtime storage settings derived from [`ConfigStorage`] and normalized into
-/// concrete filesystem paths and write thresholds.
-#[derive(Debug, Clone)]
-struct SegmentedConfig {
-    metadata_path: PathBuf,
-    segments_path: PathBuf,
-    serialize_affinity: Option<Vec<usize>>,
-    write_affinity: Option<Vec<usize>>,
-    segment_target_size: usize,
-    chunk_target_size: usize,
-    chunk_compression: Option<ChunkCompression>,
-    compressor_threads: usize,
-    compressor_affinity: Option<Vec<usize>>,
-    compressor_channel_size: usize,
-    collector_channel_size: usize,
-    writer_channel_size: usize,
-}
-
-impl SegmentedConfig {
-    fn from_config(config: &ConfigStorage) -> Self {
-        Self {
-            metadata_path: config.path.join("metadata"),
-            segments_path: config.path.join("segments"),
-            serialize_affinity: config.serialize_affinity.clone(),
-            write_affinity: config.write_affinity.clone(),
-            segment_target_size: config.segment_target_size,
-            chunk_target_size: config.chunk_target_size,
-            chunk_compression: config.chunk_compression,
-            compressor_threads: config.compressor_threads,
-            compressor_affinity: config.compressor_affinity.clone(),
-            compressor_channel_size: config.compressor_channel_size,
-            collector_channel_size: config.collector_channel_size,
-            writer_channel_size: config.writer_channel_size,
-        }
-    }
-}
-
-/// Initializes segment pipeline: opens metadata, creates channels, spawns
-/// collector/compressor/writer threads.
-pub(crate) fn open_storage(
-    config: ConfigStorage,
-) -> anyhow::Result<(Metadata, kanal::Sender<WriterCommand>, SpawnedThreads)> {
-    let config = SegmentedConfig::from_config(&config);
-    std::fs::create_dir_all(&config.segments_path)
-        .with_context(|| format!("failed to create segments path: {:?}", config.segments_path))?;
-
-    let metadata = Metadata::open(&config.metadata_path, config.segments_path.clone())?;
-
-    {
-        let catalog = metadata.catalog();
-        if catalog.state.active_segment_id == 0 {
-            let mut state = catalog.state;
-            state.active_segment_id = state.next_segment_id;
-            state.next_segment_id += 1;
-            let segment = SegmentMeta::empty(state.active_segment_id, 0);
-            drop(catalog);
-            create_segment_file(&config, &segment)?;
-            metadata.initialize_empty(&state, segment)?;
-        }
-    }
-
+/// Creates channels and spawns collector, compressor, and writer threads.
+pub fn spawn_write_pipeline(
+    config: &ConfigStorage,
+    metadata: Metadata,
+) -> anyhow::Result<(kanal::Sender<WriterCommand>, SpawnedThreads)> {
     let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
     let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
     let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
@@ -891,8 +832,8 @@ pub(crate) fn open_storage(
         compressor_tx,
     )?;
 
-    let writer_config = config.clone();
-    let writer_metadata = metadata.clone();
+    let segments_path = config.segments_path();
+    let segment_target_size = config.segment_target_size as u64;
     let writer_affinity = config.write_affinity.clone();
     let writer_jh = thread::Builder::new()
         .name("richatStrgWrt".to_owned())
@@ -901,19 +842,20 @@ pub(crate) fn open_storage(
                 affinity_linux::set_thread_affinity(cpus.into_iter())
                     .expect("failed to set affinity");
             }
-            spawn_writer(writer_config, writer_metadata, compressor_rx)
+            spawn_writer(segments_path, segment_target_size, metadata, compressor_rx)
         })?;
     let mut threads = vec![collector_thread];
     threads.extend(compressor_threads);
     threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
 
-    Ok((metadata, write_tx, threads))
+    Ok((write_tx, threads))
 }
 
-fn create_segment_file(config: &SegmentedConfig, segment: &SegmentMeta) -> anyhow::Result<()> {
-    let path = config
-        .segments_path
-        .join(segment_file_name(segment.segment_id));
+pub(crate) fn create_segment_file(
+    segments_path: &Path,
+    segment: &SegmentMeta,
+) -> anyhow::Result<()> {
+    let path = segments_path.join(segment_file_name(segment.segment_id));
     OpenOptions::new()
         .create_new(true)
         .read(true)

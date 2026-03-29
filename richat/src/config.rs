@@ -316,6 +316,14 @@ pub struct ConfigStorage {
 }
 
 impl ConfigStorage {
+    pub fn metadata_path(&self) -> PathBuf {
+        self.path.join("metadata")
+    }
+
+    pub fn segments_path(&self) -> PathBuf {
+        self.path.join("segments")
+    }
+
     const fn default_max_slots() -> usize {
         1024
     }

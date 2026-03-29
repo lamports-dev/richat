@@ -49,8 +49,6 @@ impl ColumnName for ChunksCf {
 pub struct MetadataState {
     pub next_segment_id: u64,
     pub active_segment_id: u64,
-    pub trim_floor_slot: Slot,
-    pub trim_floor_index: u64,
 }
 
 impl Default for MetadataState {
@@ -58,20 +56,18 @@ impl Default for MetadataState {
         Self {
             next_segment_id: 1,
             active_segment_id: 0,
-            trim_floor_slot: 0,
-            trim_floor_index: 0,
         }
     }
 }
 
 impl MetadataState {
+    const STATE_FORMAT_VERSION: u16 = 1;
+
     fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(34);
-        buf.extend_from_slice(&STATE_FORMAT_VERSION.to_be_bytes());
+        let mut buf = Vec::with_capacity(18);
+        buf.extend_from_slice(&Self::STATE_FORMAT_VERSION.to_be_bytes());
         buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
         buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
         buf
     }
 
@@ -79,14 +75,12 @@ impl MetadataState {
         let mut value = value;
         let format_version = take_u16(&mut value)?;
         anyhow::ensure!(
-            format_version == STATE_FORMAT_VERSION,
+            format_version == Self::STATE_FORMAT_VERSION,
             "unsupported format version: {format_version}"
         );
         Ok(Self {
             next_segment_id: take_u64(&mut value)?,
             active_segment_id: take_u64(&mut value)?,
-            trim_floor_slot: take_u64(&mut value)?,
-            trim_floor_index: take_u64(&mut value)?,
         })
     }
 }
@@ -228,8 +222,6 @@ pub struct RotationCommit {
     pub new_segment: SegmentMeta,
     pub state: MetadataState,
 }
-
-const STATE_FORMAT_VERSION: u16 = 1;
 
 /// In-memory view of the metadata DB used for fast replay lookups and trim
 /// decisions.

@@ -8,11 +8,12 @@ use {
         grpc::server::SubscribeClient,
         metrics::GrpcSubscribeMessage,
         storage::{
-            metadata::Metadata,
+            metadata::{Metadata, SegmentMeta},
             segments::{SegmentReader, WriterCommand},
         },
         util::SpawnedThreads,
     },
+    anyhow::Context,
     ::metrics::Gauge,
     quanta::Instant,
     richat_filter::message::{MessageParserEncoding, MessageRef},
@@ -54,24 +55,39 @@ impl Storage {
         parser: MessageParserEncoding,
         shutdown: CancellationToken,
     ) -> anyhow::Result<(Self, SpawnedThreads)> {
-        let replay_inflight_max = config.replay_inflight_max;
-        let replay_threads = config.replay_threads;
-        let replay_affinity = config.replay_affinity.clone();
-        let replay_decode_per_tick = config.replay_decode_per_tick;
+        let segments_path = config.segments_path();
+        std::fs::create_dir_all(&segments_path)
+            .with_context(|| format!("failed to create segments path: {segments_path:?}"))?;
 
-        let (metadata, write_tx, mut threads) = segments::open_storage(config)?;
+        let metadata = Metadata::open(&config.metadata_path(), segments_path.clone())?;
+
+        {
+            let catalog = metadata.catalog();
+            if catalog.state.active_segment_id == 0 {
+                let mut state = catalog.state;
+                state.active_segment_id = state.next_segment_id;
+                state.next_segment_id += 1;
+                let segment = SegmentMeta::empty(state.active_segment_id, 0);
+                drop(catalog);
+                segments::create_segment_file(&segments_path, &segment)?;
+                metadata.initialize_empty(&state, segment)?;
+            }
+        }
+
+        let (write_tx, mut threads) = segments::spawn_write_pipeline(&config, metadata.clone())?;
 
         let storage = Self {
             metadata,
             write_tx,
-            replay_queue: Arc::new(Mutex::new(ReplayQueue::new(replay_inflight_max))),
+            replay_queue: Arc::new(Mutex::new(ReplayQueue::new(config.replay_inflight_max))),
         };
 
-        for index in 0..replay_threads {
+        for index in 0..config.replay_threads {
             let th_name = format!("richatStrgRep{index:02}");
             let storage = storage.clone();
-            let affinity = replay_affinity.clone();
+            let affinity = config.replay_affinity.clone();
             let shutdown = shutdown.clone();
+            let replay_decode_per_tick = config.replay_decode_per_tick;
             let jh = thread::Builder::new()
                 .name(th_name.clone())
                 .spawn(move || {
