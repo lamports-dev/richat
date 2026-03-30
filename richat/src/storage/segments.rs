@@ -86,8 +86,11 @@ impl Iterator for DecompressedChunk {
             }
 
             let mut slice = &self.data[self.offset..];
-            let record_len = match decode_varint(&mut slice) {
-                Ok(len) => len as usize,
+            let record_len: usize = match decode_varint(&mut slice) {
+                Ok(len) => match len.try_into() {
+                    Ok(len) => len,
+                    Err(_) => return Some(Err(anyhow!("record len overflows usize: {len}"))),
+                },
                 Err(error) => return Some(Err(error).context("failed to decode record len")),
             };
 
@@ -170,12 +173,16 @@ impl SegmentReader {
         let file = self.open_segment(chunk.segment_id)?;
         file.seek(SeekFrom::Start(chunk.offset))?;
 
+        let chunk_size: usize = chunk
+            .size
+            .try_into()
+            .context("chunk size overflows usize")?;
         // SAFETY: read_exact either fills all bytes or returns Err,
         // dropping payload without reading uninitialized data.
         #[allow(clippy::uninit_vec)]
         let mut payload = unsafe {
-            let mut vec = Vec::with_capacity(chunk.size as usize);
-            vec.set_len(chunk.size as usize);
+            let mut vec = Vec::with_capacity(chunk_size);
+            vec.set_len(chunk_size);
             vec
         };
         file.read_exact(&mut payload)?;
@@ -191,7 +198,11 @@ impl SegmentReader {
         };
         counter!(STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL).increment(uncompressed.len() as u64);
 
-        let skip = self.next_index.saturating_sub(chunk.first_index) as usize;
+        let skip: usize = self
+            .next_index
+            .saturating_sub(chunk.first_index)
+            .try_into()
+            .context("skip offset overflows usize")?;
         self.next_index = chunk.last_index + 1;
 
         Ok(Some(DecompressedChunk {
@@ -629,7 +640,7 @@ impl SegmentWriter {
         let chunk_meta = ChunkMeta {
             segment_id: self.active_segment.segment_id,
             offset: self.active_segment.file_len,
-            size: chunk.payload.len() as u32,
+            size: chunk.payload.len() as u64,
             compression: chunk.compression,
             first_index: chunk.first_index,
             last_index: chunk.last_index,
@@ -740,7 +751,7 @@ impl SegmentWriter {
     ) -> anyhow::Result<MetadataChunkCommit> {
         let mut segment = active_segment;
         segment.last_index = chunk.last_index;
-        segment.file_len += u64::from(chunk.size);
+        segment.file_len += chunk.size;
         segment.chunk_count += 1;
 
         let mut new_slots = Vec::with_capacity(pending_slots.len());

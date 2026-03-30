@@ -156,7 +156,7 @@ impl SegmentMeta {
 pub struct ChunkMeta {
     pub segment_id: u64,
     pub offset: u64,
-    pub size: u32,
+    pub size: u64,
     pub compression: u8,
     pub first_index: u64,
     pub last_index: u64,
@@ -175,7 +175,7 @@ impl ChunkMeta {
         Ok(Self {
             segment_id: take_u64(&mut value)?,
             offset: take_u64(&mut value)?,
-            size: take_u32(&mut value)?,
+            size: take_u64(&mut value)?,
             compression: take_u8(&mut value)?,
             first_index,
             last_index: take_u64(&mut value)?,
