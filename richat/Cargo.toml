@@ -16,7 +16,6 @@ agave-reserved-account-keys = { workspace = true }
 anyhow = { workspace = true }
 arrayvec = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-crc32fast = { workspace = true }
 crossbeam-queue = { workspace = true }
 fastwebsockets = { workspace = true, features = ["upgrade", "unstable-split"] }
 foldhash = { workspace = true }
@@ -30,7 +29,6 @@ kanal = { workspace = true }
 maplit = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
-num_cpus = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 quanta = { workspace = true }
