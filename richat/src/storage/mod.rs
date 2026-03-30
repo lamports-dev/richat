@@ -9,7 +9,7 @@ use {
         metrics::GrpcSubscribeMessage,
         storage::{
             metadata::Metadata,
-            segments::{SegmentReader, SegmentWriter, WriterCommand},
+            segments::{SegmentReader, WriterCommand},
         },
         util::SpawnedThreads,
     },
@@ -60,7 +60,7 @@ impl Storage {
             .with_context(|| format!("failed to create segments path: {segments_path:?}"))?;
 
         let metadata = Metadata::open(&config.metadata_path(), segments_path)?;
-        let (write_tx, mut threads) = SegmentWriter::spawn_pipeline(&config, metadata.clone())?;
+        let (write_tx, mut threads) = segments::spawn_write_pipeline(&config, metadata.clone())?;
 
         let storage = Self {
             metadata,

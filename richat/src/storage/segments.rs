@@ -31,7 +31,7 @@ use {
         collections::{BTreeMap, HashSet},
         fs::{File, OpenOptions},
         io::{Read, Seek, SeekFrom, Write},
-        path::{Path, PathBuf},
+        path::PathBuf,
         thread,
         time::{Duration, Instant},
     },
@@ -544,7 +544,7 @@ fn run_compressor(
 }
 
 /// Long-lived state for the ordered storage append path.
-pub struct SegmentWriter {
+struct SegmentWriter {
     segments_path: PathBuf,
     segment_target_size: u64,
     metadata: Metadata,
@@ -566,7 +566,13 @@ impl SegmentWriter {
                 state.next_segment_id += 1;
                 let segment = SegmentMeta::empty(state.active_segment_id, 0);
                 drop(catalog);
-                create_segment_file(&segments_path, &segment)?;
+                let path = segments_path.join(segment_file_name(segment.segment_id));
+                OpenOptions::new()
+                    .create_new(true)
+                    .read(true)
+                    .write(true)
+                    .open(&path)
+                    .with_context(|| format!("failed to create segment file: {path:?}"))?;
                 metadata.initialize_empty(&state, segment)?;
             }
         }
@@ -615,72 +621,6 @@ impl SegmentWriter {
             }
         }
 
-        Ok(())
-    }
-
-    /// Creates channels and spawns collector, compressor, and writer threads.
-    pub fn spawn_pipeline(
-        config: &ConfigStorage,
-        metadata: Metadata,
-    ) -> anyhow::Result<(kanal::Sender<WriterCommand>, SpawnedThreads)> {
-        let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
-        let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
-        let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
-
-        let collector_thread = spawn_collector(
-            config.chunk_target_size,
-            config.serialize_affinity.clone(),
-            write_rx,
-            collector_tx,
-        )?;
-        let compressor_threads = spawn_compressor_pool(
-            config.compressor_threads,
-            config.chunk_compression,
-            config.compressor_affinity.clone(),
-            collector_rx,
-            compressor_tx,
-        )?;
-
-        let segments_path = config.segments_path();
-        let segment_target_size = config.segment_target_size as u64;
-        let writer_affinity = config.write_affinity.clone();
-        let writer_jh = thread::Builder::new()
-            .name("richatStrgWrt".to_owned())
-            .spawn(move || {
-                if let Some(cpus) = writer_affinity {
-                    affinity_linux::set_thread_affinity(cpus.into_iter())
-                        .expect("failed to set affinity");
-                }
-                Self::open(segments_path, segment_target_size, metadata)?.run(compressor_rx)
-            })?;
-        let mut threads = vec![collector_thread];
-        threads.extend(compressor_threads);
-        threads.push(("richatStrgWrt".to_owned(), Some(writer_jh)));
-
-        Ok((write_tx, threads))
-    }
-
-    fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
-        let trim_started_at = Instant::now();
-        let commit = {
-            let catalog = self.metadata.catalog();
-            Self::build_trim_commit(&catalog, slot, until)
-        };
-        self.metadata.apply_trim_commit(&commit)?;
-
-        for segment_id in &commit.deleted_segments {
-            let path = self.segments_path.join(segment_file_name(*segment_id));
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("failed to delete segment {path:?}"));
-                }
-            }
-        }
-        counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
-            .increment(duration_as_micros(trim_started_at.elapsed()));
         Ok(())
     }
 
@@ -770,6 +710,30 @@ impl SegmentWriter {
         Ok(())
     }
 
+    fn handle_trim(&mut self, slot: Slot, until: Option<u64>) -> anyhow::Result<()> {
+        let trim_started_at = Instant::now();
+        let commit = {
+            let catalog = self.metadata.catalog();
+            Self::build_trim_commit(&catalog, slot, until)
+        };
+        self.metadata.apply_trim_commit(&commit)?;
+
+        for segment_id in &commit.deleted_segments {
+            let path = self.segments_path.join(segment_file_name(*segment_id));
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to delete segment {path:?}"));
+                }
+            }
+        }
+        counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
+            .increment(duration_as_micros(trim_started_at.elapsed()));
+        Ok(())
+    }
+
     fn build_chunk_commit(
         catalog: &MetadataMirror,
         active_segment: SegmentMeta,
@@ -852,19 +816,62 @@ impl SegmentWriter {
     }
 }
 
-fn segment_file_name(segment_id: u64) -> String {
-    format!("{segment_id:012}.seg")
+fn spawn_writer(
+    segments_path: PathBuf,
+    segment_target_size: u64,
+    affinity: Option<Vec<usize>>,
+    metadata: Metadata,
+    rx: kanal::Receiver<CompressorOutput>,
+) -> anyhow::Result<SpawnedThread> {
+    let th_name = "richatStrgWrt".to_owned();
+    let jh = thread::Builder::new()
+        .name(th_name.clone())
+        .spawn(move || {
+            if let Some(cpus) = affinity {
+                affinity_linux::set_thread_affinity(cpus.into_iter())
+                    .expect("failed to set affinity");
+            }
+            SegmentWriter::open(segments_path, segment_target_size, metadata)?.run(rx)
+        })?;
+    Ok((th_name, Some(jh)))
 }
 
-fn create_segment_file(segments_path: &Path, segment: &SegmentMeta) -> anyhow::Result<()> {
-    let path = segments_path.join(segment_file_name(segment.segment_id));
-    OpenOptions::new()
-        .create_new(true)
-        .read(true)
-        .write(true)
-        .open(&path)
-        .with_context(|| format!("failed to create segment file: {path:?}"))
-        .map(|_| ())
+/// Creates channels and spawns collector, compressor, and writer threads.
+pub fn spawn_write_pipeline(
+    config: &ConfigStorage,
+    metadata: Metadata,
+) -> anyhow::Result<(kanal::Sender<WriterCommand>, SpawnedThreads)> {
+    let (write_tx, write_rx) = kanal::bounded(config.collector_channel_size);
+    let (collector_tx, collector_rx) = kanal::bounded(config.compressor_channel_size);
+    let (compressor_tx, compressor_rx) = kanal::bounded(config.writer_channel_size);
+
+    let mut threads = vec![];
+    threads.push(spawn_collector(
+        config.chunk_target_size,
+        config.serialize_affinity.clone(),
+        write_rx,
+        collector_tx,
+    )?);
+    threads.extend(spawn_compressor_pool(
+        config.compressor_threads,
+        config.chunk_compression,
+        config.compressor_affinity.clone(),
+        collector_rx,
+        compressor_tx,
+    )?);
+    threads.push(spawn_writer(
+        config.segments_path(),
+        config.segment_target_size as u64,
+        config.write_affinity.clone(),
+        metadata,
+        compressor_rx,
+    )?);
+
+    Ok((write_tx, threads))
+}
+
+fn segment_file_name(segment_id: u64) -> String {
+    format!("{segment_id:012}.seg")
 }
 
 fn duration_as_micros(duration: Duration) -> u64 {
