@@ -38,12 +38,11 @@ pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_uncompressed_bytes_total";
 pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_compressed_bytes_total";
-pub const STORAGE_WRITE_COMPRESS_MICROS_TOTAL: &str = "storage_write_compress_micros_total";
-pub const STORAGE_WRITE_APPEND_MICROS_TOTAL: &str = "storage_write_append_micros_total";
-pub const STORAGE_WRITE_FSYNC_MICROS_TOTAL: &str = "storage_write_fsync_micros_total";
-pub const STORAGE_WRITE_METADATA_MICROS_TOTAL: &str = "storage_write_metadata_micros_total";
-pub const STORAGE_WRITE_TRIM_MICROS_TOTAL: &str = "storage_write_trim_micros_total";
-pub const STORAGE_WRITE_ROTATE_MICROS_TOTAL: &str = "storage_write_rotate_micros_total";
+pub const STORAGE_WRITE_COMPRESS_SECONDS_TOTAL: &str = "storage_write_compress_seconds_total";
+pub const STORAGE_WRITE_APPEND_SECONDS_TOTAL: &str = "storage_write_append_seconds_total";
+pub const STORAGE_WRITE_COMMIT_SECONDS_TOTAL: &str = "storage_write_commit_seconds_total";
+pub const STORAGE_WRITE_TRIM_SECONDS_TOTAL: &str = "storage_write_trim_seconds_total";
+pub const STORAGE_WRITE_ROTATE_SECONDS_TOTAL: &str = "storage_write_rotate_seconds_total";
 pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
 pub const STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL: &str = "storage_replay_decompressed_bytes_total";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
@@ -104,12 +103,11 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
-    describe_counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL, "Total microseconds spent compressing storage chunks");
-    describe_counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL, "Total microseconds spent appending storage chunks to segment files");
-    describe_counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL, "Total microseconds spent fsyncing storage segment writes");
-    describe_counter!(STORAGE_WRITE_METADATA_MICROS_TOTAL, "Total microseconds spent committing storage metadata");
-    describe_counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL, "Total microseconds spent trimming retained storage segments");
-    describe_counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL, "Total microseconds spent rotating active storage segments");
+    describe_gauge!(STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, "Total seconds spent compressing storage chunks");
+    describe_gauge!(STORAGE_WRITE_APPEND_SECONDS_TOTAL, "Total seconds spent appending and fsyncing storage chunks");
+    describe_gauge!(STORAGE_WRITE_COMMIT_SECONDS_TOTAL, "Total seconds spent committing storage metadata");
+    describe_gauge!(STORAGE_WRITE_TRIM_SECONDS_TOTAL, "Total seconds spent trimming retained storage segments");
+    describe_gauge!(STORAGE_WRITE_ROTATE_SECONDS_TOTAL, "Total seconds spent rotating active storage segments");
     describe_counter!(
         STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL,
         "Compressed bytes read from segmented replay storage"

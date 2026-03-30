@@ -5,11 +5,11 @@ use {
         metrics::{
             CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
             STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL, STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
-            STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_MICROS_TOTAL,
+            STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_SECONDS_TOTAL,
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
-            STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMPRESS_MICROS_TOTAL,
-            STORAGE_WRITE_FSYNC_MICROS_TOTAL, STORAGE_WRITE_METADATA_MICROS_TOTAL,
-            STORAGE_WRITE_ROTATE_MICROS_TOTAL, STORAGE_WRITE_TRIM_MICROS_TOTAL,
+            STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMMIT_SECONDS_TOTAL,
+            STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, STORAGE_WRITE_ROTATE_SECONDS_TOTAL,
+            STORAGE_WRITE_TRIM_SECONDS_TOTAL,
         },
         storage::metadata::{
             ChunkMeta, Metadata, MetadataChunkCommit, MetadataMirror, MetadataTrimCommit,
@@ -17,13 +17,14 @@ use {
         },
         util::{SpawnedThread, SpawnedThreads},
     },
-    ::metrics::counter,
+    ::metrics::{counter, gauge},
     anyhow::{Context, anyhow},
     prost::encoding::{decode_varint, encode_varint},
     richat_filter::{
         filter::{FilteredUpdate, FilteredUpdateFilters},
         message::{Message, MessageParserEncoding, MessageRef},
     },
+    richat_metrics::duration_to_seconds,
     richat_proto::geyser::SlotStatus,
     solana_clock::Slot,
     std::{
@@ -33,7 +34,7 @@ use {
         io::{Read, Seek, SeekFrom, Write},
         path::PathBuf,
         thread,
-        time::{Duration, Instant},
+        time::Instant,
     },
     zstd::{bulk::Compressor, stream::decode_all as zstd_decode_all},
 };
@@ -500,8 +501,8 @@ fn run_compressor(
                     let compressed = compressor
                         .compress(&chunk.uncompressed_payload)
                         .context("failed to compress chunk")?;
-                    counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL)
-                        .increment(duration_as_micros(compress_started_at.elapsed()));
+                    gauge!(STORAGE_WRITE_COMPRESS_SECONDS_TOTAL)
+                        .increment(duration_to_seconds(compress_started_at.elapsed()));
                     compressed
                 } else {
                     chunk.uncompressed_payload
@@ -638,15 +639,11 @@ impl SegmentWriter {
         self.active_file
             .seek(SeekFrom::Start(self.active_segment.file_len))?;
         self.active_file.write_all(&chunk.payload)?;
-        counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL)
-            .increment(duration_as_micros(append_started_at.elapsed()));
-
-        let fsync_started_at = Instant::now();
         self.active_file.sync_data()?;
-        counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL)
-            .increment(duration_as_micros(fsync_started_at.elapsed()));
+        gauge!(STORAGE_WRITE_APPEND_SECONDS_TOTAL)
+            .increment(duration_to_seconds(append_started_at.elapsed()));
 
-        let metadata_started_at = Instant::now();
+        let commit_started_at = Instant::now();
         let commit = {
             let catalog = self.metadata.catalog();
             Self::build_chunk_commit(
@@ -658,8 +655,8 @@ impl SegmentWriter {
             )?
         };
         self.metadata.apply_chunk_commit(&commit)?;
-        counter!(STORAGE_WRITE_METADATA_MICROS_TOTAL)
-            .increment(duration_as_micros(metadata_started_at.elapsed()));
+        gauge!(STORAGE_WRITE_COMMIT_SECONDS_TOTAL)
+            .increment(duration_to_seconds(commit_started_at.elapsed()));
 
         counter!(CHANNEL_STORAGE_WRITE_INDEX).absolute(chunk_meta.last_index);
         counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL).increment(1);
@@ -703,8 +700,8 @@ impl SegmentWriter {
         };
         self.metadata.apply_rotation_commit(commit)?;
 
-        counter!(STORAGE_WRITE_ROTATE_MICROS_TOTAL)
-            .increment(duration_as_micros(rotate_started_at.elapsed()));
+        gauge!(STORAGE_WRITE_ROTATE_SECONDS_TOTAL)
+            .increment(duration_to_seconds(rotate_started_at.elapsed()));
         self.active_segment = new_segment;
         self.active_file = new_file;
         Ok(())
@@ -729,8 +726,8 @@ impl SegmentWriter {
                 }
             }
         }
-        counter!(STORAGE_WRITE_TRIM_MICROS_TOTAL)
-            .increment(duration_as_micros(trim_started_at.elapsed()));
+        gauge!(STORAGE_WRITE_TRIM_SECONDS_TOTAL)
+            .increment(duration_to_seconds(trim_started_at.elapsed()));
         Ok(())
     }
 
@@ -872,8 +869,4 @@ pub fn spawn_write_pipeline(
 
 fn segment_file_name(segment_id: u64) -> String {
     format!("{segment_id:012}.seg")
-}
-
-fn duration_as_micros(duration: Duration) -> u64 {
-    duration.as_micros().min(u64::MAX as u128) as u64
 }
