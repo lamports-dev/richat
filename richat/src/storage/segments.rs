@@ -817,8 +817,6 @@ impl SegmentWriter {
         slot: Slot,
         until: Option<u64>,
     ) -> MetadataTrimCommit {
-        let state = catalog.state;
-
         let deleted_segments = until
             .map(|floor| {
                 catalog
@@ -850,7 +848,6 @@ impl SegmentWriter {
             deleted_slots,
             deleted_segments,
             deleted_chunks,
-            state,
         }
     }
 }

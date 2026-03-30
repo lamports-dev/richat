@@ -200,7 +200,6 @@ pub struct MetadataTrimCommit {
     pub deleted_slots: Vec<Slot>,
     pub deleted_segments: Vec<u64>,
     pub deleted_chunks: Vec<u64>,
-    pub state: MetadataState,
 }
 
 /// Metadata update produced when the writer seals one segment and opens the
@@ -246,7 +245,6 @@ impl MetadataMirror {
         }
         self.chunks
             .retain(|chunk| !commit.deleted_segments.contains(&chunk.segment_id));
-        self.state = commit.state;
     }
 
     fn apply_rotation_commit(&mut self, commit: RotationCommit) {
@@ -475,9 +473,6 @@ impl Metadata {
                 encode_u64_key(*segment_id),
             );
         }
-        let mut buf = Vec::with_capacity(32);
-        commit.state.encode(&mut buf);
-        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
         self.write_batch(batch)?;
         self.catalog
             .write()
