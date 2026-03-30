@@ -34,19 +34,10 @@ pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const CHANNEL_STORAGE_FIRST_SLOT: &str = "channel_storage_first_slot";
 pub const CHANNEL_STORAGE_LAST_SLOT: &str = "channel_storage_last_slot";
 pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
-pub const STORAGE_WRITE_QUEUE_BYTES: &str = "storage_write_queue_bytes";
-pub const STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL: &str = "storage_write_queue_enqueued_total";
-pub const STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL: &str = "storage_write_queue_dequeued_total";
-pub const STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL: &str =
-    "storage_write_queue_enqueued_bytes_total";
-pub const STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL: &str =
-    "storage_write_queue_dequeued_bytes_total";
-pub const STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL: &str = "storage_write_queue_wait_micros_total";
 pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_uncompressed_bytes_total";
 pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_compressed_bytes_total";
-pub const STORAGE_WRITE_SERIALIZE_MICROS_TOTAL: &str = "storage_write_serialize_micros_total";
 pub const STORAGE_WRITE_COMPRESS_MICROS_TOTAL: &str = "storage_write_compress_micros_total";
 pub const STORAGE_WRITE_APPEND_MICROS_TOTAL: &str = "storage_write_append_micros_total";
 pub const STORAGE_WRITE_FSYNC_MICROS_TOTAL: &str = "storage_write_fsync_micros_total";
@@ -111,15 +102,8 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_gauge!(CHANNEL_STORAGE_FIRST_SLOT, "Oldest slot currently retained in the storage replay map; -1 when empty");
     describe_gauge!(CHANNEL_STORAGE_LAST_SLOT, "Newest slot currently retained in the storage replay map; -1 when empty");
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
-    describe_gauge!(STORAGE_WRITE_QUEUE_BYTES, "Approximate bytes currently queued for the storage writer");
-    describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_TOTAL, "Total number of commands enqueued for the storage writer");
-    describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_TOTAL, "Total number of commands dequeued by the storage writer");
-    describe_counter!(STORAGE_WRITE_QUEUE_ENQUEUED_BYTES_TOTAL, "Approximate bytes enqueued for the storage writer");
-    describe_counter!(STORAGE_WRITE_QUEUE_DEQUEUED_BYTES_TOTAL, "Approximate bytes dequeued by the storage writer");
-    describe_counter!(STORAGE_WRITE_QUEUE_WAIT_MICROS_TOTAL, "Total queue residence time of storage write commands in microseconds");
     describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
-    describe_counter!(STORAGE_WRITE_SERIALIZE_MICROS_TOTAL, "Total microseconds spent serializing storage chunks");
     describe_counter!(STORAGE_WRITE_COMPRESS_MICROS_TOTAL, "Total microseconds spent compressing storage chunks");
     describe_counter!(STORAGE_WRITE_APPEND_MICROS_TOTAL, "Total microseconds spent appending storage chunks to segment files");
     describe_counter!(STORAGE_WRITE_FSYNC_MICROS_TOTAL, "Total microseconds spent fsyncing storage segment writes");
