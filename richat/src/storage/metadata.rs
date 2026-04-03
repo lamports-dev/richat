@@ -298,6 +298,10 @@ impl Metadata {
         self.catalog.read().expect("segment catalog poisoned")
     }
 
+    pub fn db_path(&self) -> &Path {
+        self.db.path()
+    }
+
     #[allow(clippy::missing_const_for_fn)]
     pub fn segments_path(&self) -> &Path {
         &self.segments_path

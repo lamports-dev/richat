@@ -45,6 +45,7 @@ pub const STORAGE_WRITE_TRIM_SECONDS_TOTAL: &str = "storage_write_trim_seconds_t
 pub const STORAGE_WRITE_ROTATE_SECONDS_TOTAL: &str = "storage_write_rotate_seconds_total";
 pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
 pub const STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL: &str = "storage_replay_decompressed_bytes_total";
+pub const STORAGE_DISK_SIZE_BYTES: &str = "storage_disk_size_bytes";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -116,6 +117,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
         STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
         "Decompressed bytes read from segmented replay storage"
     );
+    describe_gauge!(STORAGE_DISK_SIZE_BYTES, "Total disk size of storage (metadata + segments) in bytes");
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(GRPC_BLOCK_META_QUEUE_SIZE, "Number of gRPC requests to block meta data");
     describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");

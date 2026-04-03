@@ -313,6 +313,12 @@ pub struct ConfigStorage {
         deserialize_with = "deserialize_num_str"
     )]
     pub writer_channel_size: usize,
+    /// How often to poll disk usage of the metadata and segments directories.
+    #[serde(
+        with = "humantime_serde",
+        default = "ConfigStorage::default_metric_disk_size_poll_interval"
+    )]
+    pub metric_disk_size_poll_interval: Duration,
 }
 
 impl ConfigStorage {
@@ -362,6 +368,10 @@ impl ConfigStorage {
 
     const fn default_writer_channel_size() -> usize {
         2
+    }
+
+    const fn default_metric_disk_size_poll_interval() -> Duration {
+        Duration::from_secs(30)
     }
 }
 

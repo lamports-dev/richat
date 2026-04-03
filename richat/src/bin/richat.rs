@@ -99,6 +99,7 @@ fn main() -> anyhow::Result<()> {
         shutdown.clone(),
     )?;
     let (sender, replay_from_slot) = messages.to_sender(streams_total)?;
+    let disk_size_poll_config = messages.storage_disk_size_poll_config();
     let source_jh = thread::Builder::new()
         .name("richatSource".to_owned())
         .spawn({
@@ -109,6 +110,16 @@ fn main() -> anyhow::Result<()> {
             move || {
                 let runtime = config.channel.tokio.build_runtime("richatSource")?;
                 runtime.block_on(async move {
+                    if let Some((metadata_path, segments_path, interval)) = disk_size_poll_config {
+                        let shutdown = shutdown.clone();
+                        tokio::spawn(richat::storage::poll_disk_size(
+                            metadata_path,
+                            segments_path,
+                            interval,
+                            shutdown,
+                        ));
+                    }
+
                     let mut stream = Subscriptions::new(
                         config.channel.sources,
                         replay_from_slot,

@@ -78,6 +78,7 @@ channel:
       # compressor_channel_size: 2 # bounded channel capacity for collector→compressor and compressor→writer stages
       # collector_channel_size: 64 # bounded channel capacity for caller→collector stage
       # writer_channel_size: 2 # bounded channel capacity for compressor→writer stage
+      # metric_disk_size_poll_interval: 30s # how often to poll total disk usage of metadata + segments
 apps:
   tokio:
     worker_threads: null # by default number of cpus

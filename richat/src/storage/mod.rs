@@ -15,6 +15,7 @@ use {
     },
     ::metrics::Gauge,
     anyhow::Context,
+    futures::future::try_join_all,
     quanta::Instant,
     richat_filter::message::{MessageParserEncoding, MessageRef},
     richat_metrics::duration_to_seconds,
@@ -24,10 +25,12 @@ use {
     solana_commitment_config::CommitmentLevel,
     std::{
         collections::{BTreeMap, VecDeque},
+        path::PathBuf,
         sync::{Arc, Mutex, atomic::Ordering},
         thread,
         time::Duration,
     },
+    tokio::task::spawn_blocking,
     tokio_util::sync::CancellationToken,
     tonic::Status,
 };
@@ -47,6 +50,7 @@ pub struct Storage {
     metadata: Metadata,
     write_tx: kanal::Sender<WriterCommand>,
     replay_queue: Arc<Mutex<ReplayQueue>>,
+    metric_disk_size_poll_interval: Duration,
 }
 
 impl Storage {
@@ -66,6 +70,7 @@ impl Storage {
             metadata,
             write_tx,
             replay_queue: Arc::new(Mutex::new(ReplayQueue::new(config.replay_inflight_max))),
+            metric_disk_size_poll_interval: config.metric_disk_size_poll_interval,
         };
 
         for index in 0..config.replay_threads {
@@ -299,6 +304,70 @@ impl Storage {
         )
         .map_err(|()| "replay queue is full; try again later")
     }
+
+    pub fn disk_size_poll_config(&self) -> (PathBuf, PathBuf, Duration) {
+        (
+            self.metadata.db_path().to_path_buf(),
+            self.metadata.segments_path().to_path_buf(),
+            self.metric_disk_size_poll_interval,
+        )
+    }
+}
+
+pub async fn poll_disk_size(
+    metadata_path: PathBuf,
+    segments_path: PathBuf,
+    interval: Duration,
+    shutdown: CancellationToken,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                let (meta_size, segs_size) = tokio::try_join!(
+                    dir_size(metadata_path.clone()),
+                    dir_size(segments_path.clone()),
+                )
+                .unwrap_or((0, 0));
+                metrics::gauge!(crate::metrics::STORAGE_DISK_SIZE_BYTES)
+                    .set((meta_size + segs_size) as f64);
+            }
+            () = shutdown.cancelled() => break,
+        }
+    }
+}
+
+async fn dir_size(path: PathBuf) -> std::io::Result<u64> {
+    let entries = spawn_blocking({
+        let path = path.clone();
+        move || -> std::io::Result<Vec<_>> {
+            std::fs::read_dir(&path)?
+                .map(|entry| {
+                    let entry = entry?;
+                    let meta = entry.metadata()?;
+                    Ok((entry.path(), meta))
+                })
+                .collect()
+        }
+    })
+    .await
+    .expect("read_dir panicked")?;
+
+    let mut futs = Vec::with_capacity(entries.len());
+    let mut total: u64 = 0;
+    for (entry_path, meta) in entries {
+        if meta.is_dir() {
+            futs.push(dir_size(entry_path));
+        } else {
+            total += meta.len();
+        }
+    }
+
+    for size in try_join_all(futs).await? {
+        total += size;
+    }
+
+    Ok(total)
 }
 
 #[derive(Debug)]

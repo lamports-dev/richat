@@ -31,12 +31,14 @@ use {
         },
         fmt,
         hash::{BuildHasher, Hash, Hasher},
+        path::PathBuf,
         pin::Pin,
         sync::{
             Arc, Mutex, MutexGuard,
             atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
+        time::Duration,
     },
     tokio_util::sync::CancellationToken,
     tracing::debug,
@@ -445,6 +447,10 @@ impl Messages {
             (Some(slot_replay), Some(slot_processed)) => Some(slot_replay.min(slot_processed)),
             _ => slot_replay.or(slot_processed),
         }
+    }
+
+    pub fn storage_disk_size_poll_config(&self) -> Option<(PathBuf, PathBuf, Duration)> {
+        self.storage.as_ref().map(|s| s.disk_size_poll_config())
     }
 
     pub fn replay_from_storage(
