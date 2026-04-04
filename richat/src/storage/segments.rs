@@ -9,6 +9,7 @@ use {
             STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMMIT_SECONDS_TOTAL,
             STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, STORAGE_WRITE_ROTATE_SECONDS_TOTAL,
+            STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL,
             STORAGE_WRITE_TRIM_SECONDS_TOTAL,
         },
         storage::metadata::{
@@ -501,6 +502,7 @@ fn run_compressor(
                 pending_finalized,
             }) => {
                 // Serialize all records
+                let serialize_started_at = Instant::now();
                 chunk_buf.clear();
                 for record in &records {
                     record_buf.clear();
@@ -514,6 +516,8 @@ fn run_compressor(
                     encode_varint(record_buf.len() as u64, &mut chunk_buf);
                     chunk_buf.extend_from_slice(&record_buf);
                 }
+                gauge!(STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL)
+                    .increment(duration_to_seconds(serialize_started_at.elapsed()));
 
                 counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
                     .increment(chunk_buf.len() as u64);

@@ -38,6 +38,7 @@ pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_uncompressed_bytes_total";
 pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
     "storage_write_chunk_compressed_bytes_total";
+pub const STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL: &str = "storage_write_serialize_seconds_total";
 pub const STORAGE_WRITE_COMPRESS_SECONDS_TOTAL: &str = "storage_write_compress_seconds_total";
 pub const STORAGE_WRITE_APPEND_SECONDS_TOTAL: &str = "storage_write_append_seconds_total";
 pub const STORAGE_WRITE_COMMIT_SECONDS_TOTAL: &str = "storage_write_commit_seconds_total";
@@ -104,6 +105,7 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
     describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
+    describe_gauge!(STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL, "Total seconds spent serializing storage chunks");
     describe_gauge!(STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, "Total seconds spent compressing storage chunks");
     describe_gauge!(STORAGE_WRITE_APPEND_SECONDS_TOTAL, "Total seconds spent appending and fsyncing storage chunks");
     describe_gauge!(STORAGE_WRITE_COMMIT_SECONDS_TOTAL, "Total seconds spent committing storage metadata");
