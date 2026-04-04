@@ -23,13 +23,31 @@ use {
 pub const BLOCK_MESSAGE_FAILED: &str = "block_message_failed"; // reason
 pub const CHANNEL_EVENTS_RECEIVED: &str = "channel_events_received"; // source, type
 pub const CHANNEL_SLOT: &str = "channel_slot"; // commitment
-pub const CHANNEL_FIRST_AVAILABLE_SLOT: &str = "channel_first_available_slot";
 pub const CHANNEL_MESSAGES_TOTAL: &str = "channel_messages_total";
 pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
 pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
-pub const CHANNEL_STORAGE_WRITE_SER_INDEX: &str = "channel_storage_write_ser_index";
+pub const CHANNEL_MEMORY_FIRST_SLOT: &str = "channel_memory_first_slot";
+pub const CHANNEL_MEMORY_LAST_SLOT: &str = "channel_memory_last_slot";
+pub const CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX: &str = "channel_storage_write_collector_index";
+pub const CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX: &str = "channel_storage_write_compressor_index"; // thread_index
 pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
 pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
+pub const CHANNEL_STORAGE_FIRST_SLOT: &str = "channel_storage_first_slot";
+pub const CHANNEL_STORAGE_LAST_SLOT: &str = "channel_storage_last_slot";
+pub const STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL: &str = "storage_segment_chunks_written_total";
+pub const STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL: &str =
+    "storage_write_chunk_uncompressed_bytes_total";
+pub const STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL: &str =
+    "storage_write_chunk_compressed_bytes_total";
+pub const STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL: &str = "storage_write_serialize_seconds_total";
+pub const STORAGE_WRITE_COMPRESS_SECONDS_TOTAL: &str = "storage_write_compress_seconds_total";
+pub const STORAGE_WRITE_APPEND_SECONDS_TOTAL: &str = "storage_write_append_seconds_total";
+pub const STORAGE_WRITE_COMMIT_SECONDS_TOTAL: &str = "storage_write_commit_seconds_total";
+pub const STORAGE_WRITE_TRIM_SECONDS_TOTAL: &str = "storage_write_trim_seconds_total";
+pub const STORAGE_WRITE_ROTATE_SECONDS_TOTAL: &str = "storage_write_rotate_seconds_total";
+pub const STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL: &str = "storage_replay_compressed_bytes_total";
+pub const STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL: &str = "storage_replay_decompressed_bytes_total";
+pub const STORAGE_DISK_SIZE_BYTES: &str = "storage_disk_size_bytes";
 pub const GRPC_BLOCK_META_SLOT: &str = "grpc_block_meta_slot"; // commitment
 pub const GRPC_BLOCK_META_QUEUE_SIZE: &str = "grpc_block_meta_queue_size";
 pub const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total"; // x_subscription_id, method
@@ -69,19 +87,38 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_counter!(BLOCK_MESSAGE_FAILED, "Block message reconstruction errors");
     describe_counter!(CHANNEL_EVENTS_RECEIVED, "Total number of received messages by source");
     describe_gauge!(CHANNEL_SLOT, "Latest slot in channel by commitment");
-    describe_gauge!(CHANNEL_FIRST_AVAILABLE_SLOT, "First available slot for replay");
     describe_gauge!(CHANNEL_MESSAGES_TOTAL, "Total number of messages in channel");
     describe_gauge!(CHANNEL_SLOTS_TOTAL, "Total number of slots in channel");
     describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
-    describe_counter!(
-        CHANNEL_STORAGE_WRITE_SER_INDEX,
-        "Storage write serialize index"
-    );
+    describe_gauge!(CHANNEL_MEMORY_FIRST_SLOT, "Oldest slot currently retained in the processed in-memory channel; -1 when empty");
+    describe_gauge!(CHANNEL_MEMORY_LAST_SLOT, "Newest slot currently retained in the processed in-memory channel; -1 when empty");
+    describe_counter!(CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX, "Storage write collector index");
+    describe_counter!(CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX, "Storage write compressor index");
     describe_counter!(CHANNEL_STORAGE_WRITE_INDEX, "Storage write index");
     describe_gauge!(
         CHANNEL_STORAGE_SLOTS_TOTAL,
         "Total number of slots in storage"
     );
+    describe_gauge!(CHANNEL_STORAGE_FIRST_SLOT, "Oldest slot currently retained in the storage replay map; -1 when empty");
+    describe_gauge!(CHANNEL_STORAGE_LAST_SLOT, "Newest slot currently retained in the storage replay map; -1 when empty");
+    describe_counter!(STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, "Number of flushed storage chunks");
+    describe_counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, "Total uncompressed bytes serialized into storage chunks");
+    describe_counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL, "Total compressed bytes produced for storage chunks");
+    describe_gauge!(STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL, "Total seconds spent serializing storage chunks");
+    describe_gauge!(STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, "Total seconds spent compressing storage chunks");
+    describe_gauge!(STORAGE_WRITE_APPEND_SECONDS_TOTAL, "Total seconds spent appending and fsyncing storage chunks");
+    describe_gauge!(STORAGE_WRITE_COMMIT_SECONDS_TOTAL, "Total seconds spent committing storage metadata");
+    describe_gauge!(STORAGE_WRITE_TRIM_SECONDS_TOTAL, "Total seconds spent trimming retained storage segments");
+    describe_gauge!(STORAGE_WRITE_ROTATE_SECONDS_TOTAL, "Total seconds spent rotating active storage segments");
+    describe_counter!(
+        STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL,
+        "Compressed bytes read from segmented replay storage"
+    );
+    describe_counter!(
+        STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
+        "Decompressed bytes read from segmented replay storage"
+    );
+    describe_gauge!(STORAGE_DISK_SIZE_BYTES, "Total disk size of storage (metadata + segments) in bytes");
     describe_gauge!(GRPC_BLOCK_META_SLOT, "Latest slot in gRPC block meta");
     describe_gauge!(GRPC_BLOCK_META_QUEUE_SIZE, "Number of gRPC requests to block meta data");
     describe_counter!(GRPC_REQUESTS_TOTAL, "Number of gRPC requests per method");

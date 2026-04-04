@@ -1,1 +1,2 @@
-pub type SpawnedThreads = Vec<(String, Option<std::thread::JoinHandle<anyhow::Result<()>>>)>;
+pub type SpawnedThread = (String, Option<std::thread::JoinHandle<anyhow::Result<()>>>);
+pub type SpawnedThreads = Vec<SpawnedThread>;

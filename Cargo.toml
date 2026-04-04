@@ -58,7 +58,6 @@ maplit = "1.0.2"
 metrics = "0.24.1"
 metrics-exporter-prometheus = { version = "0.18.1", default-features = false }
 pin-project-lite = "0.2.15"
-num_cpus = "1.16.0"
 prost = "0.14.1"
 prost-types = "0.14.1"
 prost_011 = { package = "prost", version = "0.11.9" }
@@ -120,6 +119,7 @@ tracing-subscriber = "0.3.19"
 vergen = "9.0.2"
 webpki-roots = "1.0.1"
 yellowstone-grpc-proto = "11.0.0"
+zstd = "0.13.3"
 
 [workspace.lints.clippy]
 clone_on_ref_ptr = "deny"

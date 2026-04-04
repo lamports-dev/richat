@@ -16,13 +16,13 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2026-03-17
+## 2026-04-04
 
-- richat-v8.2.3
+- richat-v9.0.0
 
-### Fixes
+### Breaking
 
-- richat: expose first available slot in metrics ([#202](https://github.com/lamports-dev/richat/pull/202))
+- richat: use RocksDB + files to store messages on disk ([#203](https://github.com/lamports-dev/richat/pull/203))
 
 ## 2026-03-17
 

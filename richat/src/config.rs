@@ -1,7 +1,7 @@
 use {
     crate::{
         grpc::config::ConfigAppsGrpc, pubsub::config::ConfigAppsPubsub,
-        richat::config::ConfigAppsRichat,
+        richat::config::ConfigAppsRichat, storage::segments::ChunkCompression,
     },
     futures::future::{TryFutureExt, ready, try_join_all},
     richat_client::{grpc::ConfigGrpcClient, quic::ConfigQuicClient},
@@ -13,7 +13,6 @@ use {
         },
         tracing::ConfigTracing,
     },
-    rocksdb::DBCompressionType,
     serde::{
         Deserialize,
         de::{self, Deserializer},
@@ -234,40 +233,113 @@ impl Default for ConfigChannelInner {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigStorage {
+    /// Root directory for replay storage.
+    /// Metadata RocksDB is stored at `<path>/metadata` and segment files at
+    /// `<path>/segments`.
     pub path: PathBuf,
+    /// Retention target in slots; trim remains whole-segment approximate.
     #[serde(
         default = "ConfigStorage::default_max_slots",
         deserialize_with = "deserialize_num_str"
     )]
     pub max_slots: usize,
+    /// CPU affinity for the collector thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
+    /// CPU affinity for the segment writer thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub write_affinity: Option<Vec<usize>>,
-    #[serde(default)]
-    pub messages_compression: ConfigStorageRocksdbCompression,
+    /// Rotate to a new segment file when the active one reaches this size.
+    #[serde(
+        default = "ConfigStorage::default_segment_target_size",
+        deserialize_with = "deserialize_humansize_usize"
+    )]
+    pub segment_target_size: usize,
+    /// Target uncompressed size for each independently compressed chunk.
+    #[serde(
+        default = "ConfigStorage::default_chunk_target_size",
+        deserialize_with = "deserialize_humansize_usize"
+    )]
+    pub chunk_target_size: usize,
+    /// Optional compression for chunk payloads (e.g. "zstd-3").
+    /// Omit or set to null to disable compression.
+    #[serde(default, deserialize_with = "deserialize_chunk_compression")]
+    pub chunk_compression: Option<ChunkCompression>,
+    /// Maximum number of in-flight replay-from-disk requests.
     #[serde(
         default = "ConfigStorage::default_replay_channel_capacity",
         deserialize_with = "deserialize_num_str"
     )]
     pub replay_inflight_max: usize,
+    /// Worker threads serving replay reads from segmented storage.
     #[serde(
         default = "ConfigStorage::default_replay_threads",
         deserialize_with = "deserialize_num_str"
     )]
     pub replay_threads: usize,
+    /// CPU affinity for replay worker threads.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub replay_affinity: Option<Vec<usize>>,
+    /// Maximum decoded records each replay worker loads per cycle.
     #[serde(
         default = "ConfigStorage::default_replay_decode_per_tick",
         deserialize_with = "deserialize_num_str"
     )]
     pub replay_decode_per_tick: usize,
+    /// Number of serialization and compression worker threads.
+    #[serde(
+        default = "ConfigStorage::default_compressor_threads",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub compressor_threads: usize,
+    /// CPU affinity for serialization and compression threads.
+    #[serde(default, deserialize_with = "deserialize_affinity")]
+    pub compressor_affinity: Option<Vec<usize>>,
+    /// Bounded channel capacity for the collector→compressor and compressor→writer stages.
+    #[serde(
+        default = "ConfigStorage::default_compressor_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub compressor_channel_size: usize,
+    /// Bounded channel capacity for the caller→collector stage.
+    #[serde(
+        default = "ConfigStorage::default_collector_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub collector_channel_size: usize,
+    /// Bounded channel capacity for the compressor→writer stage.
+    #[serde(
+        default = "ConfigStorage::default_writer_channel_size",
+        deserialize_with = "deserialize_num_str"
+    )]
+    pub writer_channel_size: usize,
+    /// How often to poll disk usage of the metadata and segments directories.
+    #[serde(
+        with = "humantime_serde",
+        default = "ConfigStorage::default_metric_disk_size_poll_interval"
+    )]
+    pub metric_disk_size_poll_interval: Duration,
 }
 
 impl ConfigStorage {
+    pub fn metadata_path(&self) -> PathBuf {
+        self.path.join("metadata")
+    }
+
+    pub fn segments_path(&self) -> PathBuf {
+        self.path.join("segments")
+    }
+
     const fn default_max_slots() -> usize {
         1024
+    }
+
+    const fn default_segment_target_size() -> usize {
+        4 * 1024 * 1024 * 1024
+    }
+
+    const fn default_chunk_target_size() -> usize {
+        4 * 1024 * 1024
     }
 
     const fn default_replay_channel_capacity() -> usize {
@@ -281,32 +353,25 @@ impl ConfigStorage {
     const fn default_replay_decode_per_tick() -> usize {
         256
     }
-}
 
-#[derive(Debug, Default, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "lowercase")]
-pub enum ConfigStorageRocksdbCompression {
-    #[default]
-    None,
-    Snappy,
-    Zlib,
-    Bz2,
-    Lz4,
-    Lz4hc,
-    Zstd,
-}
+    const fn default_compressor_threads() -> usize {
+        1
+    }
 
-impl From<ConfigStorageRocksdbCompression> for DBCompressionType {
-    fn from(value: ConfigStorageRocksdbCompression) -> Self {
-        match value {
-            ConfigStorageRocksdbCompression::None => Self::None,
-            ConfigStorageRocksdbCompression::Snappy => Self::Snappy,
-            ConfigStorageRocksdbCompression::Zlib => Self::Zlib,
-            ConfigStorageRocksdbCompression::Bz2 => Self::Bz2,
-            ConfigStorageRocksdbCompression::Lz4 => Self::Lz4,
-            ConfigStorageRocksdbCompression::Lz4hc => Self::Lz4hc,
-            ConfigStorageRocksdbCompression::Zstd => Self::Zstd,
-        }
+    const fn default_compressor_channel_size() -> usize {
+        2
+    }
+
+    const fn default_collector_channel_size() -> usize {
+        64
+    }
+
+    const fn default_writer_channel_size() -> usize {
+        2
+    }
+
+    const fn default_metric_disk_size_poll_interval() -> Duration {
+        Duration::from_secs(30)
     }
 }
 
@@ -397,5 +462,32 @@ impl ConfigAppsWorkers {
         });
 
         Ok(jh.map_err(anyhow::Error::new).and_then(ready))
+    }
+}
+
+fn deserialize_chunk_compression<'de, D>(
+    deserializer: D,
+) -> Result<Option<ChunkCompression>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(s) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let Some((algo, level)) = s.rsplit_once('-') else {
+        return Err(de::Error::custom(format!(
+            "invalid chunk_compression format: expected \"<algo>-<level>\" (e.g. \"zstd-3\"), got \"{s}\""
+        )));
+    };
+    match algo {
+        "zstd" => {
+            let level: i32 = level.parse().map_err(|_| {
+                de::Error::custom(format!("invalid zstd compression level: \"{level}\""))
+            })?;
+            Ok(Some(ChunkCompression::Zstd(level)))
+        }
+        other => Err(de::Error::custom(format!(
+            "unsupported compression algorithm: \"{other}\""
+        ))),
     }
 }
