@@ -243,7 +243,7 @@ pub struct ConfigStorage {
         deserialize_with = "deserialize_num_str"
     )]
     pub max_slots: usize,
-    /// CPU affinity for the chunk serialization / compression thread.
+    /// CPU affinity for the collector thread.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub serialize_affinity: Option<Vec<usize>>,
     /// CPU affinity for the segment writer thread.
@@ -286,13 +286,13 @@ pub struct ConfigStorage {
         deserialize_with = "deserialize_num_str"
     )]
     pub replay_decode_per_tick: usize,
-    /// Number of compression worker threads.
+    /// Number of serialization and compression worker threads.
     #[serde(
         default = "ConfigStorage::default_compressor_threads",
         deserialize_with = "deserialize_num_str"
     )]
     pub compressor_threads: usize,
-    /// CPU affinity for compressor threads.
+    /// CPU affinity for serialization and compression threads.
     #[serde(default, deserialize_with = "deserialize_affinity")]
     pub compressor_affinity: Option<Vec<usize>>,
     /// Bounded channel capacity for the collector→compressor and compressor→writer stages.

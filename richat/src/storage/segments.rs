@@ -251,9 +251,13 @@ pub enum WriterCommand {
 }
 
 enum CollectorOutput {
-    SerializedChunk {
+    RawChunk {
         seq: u64,
-        chunk: SerializedChunk,
+        first_index: u64,
+        last_index: u64,
+        records: Vec<RawRecord>,
+        pending_slots: Vec<PendingSlot>,
+        pending_finalized: HashSet<Slot>,
     },
     Trim {
         seq: u64,
@@ -262,12 +266,9 @@ enum CollectorOutput {
     },
 }
 
-struct SerializedChunk {
-    first_index: u64,
-    last_index: u64,
-    uncompressed_payload: Vec<u8>,
-    pending_slots: Vec<PendingSlot>,
-    pending_finalized: HashSet<Slot>,
+struct RawRecord {
+    slot: Slot,
+    message: ParsedMessage,
 }
 
 #[derive(Debug)]
@@ -344,9 +345,7 @@ fn run_collector(
     rx: kanal::Receiver<WriterCommand>,
     tx: kanal::Sender<CollectorOutput>,
 ) -> anyhow::Result<()> {
-    // 11MiB should be enough for all types of messages
-    let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
-    let mut chunk_buf = Vec::with_capacity(chunk_target_size);
+    let mut records: Vec<RawRecord> = Vec::new();
     let mut pending = PendingChunkMeta::default();
     let mut next_seq: u64 = 0;
 
@@ -365,18 +364,8 @@ fn run_collector(
                         index,
                         message,
                     } => {
-                        record_buf.clear();
-                        let message_ref: MessageRef = (&message).into();
-                        let filtered = FilteredUpdate {
-                            filters: FilteredUpdateFilters::new(),
-                            filtered_update: message_ref.into(),
-                        };
-                        encode_varint(slot, &mut record_buf);
-                        filtered.encode(&mut record_buf);
-                        encode_varint(record_buf.len() as u64, &mut chunk_buf);
-                        chunk_buf.extend_from_slice(&record_buf);
-
                         pending.push(init, slot, head, index, &message);
+                        records.push(RawRecord { slot, message });
                         counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
 
                         should_flush = pending.should_flush(chunk_target_size);
@@ -393,21 +382,14 @@ fn run_collector(
 
         if (should_flush || closed) && !pending.is_empty() {
             let flushed = std::mem::take(&mut pending);
-            counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
-                .increment(chunk_buf.len() as u64);
 
-            tx.send(CollectorOutput::SerializedChunk {
+            tx.send(CollectorOutput::RawChunk {
                 seq: next_seq,
-                chunk: SerializedChunk {
-                    first_index: flushed.first_index,
-                    last_index: flushed.last_index,
-                    uncompressed_payload: std::mem::replace(
-                        &mut chunk_buf,
-                        Vec::with_capacity(chunk_target_size),
-                    ),
-                    pending_slots: flushed.pending_slots,
-                    pending_finalized: flushed.pending_finalized,
-                },
+                first_index: flushed.first_index,
+                last_index: flushed.last_index,
+                records: std::mem::take(&mut records),
+                pending_slots: flushed.pending_slots,
+                pending_finalized: flushed.pending_finalized,
             })
             .map_err(|_| anyhow!("collector output channel closed"))?;
             next_seq += 1;
@@ -504,30 +486,60 @@ fn run_compressor(
     };
     let compression_tag = chunk_compression.unwrap_or(ChunkCompression::None).tag();
 
+    // Per-thread serialization buffers
+    let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
+    let mut chunk_buf = Vec::new();
+
     loop {
         match rx.recv() {
-            Ok(CollectorOutput::SerializedChunk { seq, chunk }) => {
+            Ok(CollectorOutput::RawChunk {
+                seq,
+                first_index,
+                last_index,
+                records,
+                pending_slots,
+                pending_finalized,
+            }) => {
+                // Serialize all records
+                chunk_buf.clear();
+                for record in &records {
+                    record_buf.clear();
+                    let message_ref: MessageRef = (&record.message).into();
+                    let filtered = FilteredUpdate {
+                        filters: FilteredUpdateFilters::new(),
+                        filtered_update: message_ref.into(),
+                    };
+                    encode_varint(record.slot, &mut record_buf);
+                    filtered.encode(&mut record_buf);
+                    encode_varint(record_buf.len() as u64, &mut chunk_buf);
+                    chunk_buf.extend_from_slice(&record_buf);
+                }
+
+                counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
+                    .increment(chunk_buf.len() as u64);
+
+                // Compress
                 let payload = if let Some(compressor) = compressor.as_mut() {
                     let compress_started_at = Instant::now();
                     let compressed = compressor
-                        .compress(&chunk.uncompressed_payload)
+                        .compress(&chunk_buf)
                         .context("failed to compress chunk")?;
                     gauge!(STORAGE_WRITE_COMPRESS_SECONDS_TOTAL)
                         .increment(duration_to_seconds(compress_started_at.elapsed()));
                     compressed
                 } else {
-                    chunk.uncompressed_payload
+                    std::mem::take(&mut chunk_buf)
                 };
                 counter!(STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL)
                     .increment(payload.len() as u64);
 
                 let compressed = CompressedChunk {
                     compression: compression_tag,
-                    first_index: chunk.first_index,
-                    last_index: chunk.last_index,
+                    first_index,
+                    last_index,
                     payload,
-                    pending_slots: chunk.pending_slots,
-                    pending_finalized: chunk.pending_finalized,
+                    pending_slots,
+                    pending_finalized,
                 };
 
                 if tx

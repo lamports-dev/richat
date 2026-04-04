@@ -64,7 +64,7 @@ channel:
       # <path>/metadata and segment files at <path>/segments.
       # path: ./db
       # max_slots: 1024 # retention target in slots; trim is approximate to whole segments
-      # serialize_affinity: null # CPU affinity for the chunk serialization / compression thread
+      # serialize_affinity: null # CPU affinity for the collector thread
       # write_affinity: null # CPU affinity for the ordered segment appender / metadata writer
       # segment_target_size: 4GiB # rotate to a new .seg file when the active one reaches this size
       # chunk_target_size: 4MiB # flush buffered records into one compressed chunk around this size
@@ -73,8 +73,8 @@ channel:
       # replay_threads: 4 # worker threads serving disk replay to subscribers
       # replay_affinity: null # CPU affinity for replay worker threads
       # replay_decode_per_tick: 256 # max decoded messages pulled from disk per worker cycle
-      # compressor_threads: 1 # number of compression worker threads
-      # compressor_affinity: null # CPU affinity for compressor threads
+      # compressor_threads: 1 # number of serialization and compression worker threads
+      # compressor_affinity: null # CPU affinity for serialization and compression threads
       # compressor_channel_size: 2 # bounded channel capacity for collector→compressor and compressor→writer stages
       # collector_channel_size: 64 # bounded channel capacity for caller→collector stage
       # writer_channel_size: 2 # bounded channel capacity for compressor→writer stage
