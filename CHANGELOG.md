@@ -16,7 +16,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2026-04-05
+## 2026-04-04
 
 - richat-v9.0.0
 
