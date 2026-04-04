@@ -28,7 +28,8 @@ pub const CHANNEL_SLOTS_TOTAL: &str = "channel_slots_total";
 pub const CHANNEL_BYTES_TOTAL: &str = "channel_bytes_total";
 pub const CHANNEL_MEMORY_FIRST_SLOT: &str = "channel_memory_first_slot";
 pub const CHANNEL_MEMORY_LAST_SLOT: &str = "channel_memory_last_slot";
-pub const CHANNEL_STORAGE_WRITE_SER_INDEX: &str = "channel_storage_write_ser_index";
+pub const CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX: &str = "channel_storage_write_collector_index";
+pub const CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX: &str = "channel_storage_write_compressor_index"; // thread_index
 pub const CHANNEL_STORAGE_WRITE_INDEX: &str = "channel_storage_write_index";
 pub const CHANNEL_STORAGE_SLOTS_TOTAL: &str = "channel_storage_slots_total";
 pub const CHANNEL_STORAGE_FIRST_SLOT: &str = "channel_storage_first_slot";
@@ -91,10 +92,8 @@ pub fn setup() -> Result<PrometheusHandle, BuildError> {
     describe_gauge!(CHANNEL_BYTES_TOTAL, "Total size of all messages in channel");
     describe_gauge!(CHANNEL_MEMORY_FIRST_SLOT, "Oldest slot currently retained in the processed in-memory channel; -1 when empty");
     describe_gauge!(CHANNEL_MEMORY_LAST_SLOT, "Newest slot currently retained in the processed in-memory channel; -1 when empty");
-    describe_counter!(
-        CHANNEL_STORAGE_WRITE_SER_INDEX,
-        "Storage write serialize index"
-    );
+    describe_counter!(CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX, "Storage write collector index");
+    describe_counter!(CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX, "Storage write compressor index");
     describe_counter!(CHANNEL_STORAGE_WRITE_INDEX, "Storage write index");
     describe_gauge!(
         CHANNEL_STORAGE_SLOTS_TOTAL,

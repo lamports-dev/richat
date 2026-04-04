@@ -3,14 +3,13 @@ use {
         channel::ParsedMessage,
         config::ConfigStorage,
         metrics::{
-            CHANNEL_STORAGE_WRITE_INDEX, CHANNEL_STORAGE_WRITE_SER_INDEX,
-            STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL, STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL,
-            STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL, STORAGE_WRITE_APPEND_SECONDS_TOTAL,
-            STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
+            CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX, CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX,
+            CHANNEL_STORAGE_WRITE_INDEX, STORAGE_REPLAY_COMPRESSED_BYTES_TOTAL,
+            STORAGE_REPLAY_DECOMPRESSED_BYTES_TOTAL, STORAGE_SEGMENT_CHUNKS_WRITTEN_TOTAL,
+            STORAGE_WRITE_APPEND_SECONDS_TOTAL, STORAGE_WRITE_CHUNK_COMPRESSED_BYTES_TOTAL,
             STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL, STORAGE_WRITE_COMMIT_SECONDS_TOTAL,
             STORAGE_WRITE_COMPRESS_SECONDS_TOTAL, STORAGE_WRITE_ROTATE_SECONDS_TOTAL,
-            STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL,
-            STORAGE_WRITE_TRIM_SECONDS_TOTAL,
+            STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL, STORAGE_WRITE_TRIM_SECONDS_TOTAL,
         },
         storage::metadata::{
             ChunkMeta, Metadata, MetadataChunkCommit, MetadataMirror, MetadataTrimCommit,
@@ -367,7 +366,7 @@ fn run_collector(
                     } => {
                         pending.push(init, slot, head, index, &message);
                         records.push(RawRecord { slot, message });
-                        counter!(CHANNEL_STORAGE_WRITE_SER_INDEX).absolute(index);
+                        counter!(CHANNEL_STORAGE_WRITE_COLLECTOR_INDEX).absolute(index);
 
                         should_flush = pending.should_flush(chunk_target_size);
                     }
@@ -467,7 +466,7 @@ fn spawn_compressor_pool(
                     affinity_linux::set_thread_affinity(cpus.into_iter())
                         .expect("failed to set affinity");
                 }
-                run_compressor(chunk_compression, rx, tx)
+                run_compressor(index, chunk_compression, rx, tx)
             })?;
         handles.push((th_name, Some(jh)));
     }
@@ -475,6 +474,7 @@ fn spawn_compressor_pool(
 }
 
 fn run_compressor(
+    thread_index: usize,
     chunk_compression: Option<ChunkCompression>,
     rx: kanal::Receiver<CollectorOutput>,
     tx: kanal::Sender<CompressorOutput>,
@@ -486,6 +486,7 @@ fn run_compressor(
         _ => None,
     };
     let compression_tag = chunk_compression.unwrap_or(ChunkCompression::None).tag();
+    let thread_index_str: &'static str = thread_index.to_string().leak();
 
     // Per-thread serialization buffers
     let mut record_buf = Vec::with_capacity(11 * 1024 * 1024);
@@ -518,6 +519,8 @@ fn run_compressor(
                 }
                 gauge!(STORAGE_WRITE_SERIALIZE_SECONDS_TOTAL)
                     .increment(duration_to_seconds(serialize_started_at.elapsed()));
+                counter!(CHANNEL_STORAGE_WRITE_COMPRESSOR_INDEX, "thread" => thread_index_str)
+                    .absolute(last_index);
 
                 counter!(STORAGE_WRITE_CHUNK_UNCOMPRESSED_BYTES_TOTAL)
                     .increment(chunk_buf.len() as u64);
