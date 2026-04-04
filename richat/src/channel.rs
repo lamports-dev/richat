@@ -31,12 +31,14 @@ use {
         },
         fmt,
         hash::{BuildHasher, Hash, Hasher},
+        path::PathBuf,
         pin::Pin,
         sync::{
             Arc, Mutex, MutexGuard,
             atomic::{AtomicU64, Ordering},
         },
         task::{Context, Poll, Waker},
+        time::Duration,
     },
     tokio_util::sync::CancellationToken,
     tracing::debug,
@@ -297,7 +299,7 @@ impl Messages {
         let mut replay = BTreeMap::new();
         let mut index = 0;
         if let Some(storage) = &self.storage {
-            let slots = storage.read_slots()?;
+            let slots = storage.read_slots();
 
             for (slot, item) in slots.iter() {
                 replay.insert(*slot, ReplayInfo::new(item.head));
@@ -316,21 +318,24 @@ impl Messages {
                 else {
                     anyhow::bail!("failed to get replay index to load messages");
                 };
-                for item in storage.read_messages_from_index(replay_index, self.parser) {
-                    let (msg_index, msg) = item?;
-                    if msg.slot() <= finalized_slot {
-                        continue;
-                    }
+                for chunk_result in storage.read_messages_from_index(replay_index, self.parser) {
+                    let mut chunk = chunk_result?;
+                    for result in &mut chunk {
+                        let (msg_index, msg) = result?;
+                        if msg.slot() <= finalized_slot {
+                            continue;
+                        }
 
-                    let Some(replay) = replay.get_mut(&msg.slot()) else {
-                        anyhow::bail!(
-                            "failed to get replay info for existed message, slot#{}",
-                            msg.slot()
-                        );
-                    };
-                    let messages = replay.messages.get_or_insert_default();
-                    messages.insert(msg.get_id(hasher.build_hasher()));
-                    index = msg_index + 1;
+                        let Some(replay) = replay.get_mut(&msg.slot()) else {
+                            anyhow::bail!(
+                                "failed to get replay info for existed message, slot#{}",
+                                msg.slot()
+                            );
+                        };
+                        let messages = replay.messages.get_or_insert_default();
+                        messages.insert(msg.get_id(hasher.build_hasher()));
+                        index = msg_index + 1;
+                    }
                 }
                 replay_from_slot = Some(finalized_slot + 1);
             } else {
@@ -442,6 +447,10 @@ impl Messages {
             (Some(slot_replay), Some(slot_processed)) => Some(slot_replay.min(slot_processed)),
             _ => slot_replay.or(slot_processed),
         }
+    }
+
+    pub fn storage_disk_size_poll_config(&self) -> Option<(PathBuf, PathBuf, Duration)> {
+        self.storage.as_ref().map(|s| s.disk_size_poll_config())
     }
 
     pub fn replay_from_storage(
@@ -753,7 +762,7 @@ impl Sender {
                             .map(|replay| replay.head)
                             .min();
 
-                        storage.remove_replay(slot, until);
+                        storage.trim_messages(slot, until);
                     }
                 }
             }

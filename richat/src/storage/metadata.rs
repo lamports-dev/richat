@@ -5,11 +5,22 @@ use {
         WriteBatch, WriteOptions,
     },
     solana_clock::Slot,
-    std::{collections::BTreeMap, path::Path, sync::Arc},
+    std::{
+        collections::BTreeMap,
+        path::{Path, PathBuf},
+        sync::{Arc, RwLock, RwLockReadGuard},
+    },
 };
 
 trait ColumnName {
     const NAME: &'static str;
+}
+
+#[derive(Debug)]
+struct StateCf;
+
+impl ColumnName for StateCf {
+    const NAME: &'static str = "state";
 }
 
 #[derive(Debug)]
@@ -33,11 +44,43 @@ impl ColumnName for ChunksCf {
     const NAME: &'static str = "chunks";
 }
 
-#[derive(Debug)]
-struct StateCf;
+/// Singleton state persisted alongside metadata tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataState {
+    pub next_segment_id: u64,
+    pub active_segment_id: u64,
+}
 
-impl ColumnName for StateCf {
-    const NAME: &'static str = "state";
+impl Default for MetadataState {
+    fn default() -> Self {
+        Self {
+            next_segment_id: 1,
+            active_segment_id: 0,
+        }
+    }
+}
+
+impl MetadataState {
+    const STATE_FORMAT_VERSION: u16 = 1;
+
+    fn encode(self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&Self::STATE_FORMAT_VERSION.to_be_bytes());
+        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
+    }
+
+    fn decode(value: &[u8]) -> anyhow::Result<Self> {
+        let mut value = value;
+        let format_version = take_u16(&mut value)?;
+        anyhow::ensure!(
+            format_version == Self::STATE_FORMAT_VERSION,
+            "unsupported format version: {format_version}"
+        );
+        Ok(Self {
+            next_segment_id: take_u64(&mut value)?,
+            active_segment_id: take_u64(&mut value)?,
+        })
+    }
 }
 
 /// Replay start lookup for a retained slot.
@@ -45,81 +88,141 @@ impl ColumnName for StateCf {
 /// This is the minimal metadata needed to answer "where does replay for this
 /// slot begin inside the segment files?"
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SlotMeta {
-    pub(crate) slot: Slot,
-    pub(crate) first_index: u64,
-    pub(crate) segment_id: u64,
-    pub(crate) chunk_ordinal: u32,
-    pub(crate) record_ordinal: u32,
-    pub(crate) finalized: bool,
+pub struct SlotMeta {
+    pub slot: Slot,
+    pub finalized: bool,
+    pub first_index: u64,
+    pub segment_id: u64,
+}
+
+impl SlotMeta {
+    fn encode(self, buf: &mut Vec<u8>) {
+        buf.push(u8::from(self.finalized));
+        buf.extend_from_slice(&self.first_index.to_be_bytes());
+        buf.extend_from_slice(&self.segment_id.to_be_bytes());
+    }
+
+    fn decode(slot: Slot, mut value: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self {
+            slot,
+            finalized: take_bool(&mut value)?,
+            first_index: take_u64(&mut value)?,
+            segment_id: take_u64(&mut value)?,
+        })
+    }
 }
 
 /// Metadata for one segment file in the append-only payload store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SegmentMeta {
-    pub(crate) segment_id: u64,
-    pub(crate) first_slot: Slot,
-    pub(crate) last_slot: Slot,
-    pub(crate) first_index: u64,
-    pub(crate) last_index: u64,
-    pub(crate) created_unix_ms: u64,
-    pub(crate) sealed: bool,
-    pub(crate) file_len: u64,
-    pub(crate) chunk_count: u32,
+pub struct SegmentMeta {
+    pub segment_id: u64,
+    pub sealed: bool,
+    pub last_index: u64,
+    pub file_len: u64,
+    pub chunk_count: u32,
+}
+
+impl SegmentMeta {
+    pub const fn empty(segment_id: u64, file_len: u64) -> Self {
+        Self {
+            segment_id,
+            sealed: false,
+            last_index: 0,
+            file_len,
+            chunk_count: 0,
+        }
+    }
+
+    fn encode(self, buf: &mut Vec<u8>) {
+        buf.push(u8::from(self.sealed));
+        buf.extend_from_slice(&self.last_index.to_be_bytes());
+        buf.extend_from_slice(&self.file_len.to_be_bytes());
+        buf.extend_from_slice(&self.chunk_count.to_be_bytes());
+    }
+
+    fn decode(segment_id: u64, mut value: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self {
+            segment_id,
+            sealed: take_bool(&mut value)?,
+            last_index: take_u64(&mut value)?,
+            file_len: take_u64(&mut value)?,
+            chunk_count: take_u32(&mut value)?,
+        })
+    }
 }
 
 /// Metadata for one independently compressed chunk inside a segment file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ChunkMeta {
-    pub(crate) segment_id: u64,
-    pub(crate) chunk_ordinal: u32,
-    pub(crate) file_offset: u64,
-    pub(crate) first_slot: Slot,
-    pub(crate) last_slot: Slot,
-    pub(crate) first_index: u64,
-    pub(crate) last_index: u64,
-    pub(crate) record_count: u32,
-    pub(crate) compressed_size: u32,
-    pub(crate) uncompressed_size: u32,
-    pub(crate) crc32: u32,
+pub struct ChunkMeta {
+    pub segment_id: u64,
+    pub offset: u64,
+    pub size: u64,
+    pub compression: u8,
+    pub first_index: u64,
+    pub last_index: u64,
 }
 
-/// Small singleton state persisted alongside metadata tables.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GlobalState {
-    pub(crate) format_version: u16,
-    pub(crate) next_segment_id: u64,
-    pub(crate) active_segment_id: u64,
-    pub(crate) trim_floor_slot: Slot,
-    pub(crate) trim_floor_index: u64,
-}
-
-impl GlobalState {
-    pub(crate) const FORMAT_VERSION: u16 = 1;
-
-    pub(crate) const fn new() -> Self {
-        Self {
-            format_version: Self::FORMAT_VERSION,
-            next_segment_id: 1,
-            active_segment_id: 0,
-            trim_floor_slot: 0,
-            trim_floor_index: 0,
-        }
+impl ChunkMeta {
+    fn encode(self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.segment_id.to_be_bytes());
+        buf.extend_from_slice(&self.offset.to_be_bytes());
+        buf.extend_from_slice(&self.size.to_be_bytes());
+        buf.push(self.compression);
+        buf.extend_from_slice(&self.last_index.to_be_bytes());
     }
+
+    fn decode(first_index: u64, mut value: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self {
+            segment_id: take_u64(&mut value)?,
+            offset: take_u64(&mut value)?,
+            size: take_u64(&mut value)?,
+            compression: take_u8(&mut value)?,
+            first_index,
+            last_index: take_u64(&mut value)?,
+        })
+    }
+}
+
+/// Atomic metadata update produced by flushing one chunk.
+#[derive(Debug, Clone)]
+pub struct MetadataChunkCommit {
+    pub new_slots: Vec<SlotMeta>,
+    pub updated_slots: Vec<SlotMeta>,
+    pub chunk: ChunkMeta,
+    pub segment: SegmentMeta,
+    pub state: MetadataState,
+}
+
+/// Atomic metadata update produced by retention trimming.
+#[derive(Debug, Clone)]
+pub struct MetadataTrimCommit {
+    pub removed_slot: Slot,
+    pub deleted_slots: Vec<Slot>,
+    pub deleted_segments: Vec<u64>,
+    pub deleted_chunks: Vec<u64>,
+}
+
+/// Metadata update produced when the writer seals one segment and opens the
+/// next one.
+#[derive(Debug, Clone, Copy)]
+pub struct RotationCommit {
+    pub sealed_segment: SegmentMeta,
+    pub new_segment: SegmentMeta,
+    pub state: MetadataState,
 }
 
 /// In-memory view of the metadata DB used for fast replay lookups and trim
 /// decisions.
-#[derive(Debug, Clone)]
-pub(crate) struct MetadataCatalog {
-    pub(crate) slots: BTreeMap<Slot, SlotMeta>,
-    pub(crate) segments: BTreeMap<u64, SegmentMeta>,
-    pub(crate) chunks: Vec<ChunkMeta>,
-    pub(crate) state: GlobalState,
+#[derive(Debug, Clone, Default)]
+pub struct MetadataMirror {
+    pub slots: BTreeMap<Slot, SlotMeta>,
+    pub segments: BTreeMap<u64, SegmentMeta>,
+    pub chunks: Vec<ChunkMeta>,
+    pub state: MetadataState,
 }
 
-impl MetadataCatalog {
-    pub(crate) fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
+impl MetadataMirror {
+    fn apply_chunk_commit(&mut self, commit: &MetadataChunkCommit) {
         for meta in &commit.new_slots {
             self.slots.insert(meta.slot, *meta);
         }
@@ -132,7 +235,7 @@ impl MetadataCatalog {
         self.state = commit.state;
     }
 
-    pub(crate) fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
+    fn apply_trim_commit(&mut self, commit: &MetadataTrimCommit) {
         self.slots.remove(&commit.removed_slot);
         for slot in &commit.deleted_slots {
             self.slots.remove(slot);
@@ -142,31 +245,9 @@ impl MetadataCatalog {
         }
         self.chunks
             .retain(|chunk| !commit.deleted_segments.contains(&chunk.segment_id));
-        self.state = commit.state;
     }
 
-    pub(crate) fn apply_recovery_commit(&mut self, commit: &RecoveryCommit) {
-        for slot in &commit.deleted_slots {
-            self.slots.remove(slot);
-        }
-        self.chunks.retain(|chunk| {
-            !commit
-                .deleted_chunks
-                .contains(&(chunk.segment_id, chunk.chunk_ordinal))
-        });
-        self.segments
-            .insert(commit.segment.segment_id, commit.segment);
-        for slot in &commit.slots {
-            self.slots.insert(slot.slot, *slot);
-        }
-        for chunk in &commit.chunks {
-            self.chunks.push(*chunk);
-        }
-        self.chunks.sort_by_key(|chunk| chunk.first_index);
-        self.state = commit.state;
-    }
-
-    pub(crate) fn apply_rotation_commit(&mut self, commit: RotationCommit) {
+    fn apply_rotation_commit(&mut self, commit: RotationCommit) {
         self.segments
             .insert(commit.sealed_segment.segment_id, commit.sealed_segment);
         self.segments
@@ -175,58 +256,58 @@ impl MetadataCatalog {
     }
 }
 
-/// Atomic metadata update produced by flushing one chunk.
-#[derive(Debug, Clone)]
-pub(crate) struct MetadataChunkCommit {
-    pub(crate) new_slots: Vec<SlotMeta>,
-    pub(crate) updated_slots: Vec<SlotMeta>,
-    pub(crate) chunk: ChunkMeta,
-    pub(crate) segment: SegmentMeta,
-    pub(crate) state: GlobalState,
-}
-
-/// Atomic metadata update produced by retention trimming.
-#[derive(Debug, Clone)]
-pub(crate) struct MetadataTrimCommit {
-    pub(crate) removed_slot: Slot,
-    pub(crate) deleted_slots: Vec<Slot>,
-    pub(crate) deleted_segments: Vec<u64>,
-    pub(crate) deleted_chunks: Vec<(u64, u32)>,
-    pub(crate) state: GlobalState,
-}
-
-/// Atomic metadata update produced by rebuilding the active segment on startup.
-#[derive(Debug, Clone)]
-pub(crate) struct RecoveryCommit {
-    pub(crate) deleted_slots: Vec<Slot>,
-    pub(crate) deleted_chunks: Vec<(u64, u32)>,
-    pub(crate) segment: SegmentMeta,
-    pub(crate) slots: Vec<SlotMeta>,
-    pub(crate) chunks: Vec<ChunkMeta>,
-    pub(crate) state: GlobalState,
-}
-
-/// Metadata update produced when the writer seals one segment and opens the
-/// next one.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct RotationCommit {
-    pub(crate) sealed_segment: SegmentMeta,
-    pub(crate) new_segment: SegmentMeta,
-    pub(crate) state: GlobalState,
-}
-
 /// Typed wrapper around the metadata RocksDB instance.
 ///
 /// Payload bytes are stored in segment files; this DB keeps the exact lookup
 /// state needed to find them again.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataDb {
+pub struct Metadata {
     db: Arc<DB>,
-    fsync: bool,
+    catalog: Arc<RwLock<MetadataMirror>>,
+    segments_path: PathBuf,
 }
 
-impl MetadataDb {
-    pub(crate) fn open(path: &Path, fsync: bool) -> anyhow::Result<Self> {
+impl Metadata {
+    fn db_options() -> Options {
+        let mut options = Options::default();
+        options.create_if_missing(true);
+        options.create_missing_column_families(true);
+        options.set_compression_type(DBCompressionType::None);
+        options
+    }
+
+    fn cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
+        vec![
+            Self::cf_descriptor::<SlotsCf>(),
+            Self::cf_descriptor::<SegmentsCf>(),
+            Self::cf_descriptor::<ChunksCf>(),
+            Self::cf_descriptor::<StateCf>(),
+        ]
+    }
+
+    fn cf_descriptor<C: ColumnName>() -> ColumnFamilyDescriptor {
+        ColumnFamilyDescriptor::new(C::NAME, Options::default())
+    }
+
+    fn cf_handle<C: ColumnName>(db: &DB) -> &ColumnFamily {
+        db.cf_handle(C::NAME)
+            .expect("should never get an unknown column")
+    }
+
+    pub fn catalog(&self) -> RwLockReadGuard<'_, MetadataMirror> {
+        self.catalog.read().expect("segment catalog poisoned")
+    }
+
+    pub fn db_path(&self) -> &Path {
+        self.db.path()
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn segments_path(&self) -> &Path {
+        &self.segments_path
+    }
+
+    pub fn open(path: &Path, segments_path: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(path)
             .with_context(|| format!("failed to create metadata path: {path:?}"))?;
 
@@ -236,13 +317,26 @@ impl MetadataDb {
             DB::open_cf_descriptors(&db_options, path, cf_descriptors)
                 .with_context(|| format!("failed to open metadata rocksdb at {path:?}"))?,
         );
-        let db = Self { db, fsync };
-        db.ensure_state()?;
+        let db = Self {
+            db,
+            catalog: Arc::new(RwLock::new(MetadataMirror::default())),
+            segments_path,
+        };
+
+        if db.read_state()?.is_none() {
+            let mut batch = WriteBatch::new();
+            let mut buf = Vec::with_capacity(32);
+            MetadataState::default().encode(&mut buf);
+            batch.put_cf(Self::cf_handle::<StateCf>(&db.db), b"state", &buf);
+            db.write_batch(batch)?;
+        }
+        *db.catalog.write().expect("poisoned") = db.load_catalog_from_db()?;
+
         Ok(db)
     }
 
-    pub(crate) fn load_catalog(&self) -> anyhow::Result<MetadataCatalog> {
-        let state = self.read_state()?.unwrap_or_else(GlobalState::new);
+    fn load_catalog_from_db(&self) -> anyhow::Result<MetadataMirror> {
+        let state = self.read_state()?.unwrap_or_default();
 
         let mut slots = BTreeMap::new();
         for item in self
@@ -273,15 +367,14 @@ impl MetadataDb {
             .iterator_cf(Self::cf_handle::<ChunksCf>(&self.db), IteratorMode::Start)
         {
             let (key, value) = item.context("failed to read chunks row")?;
-            let (segment_id, chunk_ordinal) =
-                decode_chunk_key(&key).context("failed to decode chunk key")?;
-            let meta = ChunkMeta::decode(segment_id, chunk_ordinal, &value)
-                .context("failed to decode chunk meta")?;
+            let first_index = decode_u64_key(&key).context("failed to decode chunk key")?;
+            let meta =
+                ChunkMeta::decode(first_index, &value).context("failed to decode chunk meta")?;
             chunks.push(meta);
         }
         chunks.sort_by_key(|chunk| chunk.first_index);
 
-        Ok(MetadataCatalog {
+        Ok(MetadataMirror {
             slots,
             segments,
             chunks,
@@ -289,41 +382,81 @@ impl MetadataDb {
         })
     }
 
-    pub(crate) fn apply_chunk_commit(&self, commit: &MetadataChunkCommit) -> anyhow::Result<()> {
+    fn read_state(&self) -> anyhow::Result<Option<MetadataState>> {
+        self.db
+            .get_cf(Self::cf_handle::<StateCf>(&self.db), b"state")?
+            .map(|value| MetadataState::decode(&value))
+            .transpose()
+    }
+
+    pub fn initialize_empty(
+        &self,
+        state: &MetadataState,
+        segment: SegmentMeta,
+    ) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
+        segment.encode(&mut buf);
+        batch.put_cf(
+            Self::cf_handle::<SegmentsCf>(&self.db),
+            encode_u64_key(segment.segment_id),
+            &buf,
+        );
+        buf.clear();
+        state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
+        self.write_batch(batch)?;
+        *self.catalog.write().expect("poisoned") = self.load_catalog_from_db()?;
+        Ok(())
+    }
+
+    pub fn apply_chunk_commit(&self, commit: &MetadataChunkCommit) -> anyhow::Result<()> {
+        let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
         for meta in &commit.new_slots {
+            buf.clear();
+            meta.encode(&mut buf);
             batch.put_cf(
                 Self::cf_handle::<SlotsCf>(&self.db),
                 encode_u64_key(meta.slot),
-                meta.encode(),
+                &buf,
             );
         }
         for meta in &commit.updated_slots {
+            buf.clear();
+            meta.encode(&mut buf);
             batch.put_cf(
                 Self::cf_handle::<SlotsCf>(&self.db),
                 encode_u64_key(meta.slot),
-                meta.encode(),
+                &buf,
             );
         }
+        buf.clear();
+        commit.chunk.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<ChunksCf>(&self.db),
-            encode_chunk_key(commit.chunk.segment_id, commit.chunk.chunk_ordinal),
-            commit.chunk.encode(),
+            encode_u64_key(commit.chunk.first_index),
+            &buf,
         );
+        buf.clear();
+        commit.segment.encode(&mut buf);
         batch.put_cf(
             Self::cf_handle::<SegmentsCf>(&self.db),
             encode_u64_key(commit.segment.segment_id),
-            commit.segment.encode(),
+            &buf,
         );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
-        self.write_batch(batch)
+        buf.clear();
+        commit.state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_chunk_commit(commit);
+        Ok(())
     }
 
-    pub(crate) fn apply_trim_commit(&self, commit: &MetadataTrimCommit) -> anyhow::Result<()> {
+    pub fn apply_trim_commit(&self, commit: &MetadataTrimCommit) -> anyhow::Result<()> {
         let mut batch = WriteBatch::new();
         batch.delete_cf(
             Self::cf_handle::<SlotsCf>(&self.db),
@@ -332,10 +465,10 @@ impl MetadataDb {
         for slot in &commit.deleted_slots {
             batch.delete_cf(Self::cf_handle::<SlotsCf>(&self.db), encode_u64_key(*slot));
         }
-        for (segment_id, chunk_ordinal) in &commit.deleted_chunks {
+        for first_index in &commit.deleted_chunks {
             batch.delete_cf(
                 Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(*segment_id, *chunk_ordinal),
+                encode_u64_key(*first_index),
             );
         }
         for segment_id in &commit.deleted_segments {
@@ -344,272 +477,45 @@ impl MetadataDb {
                 encode_u64_key(*segment_id),
             );
         }
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
-        self.write_batch(batch)
-    }
-
-    pub(crate) fn apply_recovery_commit(&self, commit: &RecoveryCommit) -> anyhow::Result<()> {
-        let mut batch = WriteBatch::new();
-        for slot in &commit.deleted_slots {
-            batch.delete_cf(Self::cf_handle::<SlotsCf>(&self.db), encode_u64_key(*slot));
-        }
-        for (segment_id, chunk_ordinal) in &commit.deleted_chunks {
-            batch.delete_cf(
-                Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(*segment_id, *chunk_ordinal),
-            );
-        }
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(commit.segment.segment_id),
-            commit.segment.encode(),
-        );
-        for slot in &commit.slots {
-            batch.put_cf(
-                Self::cf_handle::<SlotsCf>(&self.db),
-                encode_u64_key(slot.slot),
-                slot.encode(),
-            );
-        }
-        for chunk in &commit.chunks {
-            batch.put_cf(
-                Self::cf_handle::<ChunksCf>(&self.db),
-                encode_chunk_key(chunk.segment_id, chunk.chunk_ordinal),
-                chunk.encode(),
-            );
-        }
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
-        self.write_batch(batch)
-    }
-
-    pub(crate) fn initialize_empty(
-        &self,
-        state: GlobalState,
-        segment: SegmentMeta,
-    ) -> anyhow::Result<()> {
-        let mut batch = WriteBatch::new();
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(segment.segment_id),
-            segment.encode(),
-        );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            state.encode(),
-        );
-        self.write_batch(batch)
-    }
-
-    pub(crate) fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
-        let mut batch = WriteBatch::new();
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(commit.sealed_segment.segment_id),
-            commit.sealed_segment.encode(),
-        );
-        batch.put_cf(
-            Self::cf_handle::<SegmentsCf>(&self.db),
-            encode_u64_key(commit.new_segment.segment_id),
-            commit.new_segment.encode(),
-        );
-        batch.put_cf(
-            Self::cf_handle::<StateCf>(&self.db),
-            b"state",
-            commit.state.encode(),
-        );
-        self.write_batch(batch)
-    }
-
-    fn ensure_state(&self) -> anyhow::Result<()> {
-        if self.read_state()?.is_none() {
-            let mut batch = WriteBatch::new();
-            batch.put_cf(
-                Self::cf_handle::<StateCf>(&self.db),
-                b"state",
-                GlobalState::new().encode(),
-            );
-            self.write_batch(batch)?;
-        }
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_trim_commit(commit);
         Ok(())
     }
 
-    fn read_state(&self) -> anyhow::Result<Option<GlobalState>> {
-        self.db
-            .get_cf(Self::cf_handle::<StateCf>(&self.db), b"state")?
-            .map(|value| GlobalState::decode(&value))
-            .transpose()
+    pub fn apply_rotation_commit(&self, commit: RotationCommit) -> anyhow::Result<()> {
+        let mut batch = WriteBatch::new();
+        let mut buf = Vec::with_capacity(32);
+        commit.sealed_segment.encode(&mut buf);
+        batch.put_cf(
+            Self::cf_handle::<SegmentsCf>(&self.db),
+            encode_u64_key(commit.sealed_segment.segment_id),
+            &buf,
+        );
+        buf.clear();
+        commit.new_segment.encode(&mut buf);
+        batch.put_cf(
+            Self::cf_handle::<SegmentsCf>(&self.db),
+            encode_u64_key(commit.new_segment.segment_id),
+            &buf,
+        );
+        buf.clear();
+        commit.state.encode(&mut buf);
+        batch.put_cf(Self::cf_handle::<StateCf>(&self.db), b"state", &buf);
+        self.write_batch(batch)?;
+        self.catalog
+            .write()
+            .expect("poisoned")
+            .apply_rotation_commit(commit);
+        Ok(())
     }
 
     fn write_batch(&self, batch: WriteBatch) -> anyhow::Result<()> {
         let mut write_options = WriteOptions::default();
-        write_options.set_sync(self.fsync);
-        self.db.write_opt(batch, &write_options)?;
-        Ok(())
-    }
-
-    fn db_options() -> Options {
-        let mut options = Options::default();
-        options.create_if_missing(true);
-        options.create_missing_column_families(true);
-        options.set_compression_type(DBCompressionType::None);
-        options
-    }
-
-    fn cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
-        vec![
-            Self::cf_descriptor::<SlotsCf>(),
-            Self::cf_descriptor::<SegmentsCf>(),
-            Self::cf_descriptor::<ChunksCf>(),
-            Self::cf_descriptor::<StateCf>(),
-        ]
-    }
-
-    fn cf_descriptor<C: ColumnName>() -> ColumnFamilyDescriptor {
-        ColumnFamilyDescriptor::new(C::NAME, Options::default())
-    }
-
-    fn cf_handle<C: ColumnName>(db: &DB) -> &ColumnFamily {
-        db.cf_handle(C::NAME)
-            .expect("should never get an unknown column")
-    }
-}
-
-impl SlotMeta {
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(25);
-        buf.extend_from_slice(&self.first_index.to_be_bytes());
-        buf.extend_from_slice(&self.segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.chunk_ordinal.to_be_bytes());
-        buf.extend_from_slice(&self.record_ordinal.to_be_bytes());
-        buf.push(u8::from(self.finalized));
-        buf
-    }
-
-    fn decode(slot: Slot, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
-        Ok(Self {
-            slot,
-            first_index: take_u64(&mut value)?,
-            segment_id: take_u64(&mut value)?,
-            chunk_ordinal: take_u32(&mut value)?,
-            record_ordinal: take_u32(&mut value)?,
-            finalized: take_bool(&mut value)?,
-        })
-    }
-}
-
-impl SegmentMeta {
-    pub(crate) const fn empty(segment_id: u64, created_unix_ms: u64, file_len: u64) -> Self {
-        Self {
-            segment_id,
-            first_slot: 0,
-            last_slot: 0,
-            first_index: 0,
-            last_index: 0,
-            created_unix_ms,
-            sealed: false,
-            file_len,
-            chunk_count: 0,
-        }
-    }
-
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(57);
-        buf.extend_from_slice(&self.first_slot.to_be_bytes());
-        buf.extend_from_slice(&self.last_slot.to_be_bytes());
-        buf.extend_from_slice(&self.first_index.to_be_bytes());
-        buf.extend_from_slice(&self.last_index.to_be_bytes());
-        buf.extend_from_slice(&self.created_unix_ms.to_be_bytes());
-        buf.push(u8::from(self.sealed));
-        buf.extend_from_slice(&self.file_len.to_be_bytes());
-        buf.extend_from_slice(&self.chunk_count.to_be_bytes());
-        buf
-    }
-
-    fn decode(segment_id: u64, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
-        Ok(Self {
-            segment_id,
-            first_slot: take_u64(&mut value)?,
-            last_slot: take_u64(&mut value)?,
-            first_index: take_u64(&mut value)?,
-            last_index: take_u64(&mut value)?,
-            created_unix_ms: take_u64(&mut value)?,
-            sealed: take_bool(&mut value)?,
-            file_len: take_u64(&mut value)?,
-            chunk_count: take_u32(&mut value)?,
-        })
-    }
-}
-
-impl ChunkMeta {
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(56);
-        buf.extend_from_slice(&self.file_offset.to_be_bytes());
-        buf.extend_from_slice(&self.first_slot.to_be_bytes());
-        buf.extend_from_slice(&self.last_slot.to_be_bytes());
-        buf.extend_from_slice(&self.first_index.to_be_bytes());
-        buf.extend_from_slice(&self.last_index.to_be_bytes());
-        buf.extend_from_slice(&self.record_count.to_be_bytes());
-        buf.extend_from_slice(&self.compressed_size.to_be_bytes());
-        buf.extend_from_slice(&self.uncompressed_size.to_be_bytes());
-        buf.extend_from_slice(&self.crc32.to_be_bytes());
-        buf
-    }
-
-    fn decode(segment_id: u64, chunk_ordinal: u32, value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
-        Ok(Self {
-            segment_id,
-            chunk_ordinal,
-            file_offset: take_u64(&mut value)?,
-            first_slot: take_u64(&mut value)?,
-            last_slot: take_u64(&mut value)?,
-            first_index: take_u64(&mut value)?,
-            last_index: take_u64(&mut value)?,
-            record_count: take_u32(&mut value)?,
-            compressed_size: take_u32(&mut value)?,
-            uncompressed_size: take_u32(&mut value)?,
-            crc32: take_u32(&mut value)?,
-        })
-    }
-}
-
-impl GlobalState {
-    fn encode(self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(34);
-        buf.extend_from_slice(&self.format_version.to_be_bytes());
-        buf.extend_from_slice(&self.next_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.active_segment_id.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_slot.to_be_bytes());
-        buf.extend_from_slice(&self.trim_floor_index.to_be_bytes());
-        buf
-    }
-
-    fn decode(value: &[u8]) -> anyhow::Result<Self> {
-        let mut value = value;
-        let state = Self {
-            format_version: take_u16(&mut value)?,
-            next_segment_id: take_u64(&mut value)?,
-            active_segment_id: take_u64(&mut value)?,
-            trim_floor_slot: take_u64(&mut value)?,
-            trim_floor_index: take_u64(&mut value)?,
-        };
-        anyhow::ensure!(
-            state.format_version == Self::FORMAT_VERSION,
-            "unsupported format version: {}",
-            state.format_version
-        );
-        Ok(state)
+        write_options.set_sync(true);
+        self.db.write_opt(batch, &write_options).map_err(Into::into)
     }
 }
 
@@ -622,32 +528,6 @@ fn decode_u64_key(value: &[u8]) -> anyhow::Result<u64> {
         .try_into()
         .map(u64::from_be_bytes)
         .context("invalid u64 key length")
-}
-
-const fn encode_chunk_key(segment_id: u64, chunk_ordinal: u32) -> [u8; 12] {
-    let segment = segment_id.to_be_bytes();
-    let chunk = chunk_ordinal.to_be_bytes();
-    [
-        segment[0], segment[1], segment[2], segment[3], segment[4], segment[5], segment[6],
-        segment[7], chunk[0], chunk[1], chunk[2], chunk[3],
-    ]
-}
-
-fn decode_chunk_key(value: &[u8]) -> anyhow::Result<(u64, u32)> {
-    anyhow::ensure!(
-        value.len() == 12,
-        "invalid chunk key length: {}",
-        value.len()
-    );
-    let segment = value[..8]
-        .try_into()
-        .map(u64::from_be_bytes)
-        .context("invalid segment id in chunk key")?;
-    let chunk = value[8..]
-        .try_into()
-        .map(u32::from_be_bytes)
-        .context("invalid chunk ordinal in chunk key")?;
-    Ok((segment, chunk))
 }
 
 fn take_u16(slice: &mut &[u8]) -> anyhow::Result<u16> {
@@ -683,6 +563,12 @@ fn take_u64(slice: &mut &[u8]) -> anyhow::Result<u64> {
     Ok(value)
 }
 
+fn take_u8(slice: &mut &[u8]) -> anyhow::Result<u8> {
+    let value = *slice.first().context("unexpected eof while decoding u8")?;
+    *slice = &slice[1..];
+    Ok(value)
+}
+
 fn take_bool(slice: &mut &[u8]) -> anyhow::Result<bool> {
     let value = *slice
         .first()
@@ -692,75 +578,5 @@ fn take_bool(slice: &mut &[u8]) -> anyhow::Result<bool> {
         0 => Ok(false),
         1 => Ok(true),
         value => anyhow::bail!("invalid bool value: {value}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ChunkMeta, GlobalState, SegmentMeta, SlotMeta};
-
-    #[test]
-    fn slot_meta_roundtrip() {
-        let meta = SlotMeta {
-            slot: 42,
-            first_index: 11,
-            segment_id: 7,
-            chunk_ordinal: 3,
-            record_ordinal: 2,
-            finalized: true,
-        };
-        assert_eq!(SlotMeta::decode(meta.slot, &meta.encode()).unwrap(), meta);
-    }
-
-    #[test]
-    fn segment_meta_roundtrip() {
-        let meta = SegmentMeta {
-            segment_id: 9,
-            first_slot: 10,
-            last_slot: 12,
-            first_index: 100,
-            last_index: 120,
-            created_unix_ms: 33,
-            sealed: true,
-            file_len: 512,
-            chunk_count: 4,
-        };
-        assert_eq!(
-            SegmentMeta::decode(meta.segment_id, &meta.encode()).unwrap(),
-            meta
-        );
-    }
-
-    #[test]
-    fn chunk_meta_roundtrip() {
-        let meta = ChunkMeta {
-            segment_id: 2,
-            chunk_ordinal: 1,
-            file_offset: 64,
-            first_slot: 20,
-            last_slot: 21,
-            first_index: 200,
-            last_index: 220,
-            record_count: 21,
-            compressed_size: 300,
-            uncompressed_size: 900,
-            crc32: 1234,
-        };
-        assert_eq!(
-            ChunkMeta::decode(meta.segment_id, meta.chunk_ordinal, &meta.encode()).unwrap(),
-            meta
-        );
-    }
-
-    #[test]
-    fn global_state_roundtrip() {
-        let state = GlobalState {
-            format_version: GlobalState::FORMAT_VERSION,
-            next_segment_id: 2,
-            active_segment_id: 1,
-            trim_floor_slot: 100,
-            trim_floor_index: 200,
-        };
-        assert_eq!(GlobalState::decode(&state.encode()).unwrap(), state);
     }
 }
