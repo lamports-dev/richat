@@ -195,7 +195,7 @@ impl Subscriptions {
                                 id: subscription_id,
                                 config_hash,
                                 config,
-                                clients: HashSet::new(),
+                                clients: HashSet::from([client_id]),
                             },
                         );
                 }
@@ -848,5 +848,57 @@ impl SlotTransactionStatsItem {
             return Some((ParsedMessage::Slot(Arc::new(message)), stats));
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        tokio::sync::broadcast,
+    };
+
+    fn create_test_deps() -> (CachedSignatures, RpcNotifications) {
+        let signatures = CachedSignatures::new(100, 100);
+        let (sender, _) = broadcast::channel(16);
+        let notifications = RpcNotifications::new(16, 1024, sender);
+        (signatures, notifications)
+    }
+
+    #[test]
+    fn test_subscribe_new_config_inserts_client_id() {
+        let mut subscriptions = Subscriptions::default();
+        let (mut signatures, mut notifications) = create_test_deps();
+
+        let client_id = 1;
+        let config = SubscribeConfig::Slot;
+        let subscription_id =
+            subscriptions.subscribe(client_id, config, &mut signatures, &mut notifications);
+
+        // Verify client_id is in the subscription's clients set
+        let info = subscriptions
+            .subscriptions_per_method
+            .get(&(CommitmentLevel::Processed, SubscribeMethod::Slot))
+            .unwrap()
+            .get(&subscription_id)
+            .unwrap();
+        assert!(info.clients.contains(&client_id));
+    }
+
+    #[test]
+    fn test_remove_client_after_new_subscription_does_not_panic() {
+        let mut subscriptions = Subscriptions::default();
+        let (mut signatures, mut notifications) = create_test_deps();
+
+        let client_id = 1;
+        let config = SubscribeConfig::Slot;
+        subscriptions.subscribe(client_id, config, &mut signatures, &mut notifications);
+
+        // This used to panic because client_id was missing from the clients set
+        subscriptions.remove_client(client_id);
+
+        // Subscription should be fully cleaned up
+        assert!(subscriptions.subscriptions_per_client.is_empty());
+        assert!(subscriptions.subscriptions.is_empty());
     }
 }
