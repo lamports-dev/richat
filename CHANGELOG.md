@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-04-06
+
+- richat-v9.0.1
+
+### Fixes
+
+- richat: fix client removal in pubsub ([#204](https://github.com/lamports-dev/richat/pull/204))
+
 ## 2026-04-04
 
 - richat-v9.0.0

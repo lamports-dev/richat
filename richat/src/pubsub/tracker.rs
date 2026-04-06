@@ -853,10 +853,7 @@ impl SlotTransactionStatsItem {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        tokio::sync::broadcast,
-    };
+    use {super::*, tokio::sync::broadcast};
 
     fn create_test_deps() -> (CachedSignatures, RpcNotifications) {
         let signatures = CachedSignatures::new(100, 100);
