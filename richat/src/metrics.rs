@@ -10,7 +10,7 @@ use {
         future::Future,
         sync::{
             Arc,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
         },
     },
     tokio::{
@@ -19,6 +19,12 @@ use {
     },
     tracing::error,
 };
+
+/// Active gRPC subscribers. Incremented in `SubscribeClientState::new()`,
+/// decremented in its `Drop`. Read by the `/subscribers` HTTP endpoint so
+/// an external load-balancer weighting loop can size origin weights by
+/// current load.
+pub static GRPC_SUBSCRIBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub const BLOCK_MESSAGE_FAILED: &str = "block_message_failed"; // reason
 pub const CHANNEL_EVENTS_RECEIVED: &str = "channel_events_received"; // source, type
@@ -159,6 +165,7 @@ pub async fn spawn_server(
         move || handle.render().into_bytes(),     // metrics
         || true,                                  // health
         move || is_ready.load(Ordering::Relaxed), // ready
+        || GRPC_SUBSCRIBE_COUNT.load(Ordering::Relaxed), // subscribers
         shutdown,
     )
     .await

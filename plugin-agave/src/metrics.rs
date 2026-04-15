@@ -62,6 +62,7 @@ pub async fn spawn_server(
         move || handle.render().into_bytes(), // metrics
         || true,                              // health
         || true,                              // ready
+        || 0,                                 // subscribers (not applicable to plugin)
         shutdown,
     )
     .await
