@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-04-16
+
+- richat-v9.1.0
+
+### Features
+
+- richat: add entries to subscribe_accounts subscription ([#205](https://github.com/lamports-dev/richat/pull/205))
+
 ## 2026-04-06
 
 - richat-v9.0.1
