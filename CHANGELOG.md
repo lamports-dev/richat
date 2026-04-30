@@ -20,6 +20,10 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 - richat-v10.0.0
 
+### Fixes
+
+- richat: fix unknown unsubscribe id handler in pubsub ([#209](https://github.com/lamports-dev/richat/pull/209))
+
 ### Breaking
 
 - richat: remove entries from subscribe_accounts subscription ([#210](https://github.com/lamports-dev/richat/pull/210))
