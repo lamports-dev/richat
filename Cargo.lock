@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "richat"
-version = "9.1.1"
+version = "10.0.0"
 dependencies = [
  "affinity-linux",
  "agave-reserved-account-keys",

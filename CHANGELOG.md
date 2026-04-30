@@ -16,13 +16,13 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2026-04-16
+## 2026-04-30
 
-- richat-v9.1.0
+- richat-v10.0.0
 
 ### Breaking
 
-- richat: remove entries to subscribe_accounts subscription ([#210](https://github.com/lamports-dev/richat/pull/210))
+- richat: remove entries from subscribe_accounts subscription ([#210](https://github.com/lamports-dev/richat/pull/210))
 
 ## 2026-04-16
 
