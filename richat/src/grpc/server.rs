@@ -833,6 +833,7 @@ impl Drop for SubscribeClientState {
         );
         gauge!(metrics::GRPC_SUBSCRIBE_TOTAL, "x_subscription_id" => Arc::clone(&self.x_subscription_id))
             .decrement(1);
+        metrics::GRPC_SUBSCRIBE_COUNT.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -845,6 +846,7 @@ impl SubscribeClientState {
         );
         gauge!(metrics::GRPC_SUBSCRIBE_TOTAL, "x_subscription_id" => Arc::clone(&x_subscription_id))
             .increment(1);
+        metrics::GRPC_SUBSCRIBE_COUNT.fetch_add(1, Ordering::Relaxed);
 
         let metric_cpu_usage = gauge!(
             metrics::GRPC_SUBSCRIBE_CPU_SECONDS_TOTAL,
