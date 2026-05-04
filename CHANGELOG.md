@@ -16,6 +16,20 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-05-04
+
+- richat-cli-v10.0.0
+- richat-client-v9.0.0
+- richat-filter-v9.0.0
+- richat-plugin-agave-v9.0.0
+- richat-proto-v9.0.0
+- richat-v11.0.0
+- richat-shared-v9.0.0
+
+### Breaking
+
+- richat: upgrade to agave 4.0 ([#211](https://github.com/lamports-dev/richat/pull/211))
+
 ## 2026-04-30
 
 - richat-v10.0.0

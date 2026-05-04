@@ -514,13 +514,13 @@ impl SubscribeConfig {
                     message.account_keys().iter().any(|key| key == pubkey)
                 }
             };
-            if filtered {
-                if let (Ok(error), Ok(tx_meta)) = (
+            if filtered
+                && let (Ok(error), Ok(tx_meta)) = (
                     convert_from::create_tx_error(message.error().as_ref()),
                     message.transaction_meta(),
-                ) {
-                    return Some((error, tx_meta.log_messages.clone()));
-                }
+                )
+            {
+                return Some((error, tx_meta.log_messages.clone()));
             }
         }
         None
@@ -632,12 +632,12 @@ fn param_filters(
         if let Err(error) = filter.verify() {
             return Err(invalid_params(error.to_string()));
         }
-        if let RpcFilterType::Memcmp(memcmp) = &mut filter {
-            if let Err(error) = memcmp.convert_to_raw_bytes() {
-                return Err(invalid_params(format!(
-                    "Invalid Request: failed to decode memcmp filter: {error}"
-                )));
-            }
+        if let RpcFilterType::Memcmp(memcmp) = &mut filter
+            && let Err(error) = memcmp.convert_to_raw_bytes()
+        {
+            return Err(invalid_params(format!(
+                "Invalid Request: failed to decode memcmp filter: {error}"
+            )));
         }
         verified_filters.push(filter);
     }
@@ -657,14 +657,14 @@ where
 }
 
 fn expect_no_params(params: Option<Cow<'_, RawValue>>) -> Result<(), ErrorObjectOwned> {
-    if let Some(params) = params {
-        if params.get().trim() != "[]" {
-            return Err(ErrorObject::owned(
-                ErrorCode::InvalidParams.code(),
-                "Invalid parameters: No parameters were expected",
-                Some(format!("{params:?}")),
-            ));
-        }
+    if let Some(params) = params
+        && params.get().trim() != "[]"
+    {
+        return Err(ErrorObject::owned(
+            ErrorCode::InvalidParams.code(),
+            "Invalid parameters: No parameters were expected",
+            Some(format!("{params:?}")),
+        ));
     }
 
     Ok(())

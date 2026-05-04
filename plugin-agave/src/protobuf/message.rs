@@ -126,7 +126,7 @@ impl ProtobufMessage<'_> {
                         transaction: Some(SubscribeUpdateTransactionInfo {
                             signature: transaction.signature.as_ref().to_vec(),
                             is_vote: transaction.is_vote,
-                            transaction: Some(convert_to::create_transaction(
+                            transaction: Some(convert_to::create_status_transaction(
                                 transaction.transaction,
                             )),
                             meta: Some(convert_to::create_transaction_meta(

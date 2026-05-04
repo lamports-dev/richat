@@ -639,10 +639,10 @@ impl Sender {
             let block_message = slot_info.get_block_message(&message);
 
             for message in [Some(message), block_message].into_iter().flatten() {
-                if let Some(messages) = &mut replay.messages {
-                    if !messages.insert(message.get_id(self.hasher.build_hasher())) {
-                        continue;
-                    }
+                if let Some(messages) = &mut replay.messages
+                    && !messages.insert(message.get_id(self.hasher.build_hasher()))
+                {
+                    continue;
                 }
 
                 // update metrics, push messages to confirmed / finalized
@@ -683,11 +683,11 @@ impl Sender {
                     // push messages to confirmed
                     if msg.status() == SlotStatus::SlotConfirmed {
                         self.slot_confirmed = slot;
-                        if let Some(shared) = self.confirmed.as_mut() {
-                            if let Some(slot_info) = self.slots.get(&slot) {
-                                for message in slot_info.get_messages_cloned() {
-                                    shared.push(slot, message, None);
-                                }
+                        if let Some(shared) = self.confirmed.as_mut()
+                            && let Some(slot_info) = self.slots.get(&slot)
+                        {
+                            for message in slot_info.get_messages_cloned() {
+                                shared.push(slot, message, None);
                             }
                         }
                     }
@@ -697,38 +697,38 @@ impl Sender {
                         clean_after_finalized = true;
                         self.slot_finalized = slot;
                         self.global_replay_from_slot.store(slot + 1);
-                        if let Some(shared) = self.finalized.as_mut() {
-                            if let Some(mut slot_info) = self.slots.remove(&slot) {
-                                for message in slot_info.get_messages_owned() {
-                                    shared.push(slot, message, None);
-                                }
+                        if let Some(shared) = self.finalized.as_mut()
+                            && let Some(mut slot_info) = self.slots.remove(&slot)
+                        {
+                            for message in slot_info.get_messages_owned() {
+                                shared.push(slot, message, None);
                             }
                         }
                     }
                 } else {
                     // push to confirmed (if we received SlotStatus or message after it)
-                    if slot <= self.slot_confirmed {
-                        if let Some(shared) = self.confirmed.as_mut() {
-                            shared.push(slot, message.clone(), None);
-                        }
+                    if slot <= self.slot_confirmed
+                        && let Some(shared) = self.confirmed.as_mut()
+                    {
+                        shared.push(slot, message.clone(), None);
                     }
                 }
 
                 // push to storage
                 let mut replay_index = None;
-                if let Some(storage) = &self.storage {
-                    if !matches!(&message, ParsedMessage::Block(_)) {
-                        storage.push_message(
-                            slot_init,
-                            slot,
-                            slot_index_head,
-                            self.index,
-                            message.clone(),
-                        );
-                        slot_init = false;
-                        replay_index = Some(self.index);
-                        self.index += 1;
-                    }
+                if let Some(storage) = &self.storage
+                    && !matches!(&message, ParsedMessage::Block(_))
+                {
+                    storage.push_message(
+                        slot_init,
+                        slot,
+                        slot_index_head,
+                        self.index,
+                        message.clone(),
+                    );
+                    slot_init = false;
+                    replay_index = Some(self.index);
+                    self.index += 1;
                 }
 
                 // push to processed
@@ -754,16 +754,16 @@ impl Sender {
                 }
             }
             while replay_lock.len() > self.storage_max_slots {
-                if let Some((slot, _replay)) = replay_lock.pop_first() {
-                    if let Some(storage) = &self.storage {
-                        let until = replay_lock
-                            .values()
-                            .take(300)
-                            .map(|replay| replay.head)
-                            .min();
+                if let Some((slot, _replay)) = replay_lock.pop_first()
+                    && let Some(storage) = &self.storage
+                {
+                    let until = replay_lock
+                        .values()
+                        .take(300)
+                        .map(|replay| replay.head)
+                        .min();
 
-                        storage.trim_messages(slot, until);
-                    }
+                    storage.trim_messages(slot, until);
                 }
             }
         }
@@ -1173,13 +1173,13 @@ impl SlotInfo {
 
     fn get_block_message(&mut self, message: &ParsedMessage) -> Option<ParsedMessage> {
         // mark as landed
-        if let ParsedMessage::Slot(message) = message {
-            if matches!(
+        if let ParsedMessage::Slot(message) = message
+            && matches!(
                 message.status(),
                 SlotStatus::SlotConfirmed | SlotStatus::SlotFinalized
-            ) {
-                self.landed = true;
-            }
+            )
+        {
+            self.landed = true;
         }
 
         // report error if block already created
@@ -1247,38 +1247,37 @@ impl SlotInfo {
         }
 
         //  attempt to create Block
-        if let Some(block_meta) = &self.block_meta {
-            if block_meta.executed_transaction_count() as usize == self.transactions_count
-                && block_meta.entries_count() as usize == self.entries_count
-            {
-                self.block_created = true;
+        if let Some(block_meta) = &self.block_meta
+            && block_meta.executed_transaction_count() as usize == self.transactions_count
+            && block_meta.entries_count() as usize == self.entries_count
+        {
+            self.block_created = true;
 
-                let accounts = self
-                    .messages
-                    .iter()
-                    .filter_map(|item| item.as_ref().and_then(|item| item.get_account()))
-                    .collect();
-                let transactions = self
-                    .messages
-                    .iter()
-                    .filter_map(|item| item.as_ref().and_then(|item| item.get_transaction()))
-                    .collect();
-                let entries = self
-                    .messages
-                    .iter()
-                    .filter_map(|item| item.as_ref().and_then(|item| item.get_entry()))
-                    .collect();
-                let block = ParsedMessage::Block(Arc::new(Message::unchecked_create_block(
-                    accounts,
-                    transactions,
-                    entries,
-                    Arc::clone(block_meta),
-                    block_meta.created_at(),
-                )));
-                self.messages.push(Some(block.clone()));
+            let accounts = self
+                .messages
+                .iter()
+                .filter_map(|item| item.as_ref().and_then(|item| item.get_account()))
+                .collect();
+            let transactions = self
+                .messages
+                .iter()
+                .filter_map(|item| item.as_ref().and_then(|item| item.get_transaction()))
+                .collect();
+            let entries = self
+                .messages
+                .iter()
+                .filter_map(|item| item.as_ref().and_then(|item| item.get_entry()))
+                .collect();
+            let block = ParsedMessage::Block(Arc::new(Message::unchecked_create_block(
+                accounts,
+                transactions,
+                entries,
+                Arc::clone(block_meta),
+                block_meta.created_at(),
+            )));
+            self.messages.push(Some(block.clone()));
 
-                return Some(block);
-            }
+            return Some(block);
         }
 
         None

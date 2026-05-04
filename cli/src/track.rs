@@ -137,10 +137,10 @@ impl ConfigSource {
                 }
             }
 
-            if let UpdateOneof::Slot(SubscribeUpdateSlot { slot, status, .. }) = update {
-                if status == CommitmentLevel::Finalized as i32 {
-                    storage.clear(slot);
-                }
+            if let UpdateOneof::Slot(SubscribeUpdateSlot { slot, status, .. }) = update
+                && status == CommitmentLevel::Finalized as i32
+            {
+                storage.clear(slot);
             }
         }
     }

@@ -27,20 +27,18 @@ prost_011 = { workspace = true }
 richat-proto = { workspace = true }
 solana-clock = { workspace = true }
 solana-hash = { workspace = true }
-solana-message = { workspace = true }
+solana-message-v3 = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-storage-proto = { workspace = true, features = ["agave-unstable-api"] }
-solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-status = { workspace = true }
+solana-transaction-v3 = { workspace = true, features = ["dev-context-only-utils"] }
 
 [dev-dependencies]
 criterion = { workspace = true }
-prost = { workspace = true }
-prost-types = { workspace = true }
 richat-filter = { workspace = true }
 richat-plugin-agave = { workspace = true }
-richat-proto = { workspace = true, features = ["yellowstone-grpc-plugin"] }
+richat-proto = { workspace = true }
 
 [lints]
 workspace = true

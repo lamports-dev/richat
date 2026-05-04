@@ -37,22 +37,22 @@ impl Hash for TransactionFilter {
 
 impl TransactionFilter {
     pub fn matches(&self, message: &MessageTransaction) -> bool {
-        if let Some(vote) = self.vote {
-            if vote != message.vote() {
-                return false;
-            }
+        if let Some(vote) = self.vote
+            && vote != message.vote()
+        {
+            return false;
         }
 
-        if let Some(failed) = self.failed {
-            if failed != message.failed() {
-                return false;
-            }
+        if let Some(failed) = self.failed
+            && failed != message.failed()
+        {
+            return false;
         }
 
-        if let Some(filter_signature) = &self.signature {
-            if filter_signature.as_ref() != message.signature_ref() {
-                return false;
-            }
+        if let Some(filter_signature) = &self.signature
+            && filter_signature.as_ref() != message.signature_ref()
+        {
+            return false;
         }
 
         if !self.account_include.is_empty()

@@ -574,7 +574,7 @@ impl MessageSlot {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + 64,
             Self::Prost { size, .. } => *size,
@@ -660,7 +660,7 @@ impl MessageAccount {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + PUBKEY_BYTES * 2 + 86,
             Self::Prost { size, .. } => *size,
@@ -1011,15 +1011,10 @@ impl MessageTransaction {
     pub fn as_versioned_transaction_with_status_meta(
         &self,
     ) -> Result<VersionedTransactionWithStatusMeta, &'static str> {
-        Ok(VersionedTransactionWithStatusMeta {
-            transaction: convert_from::create_tx_versioned(
-                self.transaction()?
-                    .transaction
-                    .clone()
-                    .ok_or("FieldNotDefined")?,
-            )?,
-            meta: convert_from::create_tx_meta(self.transaction_meta()?.clone())?,
-        })
+        match convert_from::create_tx_with_meta(self.transaction()?.clone())? {
+            TransactionWithStatusMeta::Complete(tx) => Ok(tx),
+            TransactionWithStatusMeta::MissingMetadata(_) => Err("FieldNotDefined"),
+        }
     }
 
     pub const fn account_keys(&self) -> &HashSet<Pubkey> {
@@ -1069,7 +1064,7 @@ impl MessageEntry {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + 52,
             Self::Prost { size, .. } => *size,
@@ -1133,7 +1128,7 @@ impl MessageBlockMeta {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() * 2,
             Self::Prost { size, .. } => *size,

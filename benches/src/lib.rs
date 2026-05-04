@@ -15,16 +15,16 @@ pub mod fixtures {
         },
         solana_clock::Slot,
         solana_hash::{HASH_BYTES, Hash},
-        solana_message::{SimpleAddressLoader, v0::LoadedAddresses},
+        solana_message_v3::{SimpleAddressLoader, v0::LoadedAddresses},
         solana_pubkey::Pubkey,
         solana_signature::Signature,
         solana_storage_proto::convert::generated,
-        solana_transaction::{
-            sanitized::{MessageHash, SanitizedTransaction},
-            versioned::VersionedTransaction,
-        },
         solana_transaction_status::{
             ConfirmedBlock, RewardsAndNumPartitions, TransactionStatusMeta,
+        },
+        solana_transaction_v3::{
+            sanitized::{MessageHash, SanitizedTransaction},
+            versioned::VersionedTransaction,
         },
         std::{collections::HashSet, fs},
     };
@@ -68,7 +68,7 @@ pub mod fixtures {
     }
 
     impl GeneratedAccount {
-        pub fn to_replica(&self) -> (Slot, ReplicaAccountInfoV3) {
+        pub fn to_replica(&self) -> (Slot, ReplicaAccountInfoV3<'_>) {
             let replica = ReplicaAccountInfoV3 {
                 pubkey: self.pubkey.as_ref(),
                 lamports: self.lamports,
@@ -180,7 +180,7 @@ pub mod fixtures {
     }
 
     impl GeneratedBlockMeta {
-        pub fn to_replica(&self) -> ReplicaBlockInfoV4 {
+        pub fn to_replica(&self) -> ReplicaBlockInfoV4<'_> {
             ReplicaBlockInfoV4 {
                 parent_slot: self.block.parent_slot,
                 slot: self.slot,
@@ -393,7 +393,9 @@ pub mod fixtures {
                 transaction: Some(SubscribeUpdateTransactionInfo {
                     signature: self.signature.as_ref().to_vec(),
                     is_vote: self.is_vote,
-                    transaction: Some(convert_to::create_transaction(&self.versioned_transaction)),
+                    transaction: Some(convert_to::create_status_transaction(
+                        &self.versioned_transaction,
+                    )),
                     meta: Some(convert_to::create_transaction_meta(
                         &self.transaction_status_meta,
                     )),
