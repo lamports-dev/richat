@@ -1,6 +1,6 @@
 [package]
 name = "richat-proto"
-version = "8.0.0"
+version = "9.0.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat Proto"
@@ -11,7 +11,19 @@ keywords = { workspace = true }
 publish = true
 
 [dependencies]
+bincode = { workspace = true }
 prost = { workspace = true }
+solana-account = { workspace = true }
+solana-account-decoder = { workspace = true, features = ["agave-unstable-api"] }
+solana-clock = { workspace = true }
+solana-hash = { workspace = true }
+solana-message = "3.1.0"
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-transaction = "3.1.0"
+solana-transaction-context = { workspace = true, features = ["agave-unstable-api"] }
+solana-transaction-error = { workspace = true }
+solana-transaction-status = { workspace = true, features = ["agave-unstable-api"] }
 yellowstone-grpc-proto = { workspace = true }
 
 [build-dependencies]
@@ -19,10 +31,6 @@ anyhow = { workspace = true }
 cargo-lock = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
-
-[features]
-default = []
-yellowstone-grpc-plugin = ["yellowstone-grpc-proto/plugin"]
 
 [lints]
 workspace = true
