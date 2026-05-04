@@ -45,6 +45,7 @@ pub fn create_message(message: &VersionedMessage) -> proto::Message {
             versioned: true,
             address_table_lookups: create_lookups(&message.address_table_lookups),
         },
+        VersionedMessage::V1(_) => unimplemented!("V1 transaction messages are not supported"),
     }
 }
 
@@ -56,11 +57,8 @@ pub const fn create_header(header: &MessageHeader) -> proto::MessageHeader {
     }
 }
 
-pub fn create_pubkeys(pubkeys: &[Pubkey]) -> Vec<Vec<u8>> {
-    pubkeys
-        .iter()
-        .map(|key| <Pubkey as AsRef<[u8]>>::as_ref(key).into())
-        .collect()
+pub fn create_pubkeys<T: AsRef<[u8]>>(pubkeys: &[T]) -> Vec<Vec<u8>> {
+    pubkeys.iter().map(|key| key.as_ref().into()).collect()
 }
 
 pub fn create_instructions(ixs: &[CompiledInstruction]) -> Vec<proto::CompiledInstruction> {

@@ -7,6 +7,15 @@ use {
         compiled_instruction::CompiledInstruction,
         v0::{LoadedAddresses, Message as MessageV0, MessageAddressTableLookup},
     },
+    solana_message_v3::{
+        Message as StatusMessage, MessageHeader as StatusMessageHeader,
+        VersionedMessage as StatusVersionedMessage,
+        compiled_instruction::CompiledInstruction as StatusCompiledInstruction,
+        v0::{
+            LoadedAddresses as StatusLoadedAddresses, Message as StatusMessageV0,
+            MessageAddressTableLookup as StatusMessageAddressTableLookup,
+        },
+    },
     solana_pubkey::Pubkey,
     solana_signature::Signature,
     solana_transaction::versioned::VersionedTransaction,
@@ -17,6 +26,7 @@ use {
         RewardsAndNumPartitions, TransactionStatusMeta, TransactionTokenBalance,
         TransactionWithStatusMeta, VersionedTransactionWithStatusMeta,
     },
+    solana_transaction_v3::versioned::VersionedTransaction as StatusVersionedTransaction,
     yellowstone_grpc_proto::prelude as proto,
 };
 
@@ -66,10 +76,95 @@ pub fn create_tx_with_meta(
 
     Ok(TransactionWithStatusMeta::Complete(
         VersionedTransactionWithStatusMeta {
-            transaction: create_tx_versioned(tx)?,
+            transaction: create_status_tx_versioned(tx)?,
             meta: create_tx_meta(meta)?,
         },
     ))
+}
+
+fn create_status_tx_versioned(tx: proto::Transaction) -> CreateResult<StatusVersionedTransaction> {
+    let mut signatures = Vec::with_capacity(tx.signatures.len());
+    for signature in tx.signatures {
+        signatures.push(match Signature::try_from(signature.as_slice()) {
+            Ok(signature) => signature,
+            Err(_error) => return Err("failed to parse Signature"),
+        });
+    }
+
+    Ok(StatusVersionedTransaction {
+        signatures,
+        message: create_status_message(tx.message.ok_or("failed to get message")?)?,
+    })
+}
+
+fn create_status_message(message: proto::Message) -> CreateResult<StatusVersionedMessage> {
+    let header = message.header.ok_or("failed to get MessageHeader")?;
+    let header = StatusMessageHeader {
+        num_required_signatures: header
+            .num_required_signatures
+            .try_into()
+            .map_err(|_| "failed to parse num_required_signatures")?,
+        num_readonly_signed_accounts: header
+            .num_readonly_signed_accounts
+            .try_into()
+            .map_err(|_| "failed to parse num_readonly_signed_accounts")?,
+        num_readonly_unsigned_accounts: header
+            .num_readonly_unsigned_accounts
+            .try_into()
+            .map_err(|_| "failed to parse num_readonly_unsigned_accounts")?,
+    };
+
+    if message.recent_blockhash.len() != HASH_BYTES {
+        return Err("failed to parse hash");
+    }
+
+    Ok(if message.versioned {
+        let mut address_table_lookups = Vec::with_capacity(message.address_table_lookups.len());
+        for table in message.address_table_lookups {
+            address_table_lookups.push(StatusMessageAddressTableLookup {
+                account_key: Pubkey::try_from(table.account_key.as_slice())
+                    .map_err(|_| "failed to parse Pubkey")?,
+                writable_indexes: table.writable_indexes,
+                readonly_indexes: table.readonly_indexes,
+            });
+        }
+
+        StatusVersionedMessage::V0(StatusMessageV0 {
+            header,
+            account_keys: create_pubkey_vec(message.account_keys)?,
+            recent_blockhash: Hash::new_from_array(
+                <[u8; HASH_BYTES]>::try_from(message.recent_blockhash.as_slice()).unwrap(),
+            ),
+            instructions: create_status_message_instructions(message.instructions)?,
+            address_table_lookups,
+        })
+    } else {
+        StatusVersionedMessage::Legacy(StatusMessage {
+            header,
+            account_keys: create_pubkey_vec(message.account_keys)?,
+            recent_blockhash: Hash::new_from_array(
+                <[u8; HASH_BYTES]>::try_from(message.recent_blockhash.as_slice()).unwrap(),
+            ),
+            instructions: create_status_message_instructions(message.instructions)?,
+        })
+    })
+}
+
+fn create_status_message_instructions(
+    ixs: Vec<proto::CompiledInstruction>,
+) -> CreateResult<Vec<StatusCompiledInstruction>> {
+    ixs.into_iter()
+        .map(|ix| {
+            Ok(StatusCompiledInstruction {
+                program_id_index: ix
+                    .program_id_index
+                    .try_into()
+                    .map_err(|_| "failed to decode CompiledInstruction.program_id_index)")?,
+                accounts: ix.accounts,
+                data: ix.data,
+            })
+        })
+        .collect()
 }
 
 pub fn create_tx_versioned(tx: proto::Transaction) -> CreateResult<VersionedTransaction> {
@@ -180,10 +275,10 @@ pub fn create_tx_meta(meta: proto::TransactionStatusMeta) -> CreateResult<Transa
         pre_token_balances: Some(create_token_balances(meta.pre_token_balances)?),
         post_token_balances: Some(create_token_balances(meta.post_token_balances)?),
         rewards: Some(meta_rewards),
-        loaded_addresses: create_loaded_addresses(
-            meta.loaded_writable_addresses,
-            meta.loaded_readonly_addresses,
-        )?,
+        loaded_addresses: StatusLoadedAddresses {
+            writable: create_pubkey_vec(meta.loaded_writable_addresses)?,
+            readonly: create_pubkey_vec(meta.loaded_readonly_addresses)?,
+        },
         return_data: if meta.return_data_none {
             None
         } else {
@@ -219,7 +314,7 @@ pub fn create_meta_inner_instruction(
     let mut instructions = vec![];
     for ix in ix.instructions {
         instructions.push(InnerInstruction {
-            instruction: CompiledInstruction {
+            instruction: StatusCompiledInstruction {
                 program_id_index: ix
                     .program_id_index
                     .try_into()
