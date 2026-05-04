@@ -28,7 +28,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-- richat: upgrade to agave 4.0 ([#210](https://github.com/lamports-dev/richat/pull/210))
+- richat: upgrade to agave 4.0 ([#211](https://github.com/lamports-dev/richat/pull/211))
 
 ## 2026-04-30
 
