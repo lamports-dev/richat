@@ -1011,15 +1011,10 @@ impl MessageTransaction {
     pub fn as_versioned_transaction_with_status_meta(
         &self,
     ) -> Result<VersionedTransactionWithStatusMeta, &'static str> {
-        Ok(VersionedTransactionWithStatusMeta {
-            transaction: convert_from::create_tx_versioned(
-                self.transaction()?
-                    .transaction
-                    .clone()
-                    .ok_or("FieldNotDefined")?,
-            )?,
-            meta: convert_from::create_tx_meta(self.transaction_meta()?.clone())?,
-        })
+        match convert_from::create_tx_with_meta(self.transaction()?.clone())? {
+            TransactionWithStatusMeta::Complete(tx) => Ok(tx),
+            TransactionWithStatusMeta::MissingMetadata(_) => Err("FieldNotDefined"),
+        }
     }
 
     pub const fn account_keys(&self) -> &HashSet<Pubkey> {
