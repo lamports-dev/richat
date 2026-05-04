@@ -574,7 +574,7 @@ impl MessageSlot {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + 64,
             Self::Prost { size, .. } => *size,
@@ -660,7 +660,7 @@ impl MessageAccount {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + PUBKEY_BYTES * 2 + 86,
             Self::Prost { size, .. } => *size,
@@ -1064,7 +1064,7 @@ impl MessageEntry {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() + 52,
             Self::Prost { size, .. } => *size,
@@ -1128,7 +1128,7 @@ impl MessageBlockMeta {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         match self {
             Self::Limited { buffer, .. } => buffer.len() * 2,
             Self::Prost { size, .. } => *size,

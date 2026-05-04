@@ -409,16 +409,16 @@ impl FilterAccounts {
                     return None;
                 }
 
-                if let Some(filters) = &filter.filters {
-                    if !filters.is_match(msg_lamports, msg_data) {
-                        return None;
-                    }
+                if let Some(filters) = &filter.filters
+                    && !filters.is_match(msg_lamports, msg_data)
+                {
+                    return None;
                 }
 
-                if let Some(nonempty_txn_signature) = filter.nonempty_txn_signature {
-                    if nonempty_txn_signature != msg_nonempty_txn_signature {
-                        return None;
-                    }
+                if let Some(nonempty_txn_signature) = filter.nonempty_txn_signature
+                    && nonempty_txn_signature != msg_nonempty_txn_signature
+                {
+                    return None;
                 }
 
                 Some(name.as_ref())
@@ -538,22 +538,22 @@ impl FilterTransactions {
             .filters
             .iter()
             .filter_map(|(name, filter)| {
-                if let Some(is_vote) = filter.vote {
-                    if is_vote != msg_vote {
-                        return None;
-                    }
+                if let Some(is_vote) = filter.vote
+                    && is_vote != msg_vote
+                {
+                    return None;
                 }
 
-                if let Some(is_failed) = filter.failed {
-                    if is_failed != msg_failed {
-                        return None;
-                    }
+                if let Some(is_failed) = filter.failed
+                    && is_failed != msg_failed
+                {
+                    return None;
                 }
 
-                if let Some(signature) = &filter.signature {
-                    if signature.as_ref() != msg_signature {
-                        return None;
-                    }
+                if let Some(signature) = &filter.signature
+                    && signature.as_ref() != msg_signature
+                {
+                    return None;
                 }
 
                 if !filter.account_include.is_empty()
