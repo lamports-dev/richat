@@ -404,10 +404,10 @@ impl ReplayQueue {
 
     fn pop_next(queue: &Mutex<Self>, prev_request: Option<ReplayRequest>) -> Option<ReplayRequest> {
         let mut locked = mutex_lock(queue);
-        if locked.len > 0 {
-            if let Some(request) = prev_request {
-                locked.requests.push_back(request);
-            }
+        if locked.len > 0
+            && let Some(request) = prev_request
+        {
+            locked.requests.push_back(request);
         }
         locked.requests.pop_front()
     }

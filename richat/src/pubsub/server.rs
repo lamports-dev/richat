@@ -311,7 +311,7 @@ impl PubSubServer {
                                     let version = solana_version::Version::default();
                                     Ok(serde_json::to_value(&RpcVersionInfo {
                                         solana_core: version.to_string(),
-                                        feature_set: Some(version.feature_set),
+                                        feature_set: Some(version.feature_set()),
                                     })
                                     .expect("json serialization never fail"))
                                 },
@@ -383,15 +383,15 @@ impl PubSubServer {
                     },
                     message = notifications.recv() => match message {
                         Ok(notification) if subscriptions.contains_key(&notification.subscription_id) => {
-                            if notification.is_final {
-                                if let Some(method) = subscriptions.remove(&notification.subscription_id) {
-                                    gauge!(
-                                        metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
-                                        "x_subscription_id" => Arc::clone(&x_subscription_id),
-                                        "method" => method.as_str()
-                                    )
-                                    .decrement(1);
-                                }
+                            if notification.is_final
+                                && let Some(method) = subscriptions.remove(&notification.subscription_id)
+                            {
+                                gauge!(
+                                    metrics::PUBSUB_SUBSCRIPTIONS_TOTAL,
+                                    "x_subscription_id" => Arc::clone(&x_subscription_id),
+                                    "method" => method.as_str()
+                                )
+                                .decrement(1);
                             }
 
                             match notification.json.upgrade() {

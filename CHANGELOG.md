@@ -23,7 +23,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat-filter-v9.0.0
 - richat-plugin-agave-v9.0.0
 - richat-proto-v9.0.0
-- richat-v8.1.1 TODO!
+- richat-v11.0.0
 - richat-shared-v9.0.0
 
 ### Breaking

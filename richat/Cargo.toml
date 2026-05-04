@@ -1,6 +1,6 @@
 [package]
 name = "richat"
-version = "10.0.0"
+version = "11.0.0"
 authors = { workspace = true }
 edition = { workspace = true }
 description = "Richat App"
@@ -46,9 +46,11 @@ signal-hook = { workspace = true }
 smallvec = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
+solana-account-v3 = { workspace = true }
 solana-clock = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-message = { workspace = true }
+solana-message-v3 = { workspace = true }
 solana-nohash-hasher = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client-api = { workspace = true }
@@ -56,6 +58,7 @@ solana-signature = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 solana-transaction-status = { workspace = true }
+solana-transaction-v3 = { workspace = true }
 solana-version = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }

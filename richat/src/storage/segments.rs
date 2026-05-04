@@ -303,10 +303,10 @@ impl PendingChunkMeta {
                 first_index: head,
             });
         }
-        if let ParsedMessage::Slot(message) = message {
-            if message.status() == SlotStatus::SlotFinalized {
-                self.pending_finalized.insert(slot);
-            }
+        if let ParsedMessage::Slot(message) = message
+            && message.status() == SlotStatus::SlotFinalized
+        {
+            self.pending_finalized.insert(slot);
         }
 
         self.record_count += 1;
@@ -785,12 +785,12 @@ impl SegmentWriter {
 
         let mut updated_slots = Vec::with_capacity(pending_finalized.len());
         for slot in pending_finalized {
-            if let Some(meta) = catalog.slots.get(slot) {
-                if !new_slots.iter().any(|new_meta| new_meta.slot == *slot) {
-                    let mut meta = *meta;
-                    meta.finalized = true;
-                    updated_slots.push(meta);
-                }
+            if let Some(meta) = catalog.slots.get(slot)
+                && !new_slots.iter().any(|new_meta| new_meta.slot == *slot)
+            {
+                let mut meta = *meta;
+                meta.finalized = true;
+                updated_slots.push(meta);
             }
         }
 

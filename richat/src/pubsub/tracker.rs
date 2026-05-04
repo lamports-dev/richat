@@ -17,13 +17,15 @@ use {
         ThreadPoolBuilder,
         iter::{IntoParallelIterator, ParallelIterator},
     },
-    richat_filter::message::{MessageSlot, MessageTransaction},
+    richat_filter::message::{MessageAccount, MessageSlot, MessageTransaction},
     richat_proto::{convert_from, geyser::SlotStatus},
     richat_shared::five8::{pubkey_encode, signature_encode},
     solana_account_decoder::encode_ui_account,
+    solana_account_v3::ReadableAccount as StatusReadableAccount,
     solana_clock::Slot,
     solana_commitment_config::CommitmentLevel,
     solana_nohash_hasher::IntMap,
+    solana_pubkey::Pubkey,
     solana_rpc_client_api::response::{
         ProcessedSignatureResult, RpcKeyedAccount, RpcLogsResponse, RpcSignatureResult, SlotInfo,
         SlotTransactionStats, SlotUpdate,
@@ -38,6 +40,30 @@ use {
     },
     tokio::sync::oneshot,
 };
+
+struct UiReadableAccount<'a>(&'a MessageAccount);
+
+impl StatusReadableAccount for UiReadableAccount<'_> {
+    fn lamports(&self) -> u64 {
+        solana_account::ReadableAccount::lamports(self.0)
+    }
+
+    fn data(&self) -> &[u8] {
+        solana_account::ReadableAccount::data(self.0)
+    }
+
+    fn owner(&self) -> &Pubkey {
+        solana_account::ReadableAccount::owner(self.0)
+    }
+
+    fn executable(&self) -> bool {
+        solana_account::ReadableAccount::executable(self.0)
+    }
+
+    fn rent_epoch(&self) -> u64 {
+        solana_account::ReadableAccount::rent_epoch(self.0)
+    }
+}
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -154,24 +180,18 @@ impl Subscriptions {
                     signature,
                     commitment,
                 } = &config
+                    && let Some((slot, err)) = signatures.get(signature, commitment.commitment)
                 {
-                    if let Some((slot, err)) = signatures.get(signature, commitment.commitment) {
-                        is_final = true;
-                        let json = RpcNotification::serialize_with_context(
-                            "signatureNotification",
-                            subscription_id,
-                            slot,
-                            RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
-                                err: err.map(Into::into),
-                            }),
-                        );
-                        notifications.push(
-                            subscription_id,
-                            SubscribeMethod::Signature,
-                            is_final,
-                            json,
-                        );
-                    }
+                    is_final = true;
+                    let json = RpcNotification::serialize_with_context(
+                        "signatureNotification",
+                        subscription_id,
+                        slot,
+                        RpcSignatureResult::ProcessedSignature(ProcessedSignatureResult {
+                            err: err.map(Into::into),
+                        }),
+                    );
+                    notifications.push(subscription_id, SubscribeMethod::Signature, is_final, json);
                 }
 
                 if !is_final {
@@ -365,10 +385,10 @@ pub fn subscriptions_worker(
                 if let Some(message) = receiver.try_recv(commitment, *head)? {
                     *head += 1;
                     // ignore Slot messages for any commitment except processed
-                    if commitment != CommitmentLevel::Processed {
-                        if let ParsedMessage::Slot(_) = &message {
-                            continue;
-                        }
+                    if commitment != CommitmentLevel::Processed
+                        && let ParsedMessage::Slot(_) = &message
+                    {
+                        continue;
                     }
                     messages.push(message);
                 } else {
@@ -376,8 +396,8 @@ pub fn subscriptions_worker(
                 }
             }
             for message in messages.iter() {
-                if commitment == CommitmentLevel::Processed {
-                    if let Some((message, stats)) = match &message {
+                if commitment == CommitmentLevel::Processed
+                    && let Some((message, stats)) = match &message {
                         ParsedMessage::Slot(message)
                             if message.status() == SlotStatus::SlotProcessed =>
                         {
@@ -437,9 +457,9 @@ pub fn subscriptions_worker(
                             )
                         }
                         _ => None,
-                    } {
-                        messages_extra.push((message, stats));
                     }
+                {
+                    messages_extra.push((message, stats));
                 }
 
                 for method in SubscribeMethod::get_message_methods(message) {
@@ -484,7 +504,7 @@ pub fn subscriptions_worker(
                                     message.slot(),
                                     encode_ui_account(
                                         message.pubkey(),
-                                        message.as_ref(),
+                                        &UiReadableAccount(message.as_ref()),
                                         encoding,
                                         None,
                                         data_slice,
@@ -505,7 +525,7 @@ pub fn subscriptions_worker(
                                         pubkey: pubkey_encode(&(*message.pubkey()).to_bytes()), // TODO: use `.as_bytes()` from 2.2
                                         account: encode_ui_account(
                                             message.pubkey(),
-                                            message.as_ref(),
+                                            &UiReadableAccount(message.as_ref()),
                                             encoding,
                                             None,
                                             data_slice,
