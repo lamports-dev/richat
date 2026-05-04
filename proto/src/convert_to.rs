@@ -4,6 +4,11 @@ use {
         MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction,
         v0::MessageAddressTableLookup,
     },
+    solana_message_v3::{
+        MessageHeader as StatusMessageHeader, VersionedMessage as StatusVersionedMessage,
+        compiled_instruction::CompiledInstruction as StatusCompiledInstruction,
+        v0::MessageAddressTableLookup as StatusMessageAddressTableLookup,
+    },
     solana_pubkey::Pubkey,
     solana_signature::Signature,
     solana_transaction::versioned::VersionedTransaction,
@@ -13,6 +18,7 @@ use {
         InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
         TransactionTokenBalance,
     },
+    solana_transaction_v3::versioned::VersionedTransaction as StatusVersionedTransaction,
     yellowstone_grpc_proto::prelude as proto,
 };
 
@@ -21,9 +27,37 @@ pub fn create_transaction(tx: &VersionedTransaction) -> proto::Transaction {
         signatures: tx
             .signatures
             .iter()
-            .map(|signature| <Signature as AsRef<[u8]>>::as_ref(signature).into())
+            .map(|signature| signature.as_ref().into())
             .collect(),
         message: Some(create_message(&tx.message)),
+    }
+}
+
+pub fn create_status_transaction(tx: &StatusVersionedTransaction) -> proto::Transaction {
+    proto::Transaction {
+        signatures: tx
+            .signatures
+            .iter()
+            .map(|signature| <Signature as AsRef<[u8]>>::as_ref(signature).into())
+            .collect(),
+        message: Some(match &tx.message {
+            StatusVersionedMessage::Legacy(message) => proto::Message {
+                header: Some(create_status_header(&message.header)),
+                account_keys: create_pubkeys(&message.account_keys),
+                recent_blockhash: message.recent_blockhash.to_bytes().into(),
+                instructions: create_status_instructions(&message.instructions),
+                versioned: false,
+                address_table_lookups: vec![],
+            },
+            StatusVersionedMessage::V0(message) => proto::Message {
+                header: Some(create_status_header(&message.header)),
+                account_keys: create_pubkeys(&message.account_keys),
+                recent_blockhash: message.recent_blockhash.to_bytes().into(),
+                instructions: create_status_instructions(&message.instructions),
+                versioned: true,
+                address_table_lookups: create_status_lookups(&message.address_table_lookups),
+            },
+        }),
     }
 }
 
@@ -49,6 +83,14 @@ pub fn create_message(message: &VersionedMessage) -> proto::Message {
     }
 }
 
+pub const fn create_status_header(header: &StatusMessageHeader) -> proto::MessageHeader {
+    proto::MessageHeader {
+        num_required_signatures: header.num_required_signatures as u32,
+        num_readonly_signed_accounts: header.num_readonly_signed_accounts as u32,
+        num_readonly_unsigned_accounts: header.num_readonly_unsigned_accounts as u32,
+    }
+}
+
 pub const fn create_header(header: &MessageHeader) -> proto::MessageHeader {
     proto::MessageHeader {
         num_required_signatures: header.num_required_signatures as u32,
@@ -65,6 +107,18 @@ pub fn create_instructions(ixs: &[CompiledInstruction]) -> Vec<proto::CompiledIn
     ixs.iter().map(create_instruction).collect()
 }
 
+fn create_status_instructions(
+    ixs: &[StatusCompiledInstruction],
+) -> Vec<proto::CompiledInstruction> {
+    ixs.iter()
+        .map(|ix| proto::CompiledInstruction {
+            program_id_index: ix.program_id_index as u32,
+            accounts: ix.accounts.clone(),
+            data: ix.data.clone(),
+        })
+        .collect()
+}
+
 pub fn create_instruction(ix: &CompiledInstruction) -> proto::CompiledInstruction {
     proto::CompiledInstruction {
         program_id_index: ix.program_id_index as u32,
@@ -77,6 +131,19 @@ pub fn create_lookups(
     lookups: &[MessageAddressTableLookup],
 ) -> Vec<proto::MessageAddressTableLookup> {
     lookups.iter().map(create_lookup).collect()
+}
+
+fn create_status_lookups(
+    lookups: &[StatusMessageAddressTableLookup],
+) -> Vec<proto::MessageAddressTableLookup> {
+    lookups
+        .iter()
+        .map(|lookup| proto::MessageAddressTableLookup {
+            account_key: lookup.account_key.as_ref().into(),
+            writable_indexes: lookup.writable_indexes.clone(),
+            readonly_indexes: lookup.readonly_indexes.clone(),
+        })
+        .collect()
 }
 
 pub fn create_lookup(lookup: &MessageAddressTableLookup) -> proto::MessageAddressTableLookup {

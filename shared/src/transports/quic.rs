@@ -255,26 +255,26 @@ impl QuicServer {
         let mut next_message: Option<RecvItem> = None;
         let mut set = JoinSet::new();
         loop {
-            if msg_id - msg_ids.first().copied().unwrap_or(msg_id) < max_backlog {
-                if let Some(message) = next_message.take() {
-                    if let Some(mut stream) = streams.pop_front() {
-                        msg_ids.insert(msg_id);
-                        set.spawn(async move {
-                            WriteVectored::new(
-                                &mut stream,
-                                &mut [
-                                    IoSlice::new(&msg_id.to_be_bytes()),
-                                    IoSlice::new(&(message.len() as u64).to_be_bytes()),
-                                    IoSlice::new(&message),
-                                ],
-                            )
-                            .await?;
-                            Ok::<_, ConnectionError>((msg_id, stream))
-                        });
-                        msg_id += 1;
-                    } else {
-                        next_message = Some(message);
-                    }
+            if msg_id - msg_ids.first().copied().unwrap_or(msg_id) < max_backlog
+                && let Some(message) = next_message.take()
+            {
+                if let Some(mut stream) = streams.pop_front() {
+                    msg_ids.insert(msg_id);
+                    set.spawn(async move {
+                        WriteVectored::new(
+                            &mut stream,
+                            &mut [
+                                IoSlice::new(&msg_id.to_be_bytes()),
+                                IoSlice::new(&(message.len() as u64).to_be_bytes()),
+                                IoSlice::new(&message),
+                            ],
+                        )
+                        .await?;
+                        Ok::<_, ConnectionError>((msg_id, stream))
+                    });
+                    msg_id += 1;
+                } else {
+                    next_message = Some(message);
                 }
             }
 
@@ -371,21 +371,21 @@ impl QuicServer {
         } = Message::decode(buf.as_slice())?;
 
         // verify access token
-        if !x_tokens.is_empty() {
-            if let Some(error) = match x_token {
+        if !x_tokens.is_empty()
+            && let Some(error) = match x_token {
                 Some(x_token) if !x_tokens.contains(&x_token) => {
                     Some(QuicSubscribeResponseError::XTokenInvalid as i32)
                 }
                 None => Some(QuicSubscribeResponseError::XTokenRequired as i32),
                 _ => None,
-            } {
-                let msg = QuicSubscribeResponse {
-                    error: Some(error),
-                    version,
-                    ..Default::default()
-                };
-                return Ok((send, msg, None));
             }
+        {
+            let msg = QuicSubscribeResponse {
+                error: Some(error),
+                version,
+                ..Default::default()
+            };
+            return Ok((send, msg, None));
         }
 
         // validate number of streams

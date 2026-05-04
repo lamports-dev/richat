@@ -8,18 +8,18 @@ use {
     },
     solana_account_decoder::parse_token::UiTokenAmount,
     solana_clock::Slot,
-    solana_message::{
+    solana_message_v3::{
         MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction,
         v0::MessageAddressTableLookup,
     },
     solana_pubkey::{PUBKEY_BYTES, Pubkey},
     solana_signature::{SIGNATURE_BYTES, Signature},
-    solana_transaction::versioned::VersionedTransaction,
-    solana_transaction_context::TransactionReturnData,
+    solana_transaction_context::transaction::TransactionReturnData,
     solana_transaction_error::TransactionError,
     solana_transaction_status::{
         InnerInstruction, InnerInstructions, TransactionStatusMeta, TransactionTokenBalance,
     },
+    solana_transaction_v3::versioned::VersionedTransaction,
     std::{cell::RefCell, marker::PhantomData, ops::Deref},
 };
 

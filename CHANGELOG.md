@@ -21,7 +21,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 - richat-cli-v9.0.1 TODO!
 - richat-client-v8.1.1 TODO!
 - richat-filter-v9.0.0
-- richat-plugin-agave-v8.1.1 TODO!
+- richat-plugin-agave-v9.0.0
 - richat-proto-v9.0.0
 - richat-v8.1.1 TODO!
 - richat-shared-v9.0.0
