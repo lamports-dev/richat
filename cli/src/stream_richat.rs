@@ -25,8 +25,9 @@ use {
     },
     richat_shared::transports::{grpc::ConfigGrpcServer, quic::ConfigQuicServer},
     solana_clock::Slot,
-    solana_message::{LegacyMessage, Message, SanitizedMessage},
-    solana_transaction::sanitized::SanitizedTransaction,
+    solana_message_v3::{LegacyMessage, Message, SanitizedMessage},
+    solana_transaction_status::TransactionWithStatusMeta,
+    solana_transaction_v3::sanitized::SanitizedTransaction,
     std::{collections::HashSet, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration},
     tonic::service::Interceptor,
     tracing::info,
@@ -405,26 +406,28 @@ fn convert_prost_to_raw(msg: &SubscribeUpdate) -> anyhow::Result<Option<Vec<u8>>
             transaction: Some(tx),
             slot,
         })) => {
-            let value = tx
-                .transaction
-                .clone()
-                .ok_or(anyhow::anyhow!("no tx message"))?;
-            let versioned_transaction =
-                convert_from::create_tx_versioned(value).map_err(|error| anyhow::anyhow!(error))?;
-
-            let value = tx.meta.clone().ok_or(anyhow::anyhow!("no meta message"))?;
-            let transaction_status_meta =
-                convert_from::create_tx_meta(value).map_err(|error| anyhow::anyhow!(error))?;
+            let tx_with_meta = match convert_from::create_tx_with_meta(tx.clone())
+                .map_err(|error| anyhow::anyhow!(error))?
+            {
+                TransactionWithStatusMeta::Complete(tx_with_meta) => tx_with_meta,
+                TransactionWithStatusMeta::MissingMetadata(_) => {
+                    anyhow::bail!("missing transaction metadata")
+                }
+            };
+            let versioned_transaction = tx_with_meta.transaction;
+            let transaction_status_meta = tx_with_meta.meta;
+            let signature = tx
+                .signature
+                .as_slice()
+                .try_into()
+                .context("failed to create signature")?;
+            let message_hash = versioned_transaction.message.hash();
 
             let msg = ProtobufMessage::Transaction {
                 slot: *slot,
                 transaction: &ReplicaTransactionInfoV3 {
-                    signature: &tx
-                        .signature
-                        .as_slice()
-                        .try_into()
-                        .context("failed to create signature")?,
-                    message_hash: &versioned_transaction.message.hash(),
+                    signature: &signature,
+                    message_hash: &message_hash,
                     is_vote: tx.is_vote,
                     transaction: &versioned_transaction,
                     transaction_status_meta: &transaction_status_meta,
