@@ -16,6 +16,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
+## 2026-05-19
+
+- richat-v10.1.0
+
+### Features
+
+- richat: add subscribe handshake observability ([#207](https://github.com/lamports-dev/richat/pull/207))
+
 ## 2026-05-04
 
 - richat-cli-v10.0.0

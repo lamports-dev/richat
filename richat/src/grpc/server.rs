@@ -6,7 +6,7 @@ use {
         metrics::{self, GrpcSubscribeMessage},
         version::VERSION,
     },
-    ::metrics::{Gauge, counter, gauge},
+    ::metrics::{Gauge, counter, gauge, histogram},
     crossbeam_queue::SegQueue,
     futures::{
         future::{FutureExt, TryFutureExt, ready, try_join_all},
@@ -392,6 +392,14 @@ impl GrpcServer {
                     .increment(duration_to_seconds(ts.elapsed()));
                 ticks_without_messages = 0;
             }
+
+            // Observe the time from filter set -> first data message pushed
+            // to the client. This is the subscribe handshake latency the
+            // clients actually perceive. Taken-once: only the first push
+            // after the filter was applied records the histogram.
+            if pushed {
+                state.observe_time_to_first_message();
+            }
             drop(state);
 
             if pushed {
@@ -430,6 +438,7 @@ impl GrpcServer {
         )
         .increment(1);
 
+        let ts_subscribe_entry = Instant::now();
         let id = self.subscribe_id.fetch_add(1, Ordering::Relaxed);
         let client = SubscribeClient::new(
             id,
@@ -443,8 +452,10 @@ impl GrpcServer {
             let shutdown = self.shutdown.clone();
             let ping_interval = self.ping_interval;
             let client = client.clone();
+            let x_subscription_id = Arc::clone(&x_subscription_id);
             async move {
                 let mut ts_latest = Instant::now();
+                let mut slow_filter_warned = false;
                 loop {
                     tokio::select! {
                         () = shutdown.cancelled() => {
@@ -457,9 +468,26 @@ impl GrpcServer {
                             if state.finished {
                                 break
                             }
+                            let filter_set = state.filter.is_some();
                             drop(state);
 
                             let ts = Instant::now();
+
+                            // Warn once when a client has been connected for >3s
+                            // without a filter. Matches observed client timeouts.
+                            if !filter_set && !slow_filter_warned {
+                                let elapsed_ms = ts.duration_since(ts_subscribe_entry).as_millis() as u64;
+                                if elapsed_ms > 3_000 {
+                                    slow_filter_warned = true;
+                                    warn!(
+                                        id,
+                                        x_subscription_id = x_subscription_id.as_ref(),
+                                        elapsed_ms,
+                                        "subscribe: filter not set after 3s"
+                                    );
+                                }
+                            }
+
                             if ts.duration_since(ts_latest) > ping_interval {
                                 ts_latest = ts;
                                 let data = SubscribeClientState::create_ping();
@@ -478,6 +506,8 @@ impl GrpcServer {
             let client = client.clone();
             let messages = self.messages.clone();
             async move {
+                let mut filter_ever_set = false;
+                let mut handshake_abandoned = false;
                 loop {
                     match stream.message().await {
                         Ok(Some(message)) => {
@@ -490,6 +520,7 @@ impl GrpcServer {
 
                             let (subscribe_from_slot, new_filter) = get_filter(&limits, message);
                             let mut state = client.state_lock();
+                            let was_unset = state.filter.is_none();
                             if let Err(error) = new_filter.and_then(|filter| {
                                 if filter.contains_blocks() && subscribe_from_slot.is_some() {
                                     return Err(Status::invalid_argument(
@@ -520,20 +551,47 @@ impl GrpcServer {
                                     }
                                 }
                                 state.filter = Some(filter);
+                                if was_unset {
+                                    state.ts_filter_set = Some(Instant::now());
+                                }
                                 Ok::<(), Status>(())
                             }) {
                                 warn!(id, %error, "failed to handle request");
                                 drop(state);
                                 client.push_error(error);
                             } else {
+                                // Record filter-parse latency only on the initial
+                                // transition unset -> set. Subsequent filter
+                                // updates (commitment change, etc.) are not
+                                // part of the handshake and would skew the
+                                // histogram.
+                                if was_unset {
+                                    filter_ever_set = true;
+                                    histogram!(
+                                        metrics::GRPC_SUBSCRIBE_FILTER_PARSE_SECONDS,
+                                        "x_subscription_id" => Arc::clone(&x_subscription_id)
+                                    )
+                                    .record(duration_to_seconds(ts_subscribe_entry.elapsed()));
+                                }
+                                drop(state);
                                 info!(id, "set new filter");
                                 continue;
                             }
                         }
-                        Ok(None) => info!(id, "tx stream finished"),
+                        Ok(None) => {
+                            handshake_abandoned = !filter_ever_set;
+                            info!(id, "tx stream finished");
+                        }
                         Err(error) => warn!(id, %error, "error to receive new filter"),
                     };
                     break;
+                }
+                if handshake_abandoned {
+                    counter!(
+                        metrics::GRPC_SUBSCRIBE_HANDSHAKE_ABANDONED_TOTAL,
+                        "x_subscription_id" => Arc::clone(&x_subscription_id)
+                    )
+                    .increment(1);
                 }
                 info!(id, "drop client tx stream");
             }
@@ -822,6 +880,10 @@ pub struct SubscribeClientState {
     pub head: IndexLocation,
     pub filter: Option<Filter>,
     metric_cpu_usage: Gauge,
+    /// Taken once, when the worker pushes the first data message to this
+    /// client after a filter has been applied. Observes
+    /// `grpc_subscribe_time_to_first_message_seconds`.
+    pub ts_filter_set: Option<Instant>,
 }
 
 impl Drop for SubscribeClientState {
@@ -859,6 +921,7 @@ impl SubscribeClientState {
             head: IndexLocation::Unknown,
             filter: None,
             metric_cpu_usage,
+            ts_filter_set: None,
         }
     }
 
@@ -880,6 +943,17 @@ impl SubscribeClientState {
     #[inline]
     fn create_pong(id: i32) -> Vec<u8> {
         Self::serialize_ping_pong(UpdateOneof::Pong(SubscribeUpdatePong { id }))
+    }
+
+    /// Observe the first data message pushed after a filter is applied.
+    pub fn observe_time_to_first_message(&mut self) {
+        if let Some(ts_filter_set) = self.ts_filter_set.take() {
+            histogram!(
+                metrics::GRPC_SUBSCRIBE_TIME_TO_FIRST_MESSAGE_SECONDS,
+                "x_subscription_id" => Arc::clone(&self.x_subscription_id)
+            )
+            .record(duration_to_seconds(ts_filter_set.elapsed()));
+        }
     }
 }
 

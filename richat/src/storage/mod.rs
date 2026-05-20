@@ -170,6 +170,9 @@ impl Storage {
 
             locked_state.head = IndexLocation::Storage(current_head);
             req.state.head = Some(current_head);
+            if pushed {
+                locked_state.observe_time_to_first_message();
+            }
 
             if req.state.read_finished && req.state.messages.is_empty() {
                 if let Some(head) = req.messages.get_head_by_replay_index(current_head + 1) {
