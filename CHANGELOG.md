@@ -16,15 +16,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 
 ### Breaking
 
-## 2026-05-19
-
-- richat-v10.1.0
-
-### Features
-
-- richat: add subscribe handshake observability ([#207](https://github.com/lamports-dev/richat/pull/207))
-
-## 2026-05-04
+## 2026-05-20
 
 - richat-cli-v10.0.0
 - richat-client-v9.0.0
@@ -37,6 +29,14 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Breaking
 
 - richat: upgrade to agave 4.0 ([#211](https://github.com/lamports-dev/richat/pull/211))
+
+## 2026-05-19
+
+- richat-v10.1.0
+
+### Features
+
+- richat: add subscribe handshake observability ([#207](https://github.com/lamports-dev/richat/pull/207))
 
 ## 2026-04-30
 
