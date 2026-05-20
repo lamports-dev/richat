@@ -4,9 +4,10 @@ use {
     agave_geyser_plugin_interface::geyser_plugin_interface::ReplicaAccountInfoV3,
     arbitrary::Arbitrary,
     richat_plugin_agave::protobuf::ProtobufMessage,
-    solana_message::{LegacyMessage, Message, SanitizedMessage},
-    solana_pubkey::PUBKEY_BYTES,
-    solana_signature::SIGNATURE_BYTES,
+    solana_hash::{HASH_BYTES, Hash},
+    solana_message::{LegacyMessage, Message, MessageHeader, SanitizedMessage},
+    solana_pubkey::{PUBKEY_BYTES, Pubkey},
+    solana_signature::{SIGNATURE_BYTES, Signature},
     solana_transaction::sanitized::SanitizedTransaction,
     std::{collections::HashSet, time::SystemTime},
 };
@@ -30,12 +31,26 @@ pub struct FuzzAccountMessage<'a> {
 }
 
 libfuzzer_sys::fuzz_target!(|fuzz_message: FuzzAccountMessage| {
-    let txn = fuzz_message.account.txn.map(|signature| {
-        SanitizedTransaction::new_for_tests(
-            SanitizedMessage::Legacy(LegacyMessage::new(Message::default(), &HashSet::new())),
-            vec![signature.as_slice().try_into().unwrap()],
+    let txn = fuzz_message.account.txn.and_then(|signature| {
+        SanitizedTransaction::try_new_from_fields(
+            SanitizedMessage::Legacy(LegacyMessage::new(
+                Message {
+                    header: MessageHeader {
+                        num_required_signatures: 1,
+                        num_readonly_signed_accounts: 0,
+                        num_readonly_unsigned_accounts: 0,
+                    },
+                    account_keys: vec![Pubkey::new_from_array(fuzz_message.account.pubkey)],
+                    recent_blockhash: Hash::new_from_array([0; HASH_BYTES]),
+                    instructions: Vec::new(),
+                },
+                &HashSet::new(),
+            )),
+            Hash::new_from_array([0; HASH_BYTES]),
             false,
+            vec![Signature::from(signature)],
         )
+        .ok()
     });
 
     let message = ProtobufMessage::Account {

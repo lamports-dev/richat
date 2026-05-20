@@ -13,9 +13,8 @@ use {
     },
     solana_pubkey::{PUBKEY_BYTES, Pubkey},
     solana_signature::{SIGNATURE_BYTES, Signature},
-    solana_signer::{SignerError, signers::Signers},
     solana_transaction::versioned::VersionedTransaction,
-    solana_transaction_context::TransactionReturnData,
+    solana_transaction_context::transaction::TransactionReturnData,
     solana_transaction_error::TransactionError,
     solana_transaction_status::{
         InnerInstruction, InnerInstructions, Reward, RewardType, TransactionStatusMeta,
@@ -23,31 +22,6 @@ use {
     },
     std::{borrow::Cow, time::SystemTime},
 };
-
-#[derive(Debug)]
-struct SimpleSigner;
-
-impl Signers for SimpleSigner {
-    fn pubkeys(&self) -> Vec<Pubkey> {
-        vec![Pubkey::new_unique()]
-    }
-
-    fn try_pubkeys(&self) -> Result<Vec<Pubkey>, SignerError> {
-        Ok(vec![Pubkey::new_unique()])
-    }
-
-    fn sign_message(&self, _message: &[u8]) -> Vec<Signature> {
-        vec![Signature::new_unique()]
-    }
-
-    fn try_sign_message(&self, _message: &[u8]) -> Result<Vec<Signature>, SignerError> {
-        Ok(vec![Signature::new_unique()])
-    }
-
-    fn is_interactive(&self) -> bool {
-        false
-    }
-}
 
 #[derive(Debug, Clone, Arbitrary)]
 struct FuzzMessageHeader {
@@ -533,6 +507,7 @@ struct FuzzReward {
     post_balance: u64,
     reward_type: Option<FuzzRewardType>,
     commission: Option<u8>,
+    commission_bps: Option<u16>,
 }
 
 impl From<FuzzReward> for Reward {
@@ -543,6 +518,7 @@ impl From<FuzzReward> for Reward {
             post_balance: fuzz.post_balance,
             reward_type: fuzz.reward_type.map(Into::into),
             commission: fuzz.commission,
+            commission_bps: fuzz.commission_bps,
         }
     }
 }
@@ -610,6 +586,7 @@ impl From<FuzzTransactionStatusMeta> for TransactionStatusMeta {
 #[derive(Debug, Arbitrary)]
 struct FuzzTransaction {
     signature: [u8; SIGNATURE_BYTES],
+    message_hash: [u8; HASH_BYTES],
     is_vote: bool,
     message: FuzzSanitizedMessage,
     transaction_status_meta: FuzzTransactionStatusMeta,
@@ -623,15 +600,16 @@ struct FuzzTransactionMessage {
 }
 
 libfuzzer_sys::fuzz_target!(|fuzz_message: FuzzTransactionMessage| {
-    let Ok(versioned_transaction) =
-        VersionedTransaction::try_new(fuzz_message.transaction.message.into(), &SimpleSigner)
-    else {
-        return;
+    let signature = Signature::from(fuzz_message.transaction.signature);
+    let versioned_transaction = VersionedTransaction {
+        signatures: vec![signature],
+        message: fuzz_message.transaction.message.into(),
     };
+    let message_hash = Hash::new_from_array(fuzz_message.transaction.message_hash);
 
     let replica = ReplicaTransactionInfoV3 {
-        signature: &Signature::from(fuzz_message.transaction.signature),
-        message_hash: &versioned_transaction.message.hash(),
+        signature: &signature,
+        message_hash: &message_hash,
         is_vote: fuzz_message.transaction.is_vote,
         transaction: &versioned_transaction,
         transaction_status_meta: &fuzz_message.transaction.transaction_status_meta.into(),

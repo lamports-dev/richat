@@ -35,6 +35,7 @@ pub struct FuzzReward {
     post_balance: u64,
     reward_type: Option<FuzzRewardType>,
     commission: Option<u8>,
+    commission_bps: Option<u16>,
 }
 
 #[derive(Debug, Arbitrary)]
@@ -62,6 +63,7 @@ libfuzzer_sys::fuzz_target!(|fuzz_blockmeta: FuzzBlockMeta| {
                 post_balance: reward.post_balance,
                 reward_type: reward.reward_type.map(Into::into),
                 commission: reward.commission,
+                commission_bps: reward.commission_bps,
             })
             .collect(),
         num_partitions: fuzz_blockmeta.num_partitions,
