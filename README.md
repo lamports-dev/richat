@@ -170,7 +170,6 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 
 ## List of RPC providers with Dragon's Mouth support
 
-- `Nolimitnodes` - https://nolimitnodes.com/
 - `Allnodes` — https://www.allnodes.com/
 - `Blockdaemon` - https://blockdaemon.com/
 - `Chainstack` — https://chainstack.com/
@@ -181,6 +180,7 @@ At one moment of time we can support more than one agave version (like v2.0 and 
 - `GetBlock` — https://getblock.io/
 - `Helius` — https://www.helius.dev/
 - `InstantNodes` — https://instantnodes.io/
+- `Nolimitnodes` - https://nolimitnodes.com/
 - `OrbitFlare` — https://orbitflare.com/
 - `PixelLabz` — https://pixellabz.io/
 - `PublicNode` — https://solana-rpc.publicnode.com/
