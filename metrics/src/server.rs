@@ -20,6 +20,7 @@ pub async fn spawn_server(
     gather_metrics: impl Fn() -> Vec<u8> + Clone + Send + 'static,
     is_health_check: impl Fn() -> bool + Clone + Send + 'static,
     is_ready_check: impl Fn() -> bool + Clone + Send + 'static,
+    get_subscribers: impl Fn() -> usize + Clone + Send + 'static,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<impl Future<Output = Result<(), JoinError>>> {
     let listener = TcpListener::bind(endpoint).await?;
@@ -46,6 +47,7 @@ pub async fn spawn_server(
             let gather_metrics = gather_metrics.clone();
             let is_health_check = is_health_check.clone();
             let is_ready_check = is_ready_check.clone();
+            let get_subscribers = get_subscribers.clone();
             tokio::spawn(async move {
                 if let Err(error) = ServerBuilder::new(TokioExecutor::new())
                     .serve_connection(
@@ -54,6 +56,7 @@ pub async fn spawn_server(
                             let gather_metrics = gather_metrics.clone();
                             let is_health_check = is_health_check.clone();
                             let is_ready_check = is_ready_check.clone();
+                            let get_subscribers = get_subscribers.clone();
                             async move {
                                 let (status, bytes) = match req.uri().path() {
                                     "/health" => {
@@ -77,6 +80,10 @@ pub async fn spawn_server(
                                             )
                                         }
                                     }
+                                    "/subscribers" => (
+                                        StatusCode::OK,
+                                        Bytes::from(get_subscribers().to_string()),
+                                    ),
                                     _ => (StatusCode::NOT_FOUND, Bytes::new()),
                                 };
 
